@@ -1,0 +1,9 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-sandbox-system
+resources: [repository.yaml, release.yaml]
+configMapGenerator:
+  - name: agentsandbox-values
+    files: [values.yaml=values.yaml]
+configurations: [kustomizeconfig.yaml]

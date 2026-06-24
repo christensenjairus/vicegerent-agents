@@ -6,6 +6,6 @@ metadata:
   namespace: agent-sandbox-system
 spec:
   interval: 6h
-  url: https://github.com/kubernetes-sigs/agent-sandbox.git
+  url: https://github.com/kubernetes-sigs/agent-sandbox
   ref:
     tag: v0.4.6
