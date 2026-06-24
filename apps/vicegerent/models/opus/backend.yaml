@@ -1,0 +1,17 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: opus
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: anthropic-opus
+            anthropic:
+              model: claude-opus-4-6
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-secrets

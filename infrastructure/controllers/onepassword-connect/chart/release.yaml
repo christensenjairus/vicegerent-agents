@@ -1,0 +1,31 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: onepassword-connect
+  namespace: onepassword-connect
+spec:
+  releaseName: connect
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: -1
+    crds: CreateReplace
+  upgrade:
+    remediation:
+      retries: -1
+    crds: CreateReplace
+  chart:
+    spec:
+      chart: connect
+      version: 2.4.1
+      interval: 12h
+      sourceRef:
+        kind: HelmRepository
+        name: onepassword
+        namespace: onepassword-connect
+  interval: 30m
+  valuesFrom:
+    - kind: ConfigMap
+      name: onepassword-connect-values

@@ -1,0 +1,30 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ghostunnel-ca-sync
+  namespace: agentgateway-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: ghostunnel-ca-sync
+  namespace: agentgateway-system
+rules:
+  - apiGroups: ['']
+    resources: [configmaps]
+    verbs: [get, create, update, patch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: ghostunnel-ca-sync
+  namespace: agentgateway-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: ghostunnel-ca-sync
+subjects:
+  - kind: ServiceAccount
+    name: ghostunnel-ca-sync
+    namespace: agentgateway-system

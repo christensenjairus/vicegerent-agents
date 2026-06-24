@@ -1,0 +1,17 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: haiku
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: anthropic-haiku
+            anthropic:
+              model: claude-haiku-4-5
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-secrets

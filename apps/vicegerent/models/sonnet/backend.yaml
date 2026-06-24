@@ -1,0 +1,17 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: sonnet
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: anthropic-sonnet
+            anthropic:
+              model: claude-sonnet-4-6
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-secrets
