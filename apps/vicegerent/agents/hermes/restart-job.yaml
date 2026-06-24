@@ -1,0 +1,66 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: hermes-restart
+  namespace: agent-sandbox
+spec:
+  backoffLimit: 3
+  template:
+    spec:
+      serviceAccountName: hermes-restart
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restart
+          image: alpine/k8s:latest
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: SANDBOX_NAME
+              value: hermes
+            - name: NAMESPACE
+              value: agent-sandbox
+          command:
+            - /bin/bash
+            - -c
+            - |-
+              set -euo pipefail
+              echo "restarting sandbox ${SANDBOX_NAME} in ${NAMESPACE}"
+              kubectl delete pod "${SANDBOX_NAME}" \
+                --namespace "${NAMESPACE}" \
+                --ignore-not-found \
+                --wait=false
+          volumeMounts:
+            - name: hermes-config
+              mountPath: /reload/config
+              readOnly: true
+            - name: vicegerent-secrets
+              mountPath: /reload/vicegerent-secrets
+              readOnly: true
+            - name: hermes-agentgateway-api-key
+              mountPath: /reload/api-key
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: hermes-config
+          configMap:
+            name: hermes-config
+        - name: vicegerent-secrets
+          secret:
+            secretName: vicegerent-secrets
+        - name: hermes-agentgateway-api-key
+          secret:
+            secretName: hermes-agentgateway-api-key
+        - name: tmp
+          emptyDir: {}

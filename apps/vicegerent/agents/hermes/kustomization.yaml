@@ -8,6 +8,11 @@ resources:
   - secrets.yaml
   - sandbox.yaml
   - networkpolicy.yaml
+  - restart-rbac.yaml
+  - restart-job.yaml
+images:
+  - name: alpine/k8s:latest
+    newTag: 1.36.2
 secretGenerator:
   - name: hermes-agentgateway-api-key
     literals: [api-key=hermes]

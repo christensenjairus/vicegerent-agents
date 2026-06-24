@@ -322,8 +322,8 @@ check "$HOST_ITEM" "ca.key"
 echo
 if [[ $missing -eq 0 ]]; then
   info "All required secret material is present in 1Password."
-  echo "Next: run tools/install/install.sh to bootstrap Connect + Flux, and"
-  echo "      tools/ghostunnel/ghostshell.sh on the host to start the mTLS tunnel."
+  echo "Next: run scripts/install/install.sh to bootstrap Connect + Flux, and"
+  echo "      scripts/ghostunnel/ghostshell.sh on the host to start the mTLS tunnel."
 else
   warn "Some fields are still missing (see above). Re-run to complete them."
   exit 1

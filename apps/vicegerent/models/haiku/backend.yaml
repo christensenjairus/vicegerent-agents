@@ -20,3 +20,16 @@ spec:
                   /v1/messages: Messages
                   /v1/messages/count_tokens: AnthropicTokenCount
                   '*': Passthrough
+      - providers:
+          - name: anthropic-sonnet
+            anthropic:
+              model: claude-sonnet-4-6
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-secrets
+              ai:
+                routes:
+                  /v1/messages: Messages
+                  /v1/messages/count_tokens: AnthropicTokenCount
+                  '*': Passthrough

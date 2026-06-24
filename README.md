@@ -48,7 +48,7 @@ Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Passwor
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...   # so the key can be stored non-interactively
-./tools/install/setup-secrets.sh
+./scripts/install/setup-secrets.sh
 ```
 
 ```text
@@ -73,7 +73,7 @@ The CA private key lives only in `Ghostunnel Host` so a re-run can re-issue a mi
 Bootstrap the local minikube cluster against this repo. The script is idempotent — it seeds 1Password Connect (recovering a stuck/failed Helm release if an earlier run was interrupted), then runs `flux bootstrap git`. Once the Connect release is deployed and adopted by Flux, re-runs skip the Helm seed so they do not fight Flux's ownership. It confirms before each change; pass `-y`/`--yes` for a non-interactive run.
 
 ```bash
-./tools/install/install.sh
+./scripts/install/install.sh
 ```
 
 The script defaults to:
@@ -92,7 +92,7 @@ OP_CONNECT_TOKEN_VAULT=Vicegerent
 Override those with environment variables if needed:
 
 ```bash
-BRANCH=my-test-branch PRIVATE_KEY_FILE=$HOME/.ssh/id_ed25519 ./tools/install/install.sh
+BRANCH=my-test-branch PRIVATE_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/install/install.sh
 ```
 
 Check reconciliation:
@@ -112,7 +112,7 @@ Run the tunnel after the plaintext Kubernetes MCP server is listening on `127.0.
 
 ```bash
 cd /path/to/vicegerent-agents
-./tools/ghostunnel/ghostshell.sh
+./scripts/ghostunnel/ghostshell.sh
 ```
 
 Defaults (override with environment variables):
