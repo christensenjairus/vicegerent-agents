@@ -1,0 +1,85 @@
+---
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "web"
+
+variables:
+  FORCE_COLOR: "3"
+  PRE_COMMIT_HOME: $CI_PROJECT_DIR/.cache/pre-commit
+  RENOVATE_BASE_DIR: $CI_PROJECT_DIR/renovate
+  RENOVATE_CACHE_PRIVATE_PACKAGES: "true"
+  RENOVATE_ENDPOINT: https://gitlab.hahomelabs.com/api/v4/
+  RENOVATE_EXTRA_FLAGS: ""
+  RENOVATE_GIT_AUTHOR: Renovate Bot <noreply@hahomelabs.com>
+  RENOVATE_OPTIMIZE_FOR_DISABLED: "true"
+  RENOVATE_PLATFORM: gitlab
+  RENOVATE_REPOSITORIES: '["jchristensen/vicegerent-agents"]'
+  RENOVATE_REPOSITORY_CACHE: enabled
+  LOG_LEVEL: info
+
+stages: [validate, scan]
+
+validate:pre-commit:
+  stage: validate
+  image: harbor.hahomelabs.com/docker.io/alpine/k8s:1.36.2
+  interruptible: true
+  variables:
+    SCHEMA_DEST: $CI_PROJECT_DIR/.flux-crd-schemas/master-standalone-strict
+  cache:
+    key:
+      prefix: validation-cache
+      files:
+        - .pre-commit-config.yaml
+        - clusters/vicegerent/flux-system/gotk-components.yaml
+    paths:
+      - .cache/pre-commit/
+      - .flux-crd-schemas/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
+  before_script:
+    - apk add --no-cache bash curl git python3 py3-pip tar 2>/dev/null || true
+    - if ! yq --version 2>/dev/null | grep -q mikefarah; then curl -sLo /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.49.2/yq_linux_amd64 && chmod +x /usr/local/bin/yq; fi
+    - curl -sLo /tmp/kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz && tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
+    - curl -sLo /tmp/kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz && tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
+    - pip install pre-commit==4.5.0 detect-secrets==1.5.0 --break-system-packages --quiet
+  script:
+    - pre-commit run --all-files --show-diff-on-failure
+
+validate:renovate-config:
+  stage: validate
+  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:41.159.0
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
+  script:
+    - renovate-config-validator renovate.json
+
+scan:renovate:
+  stage: scan
+  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:41.159.0
+  resource_group: renovate-main
+  interruptible: false
+  needs: []
+  cache:
+    key: renovate-cache-v1
+    paths:
+      - renovate/cache/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule" && $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == "main"
+      when: on_success
+    - when: never
+  script:
+    - renovate-config-validator renovate.json
+    - renovate $RENOVATE_EXTRA_FLAGS

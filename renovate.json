@@ -1,0 +1,89 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "baseBranchPatterns": ["main"],
+  "enabledManagers": [
+    "custom.regex",
+    "flux",
+    "helm-values",
+    "kubernetes",
+    "kustomize",
+    "pre-commit"
+  ],
+  "labels": ["renovate"],
+  "dependencyDashboard": true,
+  "configMigration": true,
+  "recreateWhen": "always",
+  "minimumReleaseAge": "7 days",
+  "rollbackPrs": false,
+  "prConcurrentLimit": 5,
+  "flux": {
+    "managerFilePatterns": [
+      "/^clusters/.+\\.ya?ml$/",
+      "/^infrastructure/controllers/.+\\.ya?ml$/"
+    ]
+  },
+  "helm-values": {
+    "managerFilePatterns": [
+      "/^infrastructure/controllers/.+/values\\.ya?ml$/"
+    ]
+  },
+  "kubernetes": {
+    "managerFilePatterns": [
+      "/^(apps|clusters|infrastructure)/.+\\.ya?ml$/"
+    ]
+  },
+  "kustomize": {
+    "managerFilePatterns": [
+      "/^(apps|clusters|infrastructure)/.*/kustomization\\.ya?ml$/"
+    ]
+  },
+  "packageRules": [
+    {
+      "matchManagers": ["pre-commit"],
+      "groupName": "pre-commit hooks"
+    },
+    {
+      "matchFileNames": ["infrastructure/controllers/**"],
+      "groupName": "infrastructure controller ({{packageFileDir}})"
+    },
+    {
+      "matchFileNames": [".gitlab-ci.yml"],
+      "groupName": "gitlab ci images"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^infrastructure/controllers/agent-sandbox/repository\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "url:\\s*https://github\\.com/(?<depName>[^\\s]+?)\\.git\\s+ref:\\s+tag:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "github-tags",
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^infrastructure/controllers/agentgateway/chart/values\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "registry:\\s*(?<registryOrg>[^\\s]+)\\s*\\n\\s+repository:\\s*(?<depName>[^\\s]+)\\s*\\n\\s+tag:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "{{registryOrg}}/{{depName}}",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.gitlab-ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\"']*[a-zA-Z0-9])"
+      ],
+      "datasourceTemplate": "docker"
+    }
+  ]
+}

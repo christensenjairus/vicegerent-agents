@@ -1,0 +1,14 @@
+---
+# https://github.com/agentgateway/agentgateway/blob/main/controller/install/helm/agentgateway/values.yaml
+controller:
+  image:
+    registry: ghcr.io/agentgateway
+    repository: controller
+    tag: v2.2.1
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 250m  # Removed by postrenderer
+    memory: 512Mi
