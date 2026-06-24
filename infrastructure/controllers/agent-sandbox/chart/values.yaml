@@ -1,0 +1,13 @@
+---
+# https://github.com/kubernetes-sigs/agent-sandbox/blob/main/helm/values.yaml
+image:
+  repository: registry.k8s.io/agent-sandbox/agent-sandbox-controller
+  tag: v0.4.6
+resources:
+  limits:
+    memory: 256Mi
+  requests:
+    cpu: 10m
+    memory: 55Mi
+controller:
+  extensions: true
