@@ -13,6 +13,12 @@ spec:
         - path:
             type: PathPrefix
             value: /opus
+      filters:
+        - type: URLRewrite
+          urlRewrite:
+            path:
+              type: ReplacePrefixMatch
+              replacePrefixMatch: /
       backendRefs:
         - name: opus
           namespace: agentgateway-system
