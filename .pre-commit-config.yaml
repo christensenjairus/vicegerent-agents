@@ -18,7 +18,8 @@ repos:
         exclude: >-
           (?x)^(
             \.gitlab-ci\.yml|
-            charts/.+/templates/.+\.ya?ml
+            charts/.+/templates/.+\.ya?ml|
+            clusters/[^/]+/flux-system/gotk-(components|sync)\.yaml
           )$
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0

@@ -28,3 +28,30 @@ spec:
   valuesFrom:
     - kind: ConfigMap
       name: agent-sandbox-values
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: ServiceAccount
+              name: agent-sandbox-controller
+            patch: |-
+              - op: remove
+                path: /metadata/labels/helm.sh~1chart
+          - target:
+              kind: ClusterRoleBinding
+              name: agent-sandbox-controller
+            patch: |-
+              - op: remove
+                path: /metadata/labels/helm.sh~1chart
+          - target:
+              kind: Service
+              name: agent-sandbox-controller
+            patch: |-
+              - op: remove
+                path: /metadata/labels/helm.sh~1chart
+          - target:
+              kind: Deployment
+              name: agent-sandbox-controller
+            patch: |-
+              - op: remove
+                path: /metadata/labels/helm.sh~1chart

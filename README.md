@@ -20,6 +20,7 @@ minikube start \
   --profile vicegerent \
   --driver vfkit \
   --container-runtime containerd \
+  --cni=cilium \
   --addons gvisor,metrics-server \
   --cpus 4 \
   --memory 8192 \
