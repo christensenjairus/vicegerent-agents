@@ -1,0 +1,77 @@
+---
+name: k8s_secret_block_test
+description: Secrets are denied for every tool; non-secret reads are allowed.
+options:
+  now: '2026-06-25T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  secret_in_kube_system:
+    id: secret_in_kube_system
+    kind: k8s_resource
+    attr:
+      kind: Secret
+      apiResource: secrets
+      namespace: kube-system
+  secret_via_list:
+    id: secret_via_list
+    kind: k8s_resource
+    attr:
+      apiResource: secrets
+      namespace: default
+  pod_in_default:
+    id: pod_in_default
+    kind: k8s_resource
+    attr:
+      kind: Pod
+      apiResource: pods
+      namespace: default
+  configmap_in_default:
+    id: configmap_in_default
+    kind: k8s_resource
+    attr:
+      kind: ConfigMap
+      apiResource: configmaps
+      namespace: default
+tests:
+  - name: getResource on a Secret is denied
+    input:
+      principals: [hermes]
+      resources: [secret_in_kube_system]
+      actions: [getResource, describeResource]
+    expected:
+      - principal: hermes
+        resource: secret_in_kube_system
+        actions:
+          getResource: EFFECT_DENY
+          describeResource: EFFECT_DENY
+  - name: listResources of secrets is denied
+    input:
+      principals: [hermes]
+      resources: [secret_via_list]
+      actions: [listResources]
+    expected:
+      - principal: hermes
+        resource: secret_via_list
+        actions:
+          listResources: EFFECT_DENY
+  - name: reads on non-secret kinds are allowed
+    input:
+      principals: [hermes]
+      resources: [pod_in_default, configmap_in_default]
+      actions: [getResource, listResources, getPodsLogs]
+    expected:
+      - principal: hermes
+        resource: pod_in_default
+        actions:
+          getResource: EFFECT_ALLOW
+          listResources: EFFECT_ALLOW
+          getPodsLogs: EFFECT_ALLOW
+      - principal: hermes
+        resource: configmap_in_default
+        actions:
+          getResource: EFFECT_ALLOW
+          listResources: EFFECT_ALLOW
+          getPodsLogs: EFFECT_ALLOW

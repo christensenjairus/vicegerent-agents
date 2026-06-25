@@ -116,4 +116,14 @@ repo_kustomizations | while IFS= read -r -d $'\0' file; do
   retry_cmd bash -c "kustomize build '$dir' ${kustomize_flags[*]} | kubeconform ${kubeconform_flags[*]} ${kubeconform_config[*]}"
 done
 
+cerbos_policy_dir="infrastructure/controllers/cerbos/policies/defs"
+if [[ -d "$cerbos_policy_dir" ]]; then
+  if command -v cerbos >/dev/null 2>&1; then
+    echo "INFO - Compiling and testing Cerbos policies"
+    cerbos compile "$cerbos_policy_dir"
+  else
+    echo "WARN - cerbos not installed; skipping Cerbos policy tests"
+  fi
+fi
+
 echo "INFO - All validations passed"
