@@ -26,7 +26,7 @@ metadata:
   namespace: agentgateway-system
 spec:
   image:
-    registry: ghcr.io/agentgateway
+    registry: harbor.hahomelabs.com/vicegerent
     repository: agentgateway
     tag: v1.3.1
   deployment:
