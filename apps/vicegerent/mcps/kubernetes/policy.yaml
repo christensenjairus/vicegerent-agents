@@ -20,10 +20,7 @@ spec:
         action: Allow
         policy:
           matchExpressions:
-            - mcp.tool.name == "getResource"
-            - mcp.tool.name == "listResources"
-            - mcp.tool.name == "describeResource"
-            - mcp.tool.name == "getPodsLogs"
-            - mcp.tool.name == "getEvents"
-            - mcp.tool.name == "getNodeMetrics"
-            - mcp.tool.name == "getPodMetrics"
+            - >-
+              mcp.tool.name in ["getResource", "listResources",
+              "describeResource", "getPodsLogs", "getEvents",
+              "getNodeMetrics", "getPodMetrics"]
