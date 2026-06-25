@@ -1,17 +1,19 @@
 {
-  "name": "vicegerent-hermes-lsp",
-  "description": "All npm-installable LSP servers from Hermes' INSTALL_RECIPES (agent/lsp/install.py) — the full set Hermes auto-installs by default. Hermes launches each by binary name for semantic diagnostics; the egress-locked sandbox cannot npm-install at runtime, so they are baked here. gopls (Go) is built in a separate Dockerfile stage. The three manual-only servers (rust-analyzer, clangd, lua-language-server) are intentionally excluded — Hermes itself does not auto-install them. Add an npm-based server = add a line to dependencies; Renovate's native npm manager tracks them.",
+  "name": "vicegerent-hermes-npm",
+  "description": "All globally-installed npm CLIs baked into the sandbox image, since the egress-locked sandbox cannot npm-install at runtime. Two groups: LSP servers from Hermes' INSTALL_RECIPES (agent/lsp/install.py) that Hermes launches by binary name for semantic diagnostics, and the coding-agent CLIs (claude-code, codex) Hermes delegates to. gopls (Go) is built in a separate Dockerfile stage; the three manual-only LSPs (rust-analyzer, clangd, lua-language-server) are intentionally excluded. Add a package = add a line; Renovate's native npm manager tracks them all.",
   "private": true,
   "dependencies": {
-    "pyright": "1.1.411",
-    "typescript-language-server": "5.3.0",
-    "typescript": "6.0.3",
-    "@vue/language-server": "3.3.5",
-    "svelte-language-server": "0.18.3",
+    "@anthropic-ai/claude-code": "2.1.193",
     "@astrojs/language-server": "2.16.10",
-    "yaml-language-server": "1.23.0",
+    "@openai/codex": "0.142.2",
+    "@vue/language-server": "3.3.5",
     "bash-language-server": "5.6.0",
+    "dockerfile-language-server-nodejs": "0.15.0",
     "intelephense": "1.18.5",
-    "dockerfile-language-server-nodejs": "0.15.0"
+    "pyright": "1.1.411",
+    "svelte-language-server": "0.18.3",
+    "typescript": "6.0.3",
+    "typescript-language-server": "5.3.0",
+    "yaml-language-server": "1.23.0"
   }
 }

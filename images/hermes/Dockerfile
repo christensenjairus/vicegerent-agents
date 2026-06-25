@@ -71,15 +71,17 @@ COPY requirements.txt /tmp/requirements.txt
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
-# npm-based LSP servers. Hermes launches these by binary name for semantic
-# diagnostics but cannot npm-install them behind the egress lock. Installed
-# globally into /usr/local/bin (on PATH). Versions come from package.json so it
-# stays the single Renovate-tracked source of truth; add a server = add a line.
-COPY package.json /tmp/lsp/package.json
-RUN cd /tmp/lsp \
+# Global npm CLIs: LSP servers Hermes launches by binary name for diagnostics,
+# plus the coding-agent CLIs (claude-code, codex) Hermes delegates to. Installed
+# globally into /usr/local/bin (on PATH); the egress-locked sandbox can't
+# npm-install at runtime. package.json is the single Renovate-tracked source of
+# truth — add a package = add a line. The coding agents' settings + mnemosyne MCP
+# wiring arrive via mounted ConfigMaps (see apps/vicegerent/agents/hermes).
+COPY package.json /tmp/npm/package.json
+RUN cd /tmp/npm \
     && npm install --global --no-fund --no-audit \
         $(node -p "Object.entries(require('./package.json').dependencies).map(([k,v])=>k+'@'+v).join(' ')") \
-    && rm -rf /tmp/lsp /root/.npm
+    && rm -rf /tmp/npm /root/.npm
 
 # terraform-ls: a HashiCorp Go binary (not on npm). The version ARG carries the
 # leading "v" to match its GitHub release tag (Renovate github-releases); the

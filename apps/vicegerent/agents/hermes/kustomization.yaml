@@ -5,6 +5,8 @@ namespace: agent-sandbox
 resources:
   - namespace.yaml
   - config.yaml
+  - soul.yaml
+  - coding-agents-config.yaml
   - secrets.yaml
   - sandbox.yaml
   - networkpolicy.yaml

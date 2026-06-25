@@ -71,6 +71,7 @@ Connect Credentials  1password-credentials.json   (Connect bootstrap)
 Connect Token        token                         (operator token)
 Runtime              Authorization, tls.crt, tls.key   (synced into the cluster)
 MCP CA               ca.cert                       (public CA, synced into the cluster)
+OpenAI               Authorization                 (optional OpenAI key, synced into the cluster)
 Ghostunnel Host      server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
 ```
 

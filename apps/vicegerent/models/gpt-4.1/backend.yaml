@@ -1,0 +1,35 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: gpt-4-1
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: openai-gpt-4-1
+            openai:
+              model: gpt-4.1
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-openai-secrets
+              ai:
+                routes:
+                  /v1/responses: Responses
+                  /v1/chat/completions: Completions
+                  '*': Passthrough
+      - providers:
+          - name: openai-gpt-4o-mini
+            openai:
+              model: gpt-4o-mini
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-openai-secrets
+              ai:
+                routes:
+                  /v1/responses: Responses
+                  /v1/chat/completions: Completions
+                  '*': Passthrough

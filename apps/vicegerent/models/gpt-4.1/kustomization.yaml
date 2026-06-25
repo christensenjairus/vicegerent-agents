@@ -1,11 +1,6 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: agentgateway-system
-resources:
-  - gateway.yaml
-  - secrets.yaml
-  - openai-secrets.yaml
-  - networkpolicy.yaml
+resources: [backend.yaml, route.yaml]
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
