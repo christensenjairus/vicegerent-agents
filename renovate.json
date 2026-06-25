@@ -54,6 +54,16 @@
       "matchDatasources": ["docker"],
       "matchPackageNames": ["ghcr.io/agentgateway/controller"],
       "allowedVersions": "<2.0.0"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["cr.agentgateway.dev/charts/agentgateway-crds"],
+      "allowedVersions": "<2.0.0"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["cr.agentgateway.dev/charts/agentgateway"],
+      "allowedVersions": "<2.0.0"
     }
   ],
   "customManagers": [
