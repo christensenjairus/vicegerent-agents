@@ -50,6 +50,10 @@ data:
       persistent_shell: true
     web:
       search_backend: ddgs
+    memory:
+      provider: mnemosyne
+    context:
+      engine: lcm
     lsp:
       enabled: true
       install_strategy: manual
