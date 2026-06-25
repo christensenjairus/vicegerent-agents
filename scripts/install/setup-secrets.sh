@@ -40,6 +40,10 @@ HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
 SERVER_CN="${SERVER_CN:-host.minikube.internal}"
 CLIENT_CN="${CLIENT_CN:-agent-client}"
 
+# Leaf certs are issued for 825 days. Warn and offer to re-issue once a stored
+# leaf has less than this many days of validity left, so the chain never lapses.
+EXPIRY_THRESHOLD_DAYS="${EXPIRY_THRESHOLD_DAYS:-180}"
+
 ASSUME_YES=0
 FORCE=0
 
@@ -78,6 +82,22 @@ confirm() {
 
 op_item_exists()  { op item get "$1" --vault "$VAULT" >/dev/null 2>&1; }
 op_field_exists() { op read "op://$VAULT/$1/$2" >/dev/null 2>&1; }
+
+# leaf_expiring_soon <item> <crt-field> — true (0) when the stored cert expires
+# within EXPIRY_THRESHOLD_DAYS. Returns 1 (false) when it is valid beyond the
+# threshold or cannot be read (a read failure is handled by the reuse branch).
+leaf_expiring_soon() {
+  local item="$1" field="$2" tmp
+  tmp="$(mktemp "$CERTS/expiry.XXXXXX")"
+  if ! op read "op://$VAULT/$item/$field" >"$tmp" 2>/dev/null; then
+    rm -f "$tmp"; return 1
+  fi
+  local secs=$(( EXPIRY_THRESHOLD_DAYS * 86400 ))
+  if openssl x509 -checkend "$secs" -noout -in "$tmp" >/dev/null 2>&1; then
+    rm -f "$tmp"; return 1   # valid beyond the threshold
+  fi
+  rm -f "$tmp"; return 0     # expires within the threshold
+}
 
 ensure_item() {
   local title="$1"
@@ -205,12 +225,30 @@ if [[ $NEW_CA -eq 1 ]]; then
   need_server=1; need_client=1
 else
   if op_field_exists "$HOST_ITEM" "server.crt" && op_field_exists "$HOST_ITEM" "server.key"; then
-    info "Server certificate already present; reusing it."
+    if leaf_expiring_soon "$HOST_ITEM" "server.crt"; then
+      warn "Server certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
+      if confirm "Re-issue the server cert from the existing CA (resets validity to 825 days)."; then
+        need_server=1
+      else
+        info "Keeping the existing server certificate."
+      fi
+    else
+      info "Server certificate already present; reusing it."
+    fi
   else
     need_server=1
   fi
   if op_field_exists "$RUNTIME_ITEM" "tls.crt" && op_field_exists "$RUNTIME_ITEM" "tls.key"; then
-    info "Client certificate already present; reusing it."
+    if leaf_expiring_soon "$RUNTIME_ITEM" "tls.crt"; then
+      warn "Client certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
+      if confirm "Re-issue the client cert from the existing CA (resets validity to 825 days)."; then
+        need_client=1
+      else
+        info "Keeping the existing client certificate."
+      fi
+    else
+      info "Client certificate already present; reusing it."
+    fi
   else
     need_client=1
   fi
