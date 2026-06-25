@@ -2,9 +2,10 @@
 apiVersion: helm.toolkit.fluxcd.io/v2
 kind: HelmRelease
 metadata:
-  name: agents-sandbox-controller
-  namespace: agent-sandbox-system
+  name: onepassword-connect
+  namespace: onepassword-connect
 spec:
+  releaseName: connect
   driftDetection:
     mode: enabled
   install:
@@ -16,16 +17,16 @@ spec:
       retries: -1
     crds: CreateReplace
     force: true
-  interval: 30m
   chart:
     spec:
-      chart: ./helm
-      version: 0.3.0
-      sourceRef:
-        kind: GitRepository
-        name: agent-sandbox
-        namespace: agent-sandbox-system
+      chart: connect
+      version: 2.4.1
       interval: 12h
+      sourceRef:
+        kind: HelmRepository
+        name: onepassword
+        namespace: onepassword-connect
+  interval: 30m
   valuesFrom:
     - kind: ConfigMap
-      name: agentsandbox-values
+      name: onepassword-connect-values

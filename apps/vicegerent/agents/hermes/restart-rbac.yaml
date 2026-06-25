@@ -1,0 +1,30 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hermes-restart
+  namespace: agent-sandbox
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: hermes-restart
+  namespace: agent-sandbox
+rules:
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list, delete]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: hermes-restart
+  namespace: agent-sandbox
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: hermes-restart
+subjects:
+  - kind: ServiceAccount
+    name: hermes-restart
+    namespace: agent-sandbox

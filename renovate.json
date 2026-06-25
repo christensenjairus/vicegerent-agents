@@ -78,6 +78,27 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
+        "/^apps/vicegerent/gateway/gateway\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "registry:\\s*(?<registryOrg>[^\\s]+)\\s*\\n\\s+repository:\\s*(?<depName>[^\\s]+)\\s*\\n\\s+tag:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "depNameTemplate": "{{registryOrg}}/{{depName}}",
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^apps/vicegerent/agents/.+/sandbox\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "image:\\s*(?<depName>[^:\\s]+/[^:\\s]+):(?<currentValue>[^\\s]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
         "/^\\.gitlab-ci\\.yml$/"
       ],
       "matchStrings": [

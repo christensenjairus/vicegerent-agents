@@ -1,0 +1,29 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: kubernetes-mcp-tools
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: kubernetes
+  backend:
+    tls:
+      mtlsCertificateRef:
+        - name: vicegerent-secrets
+      caCertificateRefs:
+        - name: ghostunnel-ca
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - mcp.tool.name == "getResource"
+            - mcp.tool.name == "listResources"
+            - mcp.tool.name == "describeResource"
+            - mcp.tool.name == "getPodsLogs"
+            - mcp.tool.name == "getEvents"
+            - mcp.tool.name == "getNodeMetrics"
+            - mcp.tool.name == "getPodMetrics"

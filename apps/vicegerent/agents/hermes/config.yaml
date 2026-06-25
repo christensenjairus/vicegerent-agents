@@ -1,0 +1,54 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hermes-config
+  namespace: agent-sandbox
+data:
+  config.yaml: |-
+    model:
+      provider: opus
+      default: claude-opus-4-6
+      base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/opus
+      key_env: ANTHROPIC_API_KEY
+      api_mode: anthropic_messages
+    providers:
+      opus:
+        name: Opus
+        api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/opus
+        key_env: ANTHROPIC_API_KEY
+        transport: anthropic_messages
+        default_model: claude-opus-4-6
+        models:
+          claude-opus-4-6: {}
+      sonnet:
+        name: Sonnet
+        api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/sonnet
+        key_env: ANTHROPIC_API_KEY
+        transport: anthropic_messages
+        default_model: claude-sonnet-4-6
+        models:
+          claude-sonnet-4-6: {}
+      haiku:
+        name: Haiku
+        api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/haiku
+        key_env: ANTHROPIC_API_KEY
+        transport: anthropic_messages
+        default_model: claude-haiku-4-5
+        models:
+          claude-haiku-4-5: {}
+    mcp_servers:
+      kubernetes:
+        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kubernetes
+        timeout: 120
+        connect_timeout: 60
+    agent:
+      personality: technical
+      max_turns: 150
+    terminal:
+      cwd: /workspace
+      persistent_shell: true
+    web:
+      search_backend: ddgs
+    lsp:
+      enabled: true

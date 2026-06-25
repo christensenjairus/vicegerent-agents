@@ -1,0 +1,88 @@
+---
+apiVersion: agents.x-k8s.io/v1alpha1
+kind: Sandbox
+metadata:
+  name: hermes
+  namespace: agent-sandbox
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: Disabled
+spec:
+  podTemplate:
+    spec:
+      runtimeClassName: gvisor
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10000
+        runAsGroup: 10000
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      initContainers:
+        - name: prepare-run
+          image: nousresearch/hermes-agent:v2026.6.19
+          command: [sh, -c]
+          args: [chown 10000:10000 /run]
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+          volumeMounts:
+            - name: runtime
+              mountPath: /run
+      containers:
+        - name: hermes
+          image: nousresearch/hermes-agent:v2026.6.19
+          args: [gateway]
+          env:
+            - name: HERMES_DASHBOARD
+              value: '1'
+            - name: HERMES_DASHBOARD_HOST
+              value: 127.0.0.1
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agentgateway-api-key
+                  key: api-key
+          envFrom:
+            - secretRef:
+                name: vicegerent-secrets
+          ports:
+            - containerPort: 8642
+              name: api
+            - containerPort: 9119
+              name: dashboard
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: runtime
+              mountPath: /run
+            - name: data
+              mountPath: /opt/data
+            - name: gitrepos
+              mountPath: /workspace
+            - name: hermes-config
+              mountPath: /opt/data/config.yaml
+              subPath: config.yaml
+      volumes:
+        - name: runtime
+          emptyDir: {}
+        - name: hermes-config
+          configMap:
+            name: hermes-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 10Gi
+    - metadata:
+        name: gitrepos
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: 50Gi

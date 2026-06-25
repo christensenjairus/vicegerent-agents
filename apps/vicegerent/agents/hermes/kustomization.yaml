@@ -1,0 +1,21 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: agent-sandbox
+resources:
+  - namespace.yaml
+  - config.yaml
+  - secrets.yaml
+  - sandbox.yaml
+  - networkpolicy.yaml
+  - restart-rbac.yaml
+  - restart-job.yaml
+  - restart-networkpolicy.yaml
+images:
+  - name: alpine/k8s:latest
+    newTag: 1.36.2
+secretGenerator:
+  - name: hermes-agentgateway-api-key
+    literals: [api-key=hermes]
+generatorOptions:
+  disableNameSuffixHash: true
