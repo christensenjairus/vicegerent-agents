@@ -19,7 +19,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: prepare-run
-          image: nousresearch/hermes-agent:v2026.6.19
+          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           command: [sh, -c]
           args: [chown 10000:10000 /run]
           securityContext:
@@ -31,7 +31,7 @@ spec:
               mountPath: /run
       containers:
         - name: hermes
-          image: nousresearch/hermes-agent:v2026.6.19
+          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           args: [gateway]
           env:
             - name: HERMES_DASHBOARD

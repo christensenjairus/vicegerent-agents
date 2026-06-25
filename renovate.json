@@ -4,6 +4,7 @@
   "baseBranchPatterns": ["main"],
   "enabledManagers": [
     "custom.regex",
+    "dockerfile",
     "flux",
     "helm-values",
     "kubernetes",

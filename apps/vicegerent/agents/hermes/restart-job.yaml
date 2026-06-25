@@ -12,6 +12,8 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hermes-restart
+      annotations:
+        vicegerent.hahomelabs.com/restart-trigger: unset
     spec:
       serviceAccountName: hermes-restart
       restartPolicy: OnFailure
