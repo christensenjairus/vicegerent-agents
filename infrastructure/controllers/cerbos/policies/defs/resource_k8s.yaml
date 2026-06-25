@@ -1,13 +1,19 @@
 ---
 # Resource policy for k8s MCP tool calls proxied through agentgateway.
-# The ExtMCP shim (follow-up) maps each MCP tool call to a CheckResources
-# request: principal = calling agent (role "agent"), resource = the k8s object
-# the tool targets (kind/apiResource/namespace), action = the MCP tool name.
-# DENY overrides ALLOW in Cerbos, so the Secret rule is a hard block even for
-# read tools that are otherwise allowed against non-secret kinds. This closes
-# the gap the agentgateway tool-name allowlist cannot: getResource/listResources
-# are legitimately allowed, but the k8s-mcp-server returns Secrets through those
-# same tools, so the block must key on the resource kind, not the tool name.
+# The ExtMCP shim maps each MCP tool call to a CheckResources request:
+# principal = calling agent, resource = the k8s object the tool targets
+# (kind/apiResource/namespace), action = the MCP tool name.
+#
+# Division of responsibility: agentgateway's tool-name allowlist decides WHICH
+# tools an agent may call at all. This policy makes every deny decision on top
+# of that — the shim only standardizes fields, it never denies. Two denies:
+#   1. deny-secrets    — block any instance that touches a Secret.
+#   2. deny-no-kind     — a kind-bearing tool call with no resolvable kind is
+#      ambiguous (we can't prove it isn't a Secret), so fail closed.
+# Everything else is allowed. DENY beats ALLOW in Cerbos, so order is irrelevant.
+# We deliberately do NOT enumerate readable tools/kinds (that would duplicate the
+# gateway allowlist) and do NOT gate on principal role (one agent per sandbox;
+# identity is enforced by the namespace/network lock, not here).
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -22,14 +28,16 @@ resourcePolicy:
           expr: >-
             request.resource.attr.kind == "Secret" ||
             request.resource.attr.apiResource == "secrets"
-    - name: allow-readonly
-      actions:
-        - getResource
-        - listResources
-        - describeResource
-        - getPodsLogs
-        - getEvents
-        - getNodeMetrics
-        - getPodMetrics
+    - name: deny-no-kind
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.kind == "" &&
+            request.resource.attr.apiResource == ""
+    - name: allow-all
+      actions: ['*']
       effect: EFFECT_ALLOW
-      roles: [agent]
+      roles: ['*']

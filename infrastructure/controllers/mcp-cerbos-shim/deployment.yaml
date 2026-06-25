@@ -1,0 +1,61 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-cerbos-shim
+  namespace: cerbos
+  labels:
+    app.kubernetes.io/name: mcp-cerbos-shim
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-cerbos-shim
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: mcp-cerbos-shim
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        fsGroup: 65532
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: mcp-cerbos-shim
+          image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.1.0
+          args: []
+          env:
+            - name: LISTEN_ADDR
+              value: :4445
+            - name: MAPPING_PATH
+              value: /etc/mcp-cerbos-shim/mapping.yaml
+            - name: CERBOS_ADDR
+              value: cerbos.cerbos.svc.cluster.local:3593
+            - name: CERBOS_PLAINTEXT
+              value: 'true'
+          ports:
+            - name: grpc
+              containerPort: 4445
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 25m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          volumeMounts:
+            - name: mapping
+              mountPath: /etc/mcp-cerbos-shim
+              readOnly: true
+      volumes:
+        - name: mapping
+          configMap:
+            name: mcp-cerbos-shim-mapping

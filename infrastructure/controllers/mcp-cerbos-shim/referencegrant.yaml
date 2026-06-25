@@ -1,0 +1,15 @@
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: agentgateway-policy-to-shim
+  namespace: cerbos
+spec:
+  from:
+    - group: agentgateway.dev
+      kind: AgentgatewayPolicy
+      namespace: agentgateway-system
+  to:
+    - group: ''
+      kind: Service
+      name: mcp-cerbos-shim

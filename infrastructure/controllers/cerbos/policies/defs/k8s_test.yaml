@@ -35,6 +35,20 @@ resources:
       kind: ConfigMap
       apiResource: configmaps
       namespace: default
+  crd_in_default:
+    id: crd_in_default
+    kind: k8s_resource
+    attr:
+      kind: PrometheusRule
+      apiResource: prometheusrules
+      namespace: default
+  no_kind:
+    id: '*'
+    kind: k8s_resource
+    attr:
+      kind: ''
+      apiResource: ''
+      namespace: default
 tests:
   - name: getResource on a Secret is denied
     input:
@@ -75,3 +89,36 @@ tests:
           getResource: EFFECT_ALLOW
           listResources: EFFECT_ALLOW
           getPodsLogs: EFFECT_ALLOW
+  - name: arbitrary non-secret kind and tool are allowed (no per-kind allowlist)
+    input:
+      principals: [hermes]
+      resources: [crd_in_default]
+      actions:
+        - getResource
+        - listResources
+        - describeResource
+        - getEvents
+        - getNodeMetrics
+        - getPodMetrics
+    expected:
+      - principal: hermes
+        resource: crd_in_default
+        actions:
+          getResource: EFFECT_ALLOW
+          listResources: EFFECT_ALLOW
+          describeResource: EFFECT_ALLOW
+          getEvents: EFFECT_ALLOW
+          getNodeMetrics: EFFECT_ALLOW
+          getPodMetrics: EFFECT_ALLOW
+  - name: a kind-bearing call with no resolvable kind is denied (fail closed)
+    input:
+      principals: [hermes]
+      resources: [no_kind]
+      actions: [getResource, listResources, describeResource]
+    expected:
+      - principal: hermes
+        resource: no_kind
+        actions:
+          getResource: EFFECT_DENY
+          listResources: EFFECT_DENY
+          describeResource: EFFECT_DENY

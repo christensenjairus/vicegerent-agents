@@ -52,6 +52,55 @@ validate:pre-commit:
   script:
     - pre-commit run --all-files --show-diff-on-failure
 
+validate:shim-go-test:
+  stage: validate
+  image: harbor.hahomelabs.com/docker.io/library/golang:1.22
+  interruptible: true
+  variables:
+    GOPATH: $CI_PROJECT_DIR/.cache/go
+    GOCACHE: $CI_PROJECT_DIR/.cache/go-build
+  cache:
+    key:
+      prefix: shim-go
+      files:
+        - images/mcp-cerbos-shim/go.sum
+    paths:
+      - .cache/go/pkg/mod/
+      - .cache/go-build/
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - images/mcp-cerbos-shim/**/*
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
+  script:
+    - cd images/mcp-cerbos-shim
+    - test -z "$(gofmt -l .)" || { echo "gofmt needed:"; gofmt -l .; exit 1; }
+    - go vet ./...
+    - go test ./...
+
+validate:agentgateway-crds:
+  stage: validate
+  image: harbor.hahomelabs.com/docker.io/alpine/k8s:1.36.2
+  interruptible: true
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      changes:
+        - apps/vicegerent/**/*
+        - infrastructure/controllers/agentgateway/**/*
+        - scripts/validate-agentgateway*.{sh,py}
+      when: on_success
+    - if: $CI_PIPELINE_SOURCE == "web"
+      when: on_success
+    - when: never
+  before_script:
+    - apk add --no-cache python3 py3-pip 2>/dev/null || true
+    - pip install jsonschema --break-system-packages --quiet
+  script:
+    - bash scripts/validate-agentgateway.sh
+
 validate:renovate-config:
   stage: validate
   image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:43.242.2
