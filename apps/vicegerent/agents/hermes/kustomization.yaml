@@ -14,22 +14,9 @@ resources:
 images:
   - name: alpine/k8s:latest
     newTag: 1.36.2
-replacements:
-  # Stamp the live sandbox image into the restart Job's (immutable) pod
-  # template, so any image bump changes the Job spec -> Flux force-recreates
-  # the Job -> it deletes the pod -> the controller recreates it on the new
-  # image. The agent-sandbox controller (v0.5.0) does NOT roll a running pod
-  # on a podTemplate change; this Job is the lever that forces it.
-  - source:
-      kind: Sandbox
-      name: hermes
-      fieldPath: spec.podTemplate.spec.containers.[name=hermes].image
-    targets:
-      - select:
-          kind: Job
-          name: hermes-restart
-        fieldPaths:
-          - spec.template.metadata.annotations.[vicegerent.hahomelabs.com/restart-trigger]
+configMapGenerator:
+  - name: hermes-sandbox-spec
+    files: [sandbox.yaml]
 secretGenerator:
   - name: hermes-agentgateway-api-key
     literals: [api-key=hermes]
