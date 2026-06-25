@@ -4,7 +4,7 @@ controller:
   image:
     registry: ghcr.io/agentgateway
     repository: controller
-    tag: v2.2.1
+    tag: v1.3.1
 resources:
   requests:
     cpu: 100m

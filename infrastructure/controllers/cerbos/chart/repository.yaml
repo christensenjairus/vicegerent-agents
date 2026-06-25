@@ -1,0 +1,10 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: cerbos
+  namespace: cerbos
+spec:
+  interval: 6h
+  url: oci://ghcr.io/cerbos/helm-charts
+  type: oci

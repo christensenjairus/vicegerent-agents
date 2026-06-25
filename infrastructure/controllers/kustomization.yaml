@@ -7,3 +7,4 @@ resources:
   - agentgateway
   - agent-sandbox
   - kmcp
+  - cerbos
