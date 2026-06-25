@@ -14,7 +14,6 @@
   "dependencyDashboard": true,
   "configMigration": true,
   "recreateWhen": "always",
-  "minimumReleaseAge": "7 days",
   "rollbackPrs": false,
   "prConcurrentLimit": 5,
   "flux": {
@@ -102,7 +101,7 @@
         "/^\\.gitlab-ci\\.yml$/"
       ],
       "matchStrings": [
-        "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\"']*[a-zA-Z0-9])"
+        "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\\\"']*[a-zA-Z0-9])"
       ],
       "datasourceTemplate": "docker"
     }
