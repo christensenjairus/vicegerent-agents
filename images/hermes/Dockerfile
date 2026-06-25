@@ -17,10 +17,9 @@ RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VER
 # on every recall; MiniCPM5-1B Q4_K_M (~656MB) is the sleep-consolidation LLM.
 # Both are GGUF/ONNX weights — arch-agnostic — so this stage carries no platform.
 # huggingface-hub's cache layout is what fastembed and mnemosyne expect verbatim.
+FROM python:3.11-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
 ARG HUGGINGFACE_HUB_VERSION=1.16.1
-FROM python:3.11-slim AS mnemosyne-models
-ARG HUGGINGFACE_HUB_VERSION
 RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
 RUN python - <<'PY'
 from huggingface_hub import hf_hub_download, snapshot_download
