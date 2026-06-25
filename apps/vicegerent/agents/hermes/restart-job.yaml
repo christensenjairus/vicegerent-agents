@@ -7,6 +7,9 @@ metadata:
 spec:
   backoffLimit: 3
   template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: hermes-restart
     spec:
       serviceAccountName: hermes-restart
       restartPolicy: OnFailure

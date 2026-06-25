@@ -10,6 +10,7 @@ resources:
   - networkpolicy.yaml
   - restart-rbac.yaml
   - restart-job.yaml
+  - restart-networkpolicy.yaml
 images:
   - name: alpine/k8s:latest
     newTag: 1.36.2
