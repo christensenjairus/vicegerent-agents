@@ -2,8 +2,6 @@
 
 GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local minikube cluster, managed by Flux.
 
-See the design docs in Obsidian (`01-Infrastructure/2026-06-20-readonly-infra-agent-sandbox-design.md`) for the architecture and threat model.
-
 ## Create the local minikube cluster
 
 Prerequisites:
@@ -27,7 +25,7 @@ minikube start \
   --cni=cilium \
   --addons gvisor,metrics-server \
   --cpus 4 \
-  --memory 8192 \
+  --memory 12288 \
   --disk-size 50g
 ```
 
