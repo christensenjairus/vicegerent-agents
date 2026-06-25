@@ -12,12 +12,17 @@
 #   - `flux bootstrap git` is itself idempotent and re-applies cleanly
 #
 # Flags:
-#   -y, --yes     auto-approve every change (non-interactive)
-#   -h, --help    show this help
+#   -y, --yes           auto-approve every change (non-interactive)
+#   --reseed-secrets    re-apply the op-credentials + onepassword-token Secrets from
+#                       1Password and restart Connect, even when the release is already
+#                       deployed. Use after rotating the Connect token or credentials.
+#                       Requires the Connect server to still exist (run setup-secrets.sh
+#                       first if it was deleted).
+#   -h, --help          show this help
 #
 # Env overrides: KUBE_CONTEXT, REPO_URL, BRANCH, CLUSTER_PATH, PRIVATE_KEY_FILE,
 #   OP_CONNECT_CREDENTIALS_REF, OP_CONNECT_TOKEN_ITEM, OP_CONNECT_TOKEN_VAULT,
-#   OP_CONNECT_TOKEN, SKIP_ONEPASSWORD_BOOTSTRAP=1
+#   OP_CONNECT_TOKEN, SKIP_ONEPASSWORD_BOOTSTRAP=1, RESEED_CONNECT_SECRETS=1
 
 set -euo pipefail
 
@@ -29,7 +34,9 @@ PRIVATE_KEY_FILE="${PRIVATE_KEY_FILE:-$HOME/.ssh/id_rsa}"
 OP_CONNECT_CREDENTIALS_REF="${OP_CONNECT_CREDENTIALS_REF:-op://Vicegerent/Connect Credentials/1password-credentials.json}"
 OP_CONNECT_TOKEN_ITEM="${OP_CONNECT_TOKEN_ITEM:-Connect Token}"
 OP_CONNECT_TOKEN_VAULT="${OP_CONNECT_TOKEN_VAULT:-Vicegerent}"
+OP_CONNECT_SERVER="${OP_CONNECT_SERVER:-Vicegerent}"
 SKIP_ONEPASSWORD_BOOTSTRAP="${SKIP_ONEPASSWORD_BOOTSTRAP:-0}"
+RESEED_CONNECT_SECRETS="${RESEED_CONNECT_SECRETS:-0}"
 
 CONNECT_NS="onepassword-connect"
 CONNECT_RELEASE="connect"
@@ -38,6 +45,7 @@ ASSUME_YES=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) ASSUME_YES=1 ;;
+    --reseed-secrets) RESEED_CONNECT_SECRETS=1 ;;
     -h|--help) sed -n '2,21p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -73,6 +81,46 @@ helm_status() {
     -o json 2>/dev/null | jq -r '.info.status' 2>/dev/null || echo "absent"
 }
 
+connect_server_exists() {
+  op connect server list --format json 2>/dev/null \
+    | jq -e --arg n "$OP_CONNECT_SERVER" '.[]? | select(.name==$n)' >/dev/null 2>&1
+}
+
+# Read the Connect token + credentials from 1Password and apply them as the
+# op-credentials + onepassword-token Secrets. Used both for the initial seed and
+# for re-seeding after a rotation. `create --dry-run | apply` is a no-op when the
+# material is unchanged and updates the Secret in place when it has rotated.
+# These Secrets are intentionally NOT in the Flux tree (they are write-once
+# bootstrap material), so applying them does not fight Flux ownership.
+apply_connect_secrets() {
+  local credentials_file token
+  credentials_file="$(mktemp)"
+  trap 'rm -f "$credentials_file"' RETURN
+
+  token="${OP_CONNECT_TOKEN:-$(op item get "$OP_CONNECT_TOKEN_ITEM" --vault "$OP_CONNECT_TOKEN_VAULT" --format json | jq -r '([.fields[] | select(.label == "credential" or .label == "token") | .value] + [.fields[2].value]) | map(select(. != null and . != "")) | .[0]')}"
+  [[ -n "$token" && "$token" != "null" ]] \
+    || die "could not read 1Password Connect token from '$OP_CONNECT_TOKEN_ITEM'"
+  op read "$OP_CONNECT_CREDENTIALS_REF" > "$credentials_file"
+  [[ -s "$credentials_file" ]] || die "Connect credentials file is empty"
+
+  kc create namespace "$CONNECT_NS" --dry-run=client -o yaml | kc apply -f -
+  kc -n "$CONNECT_NS" create secret generic op-credentials \
+    --from-file=1password-credentials.json="$credentials_file" \
+    --dry-run=client -o yaml | kc apply -f -
+  kc -n "$CONNECT_NS" create secret generic onepassword-token \
+    --from-literal=token="$token" \
+    --dry-run=client -o yaml | kc apply -f -
+}
+
+# Restart the Connect deployments so they re-read rotated credentials. The pods
+# load the token + credentials at startup (operator.autoRestart is off), so a
+# Secret update alone is not picked up until they roll. The namespace is
+# dedicated to Connect, so restarting every deployment in it is safe.
+restart_connect() {
+  kc -n "$CONNECT_NS" rollout restart deployment --all >/dev/null
+  kc -n "$CONNECT_NS" rollout status deployment --all --timeout=120s >/dev/null 2>&1 || true
+}
+
 # --- prerequisites ---------------------------------------------------------
 step "Prerequisites"
 required_cmds=(kubectl flux)
@@ -103,17 +151,19 @@ if [[ "$SKIP_ONEPASSWORD_BOOTSTRAP" != "1" ]]; then
 
   status="$(helm_status)"
   if [[ "$status" == "deployed" ]]; then
-    info "Connect release '$CONNECT_RELEASE' already deployed (Flux-managed); skipping Helm seed."
+    if [[ "$RESEED_CONNECT_SECRETS" == "1" ]]; then
+      connect_server_exists \
+        || die "Connect server '$OP_CONNECT_SERVER' does not exist — its 1Password credentials are dead and cannot be reseeded. Run scripts/install/setup-secrets.sh first to recreate the server, then re-run with --reseed-secrets."
+      confirm "Re-seed Connect secrets: re-apply op-credentials + onepassword-token from 1Password and restart Connect (release stays Flux-managed; no helm upgrade)." \
+        || die "Re-seed declined; aborting."
+      apply_connect_secrets
+      restart_connect
+      info "Re-seeded Connect secrets and restarted Connect; Flux still owns release '$CONNECT_RELEASE'."
+    else
+      info "Connect release '$CONNECT_RELEASE' already deployed (Flux-managed); skipping Helm seed."
+      info "To re-apply rotated Connect secrets, re-run with --reseed-secrets."
+    fi
   else
-    credentials_file="$(mktemp)"
-    trap 'rm -f "$credentials_file"' EXIT
-
-    OP_CONNECT_TOKEN="${OP_CONNECT_TOKEN:-$(op item get "$OP_CONNECT_TOKEN_ITEM" --vault "$OP_CONNECT_TOKEN_VAULT" --format json | jq -r '([.fields[] | select(.label == "credential" or .label == "token") | .value] + [.fields[2].value]) | map(select(. != null and . != "")) | .[0]')}"
-    [[ -n "$OP_CONNECT_TOKEN" && "$OP_CONNECT_TOKEN" != "null" ]] \
-      || die "could not read 1Password Connect token from '$OP_CONNECT_TOKEN_ITEM'"
-    op read "$OP_CONNECT_CREDENTIALS_REF" > "$credentials_file"
-    [[ -s "$credentials_file" ]] || die "Connect credentials file is empty"
-
     # Recover a release left mid-operation by an interrupted run, so the
     # upgrade below does not fail with "another operation in progress" or
     # "has no deployed releases".
@@ -137,13 +187,7 @@ if [[ "$SKIP_ONEPASSWORD_BOOTSTRAP" != "1" ]]; then
     confirm "Seed 1Password Connect into namespace '$CONNECT_NS' (op-credentials + onepassword-token Secrets, then helm upgrade --install '$CONNECT_RELEASE')." \
       || die "Connect seed is required before Flux bootstrap; aborting."
 
-    kc create namespace "$CONNECT_NS" --dry-run=client -o yaml | kc apply -f -
-    kc -n "$CONNECT_NS" create secret generic op-credentials \
-      --from-file=1password-credentials.json="$credentials_file" \
-      --dry-run=client -o yaml | kc apply -f -
-    kc -n "$CONNECT_NS" create secret generic onepassword-token \
-      --from-literal=token="$OP_CONNECT_TOKEN" \
-      --dry-run=client -o yaml | kc apply -f -
+    apply_connect_secrets
 
     helm repo add 1password https://1password.github.io/connect-helm-charts/ --force-update >/dev/null
     helm upgrade --install "$CONNECT_RELEASE" 1password/connect \
@@ -156,9 +200,6 @@ if [[ "$SKIP_ONEPASSWORD_BOOTSTRAP" != "1" ]]; then
       --set operator.token.key=token \
       --set pollingInterval=60
     info "Connect seeded; Flux will adopt release '$CONNECT_RELEASE'."
-
-    rm -f "$credentials_file"
-    trap - EXIT
   fi
 else
   step "1Password Connect"
