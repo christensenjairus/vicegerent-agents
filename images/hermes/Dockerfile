@@ -1,12 +1,14 @@
 # gopls (Go LSP) is not on npm and the base image has no Go toolchain. Build it
 # in a throwaway stage and copy only the ~30MB binary into the final image. The
 # version ARG carries the leading "v" to match the Go module pseudo-version
-# (Renovate go datasource).
+# (Renovate go datasource). GOTOOLCHAIN=auto lets `go` fetch the exact toolchain
+# gopls's go.mod requires, so a Renovate gopls bump that needs a newer Go than
+# the builder ships self-heals instead of breaking the build.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
 ARG GOPLS_VERSION=v0.22.0
-FROM golang:1.23 AS gopls
+FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
-RUN GOBIN=/out go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
+RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
 # Thin Vicegerent derivation of the upstream Hermes Agent image.
 # Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
