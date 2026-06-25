@@ -40,8 +40,8 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
 
 # Thin Vicegerent derivation of the upstream Hermes Agent image.
 # Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
-# and pulled from there by the egress-locked sandbox. Remaining bakes (hermes-lcm,
-# yq/jq/pygount, rtk-hermes) land as their own layers in follow-up cards.
+# and pulled from there by the egress-locked sandbox. Remaining bakes (yq/jq/
+# pygount, rtk-hermes) land as their own layers in follow-up cards.
 FROM nousresearch/hermes-agent:v2026.6.19@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
@@ -99,3 +99,24 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
 # gopls binary from the build stage above (Go is this repo's primary language —
 # the mcp-cerbos-shim is Go). Copied onto PATH; no Go toolchain in the final image.
 COPY --from=gopls /out/gopls /usr/local/bin/gopls
+
+# hermes-lcm context engine — the Lossless Context Management plugin selected by
+# context.engine: lcm in apps/vicegerent/agents/hermes/config.yaml. Without it
+# Hermes logs "Context engine 'lcm' not found" and silently falls back to the
+# built-in compressor. It is a pure-stdlib plugin (no PyPI deps) that lives in
+# Hermes' BUNDLED plugins/context_engine/<name>/ tree, which is loaded by the
+# dedicated context-engine discovery, NOT the general ~/.hermes/plugins system —
+# so `hermes plugins install` does not place it correctly. The destination is
+# resolved from the installed Hermes package (plugins.context_engine.__file__) so
+# it tracks the base image's layout instead of hardcoding a path. It is on PATH /
+# in the venv tree, NOT under /opt/data, so the data PVC does not shadow it and no
+# init-container seeding is needed. The version ARG carries the leading "v" to
+# match the GitHub release tag (Renovate github-releases); GitHub's archive top
+# dir drops the "v", so --strip-components=1 flattens it into place.
+# renovate: datasource=github-releases depName=stephenschoettler/hermes-lcm
+ARG HERMES_LCM_VERSION=v0.18.0
+RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine as p, os; print(os.path.dirname(p.__file__))')/lcm" \
+    && mkdir -p "$LCM_DEST" \
+    && curl -fsSL "https://github.com/stephenschoettler/hermes-lcm/archive/refs/tags/${HERMES_LCM_VERSION}.tar.gz" \
+        | tar -xz -C "$LCM_DEST" --strip-components=1 \
+    && /opt/hermes/.venv/bin/python -c "from plugins.context_engine import discover_context_engines as d; assert 'lcm' in [n for n, _, _ in d()], 'lcm engine not discovered after bake'; print('hermes-lcm ${HERMES_LCM_VERSION} baked + discoverable')"
