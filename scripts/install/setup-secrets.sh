@@ -148,10 +148,23 @@ fi
 
 # --- Connect server + credentials ------------------------------------------
 step "1Password Connect credentials"
-if op_item_exists "$CRED_ITEM" && op_field_exists "$CRED_ITEM" "1password-credentials.json"; then
-  info "Connect credentials already in 1Password ('$CRED_ITEM'); not touching the Connect server."
+creds_present=0
+op_item_exists "$CRED_ITEM" && op_field_exists "$CRED_ITEM" "1password-credentials.json" && creds_present=1
+
+if [[ $creds_present -eq 1 ]] && connect_server_exists; then
+  info "Connect credentials already in 1Password ('$CRED_ITEM') and server '$SERVER_NAME' exists; nothing to do."
 else
-  if connect_server_exists; then
+  if [[ $creds_present -eq 1 ]]; then
+    # Creds in 1Password but the Connect server is gone. A deleted server cannot
+    # be reattached: its credentials file and every token it signed are dead.
+    # Discard both so they are reissued against a fresh server below.
+    warn "Connect credentials exist in '$CRED_ITEM' but no Connect server named '$SERVER_NAME' exists."
+    warn "A deleted Connect server cannot be reattached; the stored credentials and token are unusable."
+    confirm "Delete the stale '$CRED_ITEM' + '$TOKEN_ITEM' items and create a fresh Connect server." \
+      || die "Cannot proceed with credentials for a Connect server that no longer exists."
+    op item delete "$CRED_ITEM" --vault "$VAULT" >/dev/null 2>&1 || true
+    op item delete "$TOKEN_ITEM" --vault "$VAULT" >/dev/null 2>&1 || true
+  elif connect_server_exists; then
     warn "A Connect server named '$SERVER_NAME' exists, but its credentials are NOT in 1Password."
     warn "The credentials file is emitted only at creation time and cannot be recovered."
     confirm "Delete the orphaned Connect server '$SERVER_NAME' and recreate it." \
