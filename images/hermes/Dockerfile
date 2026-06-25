@@ -10,17 +10,42 @@ FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
+# Mnemosyne models, staged so the egress-locked sandbox never fetches them at
+# runtime. Mnemosyne pulls both lazily under $HOME/.hermes — which the data PVC
+# shadows — so they're baked here and an init-container seeds them onto the PVC
+# on first boot (see sandbox.yaml). bge-small (~63MB) is the embedding model hit
+# on every recall; MiniCPM5-1B Q4_K_M (~656MB) is the sleep-consolidation LLM.
+# Both are GGUF/ONNX weights — arch-agnostic — so this stage carries no platform.
+# huggingface-hub's cache layout is what fastembed and mnemosyne expect verbatim.
+# renovate: datasource=pypi depName=huggingface-hub
+ARG HUGGINGFACE_HUB_VERSION=1.16.1
+FROM python:3.11-slim AS mnemosyne-models
+ARG HUGGINGFACE_HUB_VERSION
+RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
+RUN python - <<'PY'
+from huggingface_hub import hf_hub_download, snapshot_download
+hf_hub_download("openbmb/MiniCPM5-1B-GGUF", "MiniCPM5-1B-Q4_K_M.gguf",
+                local_dir="/seed/mnemosyne/models")
+snapshot_download("qdrant/bge-small-en-v1.5-onnx-q",
+                  cache_dir="/seed/cache/fastembed")
+PY
+
 # Thin Vicegerent derivation of the upstream Hermes Agent image.
 # Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
-# and pulled from there by the egress-locked sandbox. Remaining bakes (mnemosyne
-# + MiniCPM gguf, hermes-lcm, yq/jq/pygount, rtk-hermes) land as their own
-# layers in follow-up cards.
+# and pulled from there by the egress-locked sandbox. Remaining bakes (hermes-lcm,
+# yq/jq/pygount, rtk-hermes) land as their own layers in follow-up cards.
 FROM nousresearch/hermes-agent:v2026.6.19@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.6.19"
+
+# Mnemosyne model seed (~720MB, content-stable) baked outside /opt/data so the
+# data PVC doesn't shadow it. Placed early: it rarely changes, so it stays cached
+# under the churnier requirements/npm/binary layers below. An init-container
+# copies this into the PVC's $HOME/.hermes on first boot (see sandbox.yaml).
+COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 
 # shellcheck: bash-language-server delegates ALL diagnostics to it. Without it
 # the server runs but reports nothing — a silent no-op. apt package in trixie.

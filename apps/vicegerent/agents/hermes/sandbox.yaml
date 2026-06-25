@@ -29,6 +29,29 @@ spec:
           volumeMounts:
             - name: runtime
               mountPath: /run
+        - name: seed-mnemosyne
+          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          command: [bash, -c]
+          args:
+            - |-
+              set -euo pipefail
+              dest="/opt/data/.hermes"
+              mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins
+              cp -an /opt/hermes/mnemosyne-seed/mnemosyne/models/. "${dest}/mnemosyne/models/"
+              cp -an /opt/hermes/mnemosyne-seed/cache/fastembed/. "${dest}/cache/fastembed/"
+              pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
+              ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
+          env:
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: data
+              mountPath: /opt/data
       containers:
         - name: hermes
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
