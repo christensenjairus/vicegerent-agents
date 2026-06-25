@@ -8,3 +8,4 @@ resources:
   - agent-sandbox
   - kmcp
   - cerbos
+  - mcp-cerbos-shim

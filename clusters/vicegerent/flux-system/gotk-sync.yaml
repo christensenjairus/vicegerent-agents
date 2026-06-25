@@ -8,7 +8,7 @@ metadata:
 spec:
   interval: 1m0s
   ref:
-    branch: main
+    branch: feat/mcp-policy-guardrail
   secretRef:
     name: flux-system
   url: ssh://git@gitlab.hahomelabs.com/jchristensen/vicegerent-agents.git

@@ -46,8 +46,12 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   `OnePasswordItem`s; the sandbox→agentgateway virtual API key is Kustomize-generated, not stored in
   1Password. Keep a sync job's source Secret scoped to only what it needs (e.g. a CA-only item), so
   it never gains read access to unrelated keys.
-- **agentgateway is Anthropic-native** (`transport: anthropic_messages`), not OpenAI-compatible.
-  Verify CRD field shapes against the live cluster (`kubectl explain`) — the v2.2.x CRDs drift from
   the published docs (e.g. `caCertificateRefs` resolves to a ConfigMap keyed `ca.crt`, not a Secret).
 - **Generated Flux manifests** (`clusters/*/flux-system/gotk-*.yaml`) are excluded from `yamlfix`;
   leave them as Flux generates them.
+- **MCP authorization layering** — agentgateway's tool-name allowlist is the single gate for
+  *which* MCP tools an agent may call. The `mcp-cerbos-shim` + Cerbos policy only *block specific
+  sensitive instances* (today: Kubernetes Secrets); they are NOT a second allowlist of tools/kinds.
+  Don't add a tool or kind name to the shim mapping or the Cerbos `allow` rule to *permit* something
+  — that belongs in the gateway allowlist. See `images/mcp-cerbos-shim/README.md` ("Division of
+  responsibility").

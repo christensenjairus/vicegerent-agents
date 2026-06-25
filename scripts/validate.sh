@@ -126,4 +126,29 @@ if [[ -d "$cerbos_policy_dir" ]]; then
   fi
 fi
 
+# Assert the Kubernetes MCP backend keeps its Cerbos guardrail. The whole
+# Secret-blocking model is conditional on the AgentgatewayPolicy attaching a
+# tools/call -> mcp-cerbos-shim processor with FailClosed; if an edit drops,
+# renames, or weakens it, the gateway forwards to the MCP server with no policy
+# check (a silent fail-open). This catches that at MR time. It does NOT cover
+# the runtime reconcile path (Flux never applying the commit, or the controller
+# silently rejecting the CRD) — that gap is documented in the shim README.
+mcp_overlay="apps/vicegerent/mcps/kubernetes"
+if [[ -d "$mcp_overlay" ]]; then
+  echo "INFO - Asserting Kubernetes MCP Cerbos guardrail is attached"
+  guardrail_processors="$(kustomize build "$mcp_overlay" "${kustomize_flags[@]}" | yq ea '
+    select(.kind == "AgentgatewayPolicy")
+    | [ .spec.backend.mcp.guardrails.processors[]
+        | select(.methods["tools/call"] == "Request"
+            and .remote.backendRef.name == "mcp-cerbos-shim"
+            and .remote.failureMode == "FailClosed") ]
+    | length' -)"
+  if [[ "$guardrail_processors" != "1" ]]; then
+    echo "ERROR - Kubernetes MCP AgentgatewayPolicy must attach exactly one" \
+         "tools/call -> mcp-cerbos-shim guardrail with FailClosed (found:" \
+         "${guardrail_processors:-0}). Refusing to ship a fail-open MCP backend." >&2
+    exit 1
+  fi
+fi
+
 echo "INFO - All validations passed"

@@ -2,6 +2,16 @@
 
 GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local minikube cluster, managed by Flux.
 
+## MCP authorization model
+
+Three components enforce MCP authorization, each with one job. Keeping them separate is the design — overlapping allowlists drift out of sync, and that drift is a security bug.
+
+- **Agentgateway**: owns the MCP tool allowlist (with CEL).
+- **Cerbos**: argument/resource blocking for allowlisted MCP tools (with CEL).
+- **mcp-cerbos-shim**: standardizes fields so Cerbos is accurate (with drop-in helper functions).
+
+Permit decisions belong to the gateway allowlist; every deny is Cerbos's; the shim makes no policy decisions. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the full division of responsibility.
+
 ## Create the local minikube cluster
 
 Prerequisites:

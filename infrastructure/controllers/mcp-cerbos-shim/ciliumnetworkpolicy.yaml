@@ -1,0 +1,41 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-cerbos-shim
+  namespace: cerbos
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: mcp-cerbos-shim
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: agentgateway-system
+            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
+      toPorts:
+        - ports:
+            - port: '4445'
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cerbos
+            app.kubernetes.io/name: cerbos
+      toPorts:
+        - ports:
+            - port: '3593'
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: '53'
+              protocol: UDP
+            - port: '53'
+              protocol: TCP
+          rules:
+            dns:
+              - matchPattern: '*'

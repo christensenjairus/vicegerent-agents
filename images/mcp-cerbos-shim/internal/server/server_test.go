@@ -1,0 +1,403 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"testing"
+
+	config "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
+)
+
+// stubDecider lets tests assert exactly what resource/action the connector
+// would send to Cerbos, and force allow/deny/error verdicts.
+type stubDecider struct {
+	allow   bool
+	err     error
+	gotType string
+	gotID   string
+	gotAttr map[string]string
+	gotAct  string
+	calls   int
+}
+
+func (s *stubDecider) IsAllowed(_ context.Context, _ string, _ []string,
+	resourceType, resourceID string, attr map[string]string, action string) (bool, error) {
+	s.calls++
+	s.gotType, s.gotID, s.gotAttr, s.gotAct = resourceType, resourceID, attr, action
+	// Mirror the real Cerbos PDP, which rejects an empty resource.id with
+	// InvalidArgument before evaluating policy. Without this, the mock hides
+	// the empty-id bug that broke listResources in-cluster.
+	if resourceID == "" {
+		return false, fmt.Errorf("validation error: resources[0].resource.id: value is required")
+	}
+	return s.allow, s.err
+}
+
+// testMapping mirrors the design's k8s backend (deny-default) plus a permissive
+// second backend, exercising the canonicalK8s helper and case-insensitive args.
+const testMappingYAML = `
+backends:
+  kubernetes:
+    defaultAction: allow
+    helpers: [canonicalK8s]
+    tools:
+      getResource:
+        resourceType: k8s_resource
+        action: getResource
+        id: "get(args,'name','')"
+        attrFrom: "canonicalK8s(args)"
+      listResources:
+        resourceType: k8s_resource
+        action: listResources
+        id: "''"
+        attrFrom: "canonicalK8s(args)"
+      describeResource:
+        resourceType: k8s_resource
+        action: describeResource
+        id: "get(args,'name','')"
+        attrFrom: "canonicalK8s(args)"
+      getPodsLogs:
+        resourceType: k8s_resource
+        action: getPodsLogs
+        id: "get(args,'Name','')"
+        attr: { namespace: "get(args,'namespace','')" }
+  github:
+    defaultAction: allow
+    tools:
+      create_issue:
+        resourceType: gh_action
+        action: create_issue
+        id: "get(args,'repo','')"
+        attr: { repo: "get(args,'repo','')" }
+`
+
+func newTestServer(t *testing.T, d *stubDecider) *Server {
+	t.Helper()
+	m, err := config.Parse([]byte(testMappingYAML))
+	if err != nil {
+		t.Fatalf("parse mapping: %v", err)
+	}
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	return New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+}
+
+func toolCall(name string, args map[string]any) []byte {
+	b, _ := json.Marshal(map[string]any{"name": name, "arguments": args})
+	return b
+}
+
+func mcpReq(backend, method string, body []byte) *pb.McpRequest {
+	return &pb.McpRequest{ServiceNames: []string{backend}, Method: method, McpRequest: body}
+}
+
+func isPass(r *pb.McpRequestResult) bool { return r.GetPass() != nil }
+func isDeny(r *pb.McpRequestResult) bool { return r.GetError() != nil }
+
+// assertNoSideEffects enforces the v1 invariant: a result must NEVER carry the
+// mutated / header_mutation / metadata channels (the gateway applies metadata
+// even on Pass — round-2 finding).
+func assertNoSideEffects(t *testing.T, r *pb.McpRequestResult) {
+	t.Helper()
+	if r.GetMutated() != nil {
+		t.Errorf("result carried mutated bytes")
+	}
+	if r.GetHeaderMutation() != nil {
+		t.Errorf("result carried header_mutation")
+	}
+	if r.GetMetadata() != nil {
+		t.Errorf("result carried metadata struct")
+	}
+}
+
+func TestCheckRequest_SecretPaths(t *testing.T) {
+	// Every tool that can return Secret data must reach Cerbos with kind=Secret,
+	// across the casing differences (getResource: kind, others: Kind).
+	cases := []struct {
+		name string
+		tool string
+		args map[string]any
+	}{
+		{"getResource lowercase kind", "getResource", map[string]any{"kind": "Secret", "name": "x", "namespace": "kube-system"}},
+		{"listResources capital Kind", "listResources", map[string]any{"Kind": "Secret", "namespace": "default"}},
+		{"describeResource capital Kind", "describeResource", map[string]any{"Kind": "Secret", "name": "x"}},
+		{"getResource plural secrets", "getResource", map[string]any{"kind": "secrets", "name": "x"}},
+		{"getResource lowercase secret", "getResource", map[string]any{"kind": "secret", "name": "x"}},
+		{"getResource group-qualified", "getResource", map[string]any{"kind": "v1/secrets", "name": "x"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Decider says DENY (mirrors the shipped deny-secrets policy).
+			d := &stubDecider{allow: false}
+			s := newTestServer(t, d)
+			r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call", toolCall(tc.tool, tc.args)))
+			if err != nil {
+				t.Fatalf("unexpected gRPC error: %v", err)
+			}
+			if !isDeny(r) {
+				t.Fatalf("expected deny, got pass")
+			}
+			assertNoSideEffects(t, r)
+			if d.calls != 1 {
+				t.Fatalf("expected 1 cerbos call, got %d", d.calls)
+			}
+			if d.gotAttr["kind"] != "Secret" || d.gotAttr["apiResource"] != "secrets" {
+				t.Errorf("canonicalization failed: got kind=%q apiResource=%q", d.gotAttr["kind"], d.gotAttr["apiResource"])
+			}
+		})
+	}
+}
+
+func TestCheckRequest_AllowsNonSecretReads(t *testing.T) {
+	d := &stubDecider{allow: true}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+		toolCall("getResource", map[string]any{"kind": "Pod", "name": "p", "namespace": "default"})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isPass(r) {
+		t.Fatalf("expected pass for allowed Pod read")
+	}
+	assertNoSideEffects(t, r)
+	if d.gotAttr["kind"] != "Pod" || d.gotAct != "getResource" {
+		t.Errorf("wrong cerbos input: kind=%q action=%q", d.gotAttr["kind"], d.gotAct)
+	}
+}
+
+func TestCheckRequest_FailClosedPaths(t *testing.T) {
+	// Each of these must DENY without ever calling Cerbos with a half-built
+	// resource (most must not call Cerbos at all).
+	tests := []struct {
+		name      string
+		req       *pb.McpRequest
+		deciderOK bool // verdict if Cerbos IS called
+		wantCalls int
+	}{
+		{"unparseable params", mcpReq("kubernetes", "tools/call", []byte("{not json")), true, 0},
+		{"empty params", mcpReq("kubernetes", "tools/call", nil), true, 0},
+		{"missing tool name", mcpReq("kubernetes", "tools/call", []byte(`{"arguments":{"kind":"Secret"}}`)), true, 0},
+		{"zero service_names", &pb.McpRequest{ServiceNames: nil, Method: "tools/call", McpRequest: toolCall("getResource", map[string]any{"kind": "Pod", "name": "p"})}, true, 0},
+		{"multiple service_names", &pb.McpRequest{ServiceNames: []string{"kubernetes", "other"}, Method: "tools/call", McpRequest: toolCall("getResource", map[string]any{"kind": "Pod", "name": "p"})}, true, 0},
+		{"unmapped backend", mcpReq("mystery", "tools/call", toolCall("getResource", map[string]any{"kind": "Pod", "name": "p"})), true, 0},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			d := &stubDecider{allow: tc.deciderOK}
+			s := newTestServer(t, d)
+			r, err := s.CheckRequest(context.Background(), tc.req)
+			if err != nil {
+				t.Fatalf("unexpected gRPC error: %v", err)
+			}
+			if !isDeny(r) {
+				t.Fatalf("expected deny, got pass")
+			}
+			assertNoSideEffects(t, r)
+			if d.calls != tc.wantCalls {
+				t.Fatalf("expected %d cerbos calls, got %d", tc.wantCalls, d.calls)
+			}
+		})
+	}
+}
+
+func TestCheckRequest_ListResourcesReachesPolicy(t *testing.T) {
+	// A collection call has no single object name (mapping sets id ''). The
+	// engine must substitute a non-empty id so the real Cerbos PDP evaluates
+	// policy instead of rejecting on InvalidArgument. Regression for the
+	// in-cluster bug where listResources could never be allowed/denied by
+	// policy — only failed-closed on a malformed request.
+	t.Run("Pod list allowed", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("listResources", map[string]any{"Kind": "Pod", "namespace": "default"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for allowed Pod list, got deny: %s", r.GetError().GetReason())
+		}
+		if d.calls != 1 {
+			t.Fatalf("expected 1 cerbos call, got %d", d.calls)
+		}
+		if d.gotID == "" {
+			t.Errorf("engine sent empty resource.id to Cerbos (would be rejected as InvalidArgument)")
+		}
+		if d.gotAttr["kind"] != "Pod" || d.gotAct != "listResources" {
+			t.Errorf("wrong cerbos input: kind=%q action=%q", d.gotAttr["kind"], d.gotAct)
+		}
+	})
+	t.Run("Secret list denied by policy", func(t *testing.T) {
+		// allow:true so a deny here proves it's the policy verdict path, not an
+		// empty-id rejection.
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("listResources", map[string]any{"Kind": "secrets"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny for Secret list")
+		}
+		if d.calls != 1 {
+			t.Fatalf("expected 1 cerbos call (policy evaluated), got %d", d.calls)
+		}
+		if d.gotID == "" {
+			t.Errorf("engine sent empty resource.id to Cerbos")
+		}
+		if d.gotAttr["kind"] != "Secret" || d.gotAttr["apiResource"] != "secrets" {
+			t.Errorf("canonicalization failed: kind=%q apiResource=%q", d.gotAttr["kind"], d.gotAttr["apiResource"])
+		}
+	})
+}
+
+// TestCheckRequest_PolicyDenyMessageIsGeneric pins the client-facing contract:
+// a policy deny returns the generic, backend-agnostic message verbatim and must
+// NOT leak the probed resource type or action (those go only to the shim log).
+func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
+	d := &stubDecider{allow: false}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+		toolCall("getResource", map[string]any{"kind": "Secret", "name": "x"})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isDeny(r) {
+		t.Fatalf("expected deny")
+	}
+	got := r.GetError().GetReason()
+	if got != denyMessage {
+		t.Errorf("client reason not the generic message:\n got=%q\nwant=%q", got, denyMessage)
+	}
+	if strings.Contains(got, "Secret") || strings.Contains(got, "k8s_resource") || strings.Contains(got, "getResource") {
+		t.Errorf("deny message leaks probed resource/action to client: %q", got)
+	}
+}
+
+// TestCheckRequest_PassDefaultContract documents the simplified model: the shim
+// is a Secret-blocker, not a tool/kind allowlist. agentgateway gates which
+// tools exist; here, anything that isn't a Secret passes.
+func TestCheckRequest_PassDefaultContract(t *testing.T) {
+	t.Run("arbitrary non-secret kind (CRD) reaches Cerbos and passes", func(t *testing.T) {
+		// A kind the shim has never heard of must NOT be denied for being
+		// unknown — only Secrets are blocked. It reaches Cerbos (allow) intact.
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getResource", map[string]any{"kind": "PrometheusRule", "name": "x"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for unknown non-secret kind, got deny: %s", r.GetError().GetReason())
+		}
+		if d.gotAttr["kind"] != "PrometheusRule" || d.gotAttr["apiResource"] != "prometheusrule" {
+			t.Errorf("non-secret kind not passed through: kind=%q apiResource=%q", d.gotAttr["kind"], d.gotAttr["apiResource"])
+		}
+	})
+	t.Run("unmapped tool passes without a Cerbos call", func(t *testing.T) {
+		// getEvents/metrics carry no kind and need no mapping entry; they pass.
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getEvents", map[string]any{"namespace": "default"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for unmapped non-secret tool")
+		}
+		if d.calls != 0 {
+			t.Fatalf("expected no cerbos call for unmapped tool, got %d", d.calls)
+		}
+	})
+	t.Run("Secret still denied under pass-default", func(t *testing.T) {
+		// The whole point: relaxing to pass-default must NOT open the Secret path.
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getResource", map[string]any{"kind": "Secret", "name": "x"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected Secret read to deny even under pass-default")
+		}
+		if d.gotAttr["kind"] != "Secret" || d.gotAttr["apiResource"] != "secrets" {
+			t.Errorf("secret not canonicalized: kind=%q apiResource=%q", d.gotAttr["kind"], d.gotAttr["apiResource"])
+		}
+	})
+	t.Run("kind-less call reaches Cerbos for the empty-kind verdict", func(t *testing.T) {
+		// A kind-bearing tool called with no resolvable kind is no longer denied
+		// by the shim (no requiredAttrs). It reaches Cerbos as kind=="" so the
+		// policy's deny-no-kind rule owns the verdict. The shim only standardizes.
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getResource", map[string]any{"name": "x"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny (Cerbos verdict), got pass")
+		}
+		if d.calls != 1 {
+			t.Fatalf("expected the call to reach Cerbos for the verdict, got %d calls", d.calls)
+		}
+		if d.gotAttr["kind"] != "" || d.gotAttr["apiResource"] != "" {
+			t.Errorf("expected empty kind forwarded to Cerbos, got kind=%q apiResource=%q", d.gotAttr["kind"], d.gotAttr["apiResource"])
+		}
+	})
+}
+
+func TestCheckRequest_CerbosErrorDenies(t *testing.T) {
+	d := &stubDecider{allow: true, err: context.DeadlineExceeded}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+		toolCall("getResource", map[string]any{"kind": "Pod", "name": "p"})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isDeny(r) {
+		t.Fatalf("expected deny when Cerbos errors (fail closed)")
+	}
+	assertNoSideEffects(t, r)
+}
+
+func TestCheckRequest_AllowDefaultBackendPassesUnmappedTool(t *testing.T) {
+	// github backend is allow-default: an unmapped tool passes WITHOUT a Cerbos call.
+	d := &stubDecider{allow: false}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+		toolCall("list_repos", map[string]any{})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isPass(r) {
+		t.Fatalf("expected pass for unmapped tool on allow-default backend")
+	}
+	if d.calls != 0 {
+		t.Fatalf("expected no cerbos call, got %d", d.calls)
+	}
+}
+
+func TestCheckResponse_AlwaysPassNoMutation(t *testing.T) {
+	s := newTestServer(t, &stubDecider{})
+	r, err := s.CheckResponse(context.Background(), &pb.McpResponse{ServiceNames: []string{"kubernetes"}, Method: "tools/call"})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if r.GetPass() == nil {
+		t.Fatalf("expected pass")
+	}
+	if r.GetMutated() != nil {
+		t.Errorf("response carried mutation")
+	}
+}

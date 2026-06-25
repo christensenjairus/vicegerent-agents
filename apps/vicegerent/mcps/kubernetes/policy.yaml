@@ -24,3 +24,13 @@ spec:
               mcp.tool.name in ["getResource", "listResources",
               "describeResource", "getPodsLogs", "getEvents",
               "getNodeMetrics", "getPodMetrics"]
+      guardrails:
+        processors:
+          - methods:
+              tools/call: Request
+            remote:
+              backendRef:
+                name: mcp-cerbos-shim
+                namespace: cerbos
+                port: 4445
+              failureMode: FailClosed

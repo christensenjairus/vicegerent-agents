@@ -1,0 +1,44 @@
+---
+# Example mapping for mcp-cerbos-shim.
+# Each id/attr/attrFrom value is a CEL expression, compiled and type-checked at
+# startup. CEL variables in scope per call: tool (string), args (map), backend
+# (string), method (string). Backend-scoped helpers are listed per backend.
+#
+# Division of responsibility (see the shim README):
+#   - agentgateway's tool-name allowlist gates WHICH tools an agent may call.
+#   - this mapping + Cerbos only block the specific instances that touch the
+#     resource Cerbos refuses (Secrets). So the k8s backend is defaultAction:
+#     allow and maps ONLY the kind-bearing tools — the ones that can name a
+#     Secret. Tools with no kind (getEvents, metrics, logs, ...) pass with no
+#     entry; the shim keeps no second allowlist of readable tools/kinds.
+#
+# Built-in helper:
+#   get(args, "key", "default")  -> case-insensitive string lookup with fallback
+# Backend-scoped helper (kubernetes only):
+#   canonicalK8s(args)           -> {kind, apiResource, namespace}. Normalizes a
+#                                   Secret reference (case/plural/group-qualified)
+#                                   so Cerbos's deny-secrets rule catches it;
+#                                   passes every other kind through unchanged.
+#
+# The shim never denies — it only standardizes fields. Every deny (Secrets, and
+# a kind-bearing call with no resolvable kind) is made by the Cerbos policy.
+backends:
+  kubernetes:
+    defaultAction: allow  # unmapped tools pass; only kind-bearing tools are mapped
+    helpers: [canonicalK8s]
+    tools:
+      getResource:
+        resourceType: k8s_resource
+        action: getResource
+        id: get(args,'name','')
+        attrFrom: canonicalK8s(args)
+      listResources:
+        resourceType: k8s_resource
+        action: listResources
+        id: "''"
+        attrFrom: canonicalK8s(args)
+      describeResource:
+        resourceType: k8s_resource
+        action: describeResource
+        id: get(args,'name','')
+        attrFrom: canonicalK8s(args)
