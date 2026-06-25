@@ -20,6 +20,7 @@ spec:
       initContainers:
         - name: prepare-run
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          imagePullPolicy: Always
           command: [sh, -c]
           args: [chown 10000:10000 /run]
           securityContext:
@@ -31,6 +32,7 @@ spec:
               mountPath: /run
         - name: seed-mnemosyne
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          imagePullPolicy: Always
           command: [bash, -c]
           args:
             - |-
@@ -55,6 +57,7 @@ spec:
       containers:
         - name: hermes
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          imagePullPolicy: Always
           args: [gateway]
           env:
             - name: HERMES_DASHBOARD
