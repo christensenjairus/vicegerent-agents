@@ -15,7 +15,7 @@ relies on. Verified against the upstream arm64 image (`v2026.6.19`):
 | Needed | In stock image? |
 | --- | --- |
 | mnemosyne plugin + MiniCPM embedding gguf | no |
-| hermes-lcm context engine | no |
+| hermes-lcm context engine | yes — baked from the pinned GitHub release |
 | LSP servers (pyright, yaml-language-server, terraform-ls, bash-language-server) | no |
 | `ddgs` Python package (web search backend) | no — only the plugin glue is present |
 
@@ -52,7 +52,12 @@ Tracked separately on the `vicegerent-build` board, each adding its own layer:
 - mnemosyne + MiniCPM `MiniCPM5-1B-Q4_K_M.gguf` (bake outside `/opt/data`; the
   data PVC shadows `/opt/data` at runtime, so first-boot seeding is an
   init-container concern, not a Dockerfile one).
-- hermes-lcm context engine.
+- hermes-lcm context engine — extracted from its pinned GitHub release into
+  Hermes' bundled `plugins/context_engine/lcm/` (resolved from the installed
+  package, not a hardcoded path). Loaded by the dedicated context-engine
+  discovery, not the general `~/.hermes/plugins` system, so `hermes plugins
+  install` does not place it; selected via `context.engine: lcm` in the agent
+  config. Pure stdlib, no PyPI deps.
 - LSP servers via `npm -g` (node + npm are in the base).
 - `ddgs` via `uv pip install` into `/opt/hermes/.venv`.
 - `yq` + `jq` + `pygount`; `rtk-hermes` plugin.
