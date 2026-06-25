@@ -54,7 +54,7 @@ validate:pre-commit:
 
 validate:renovate-config:
   stage: validate
-  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:43.242.0
+  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:43.242.2
   interruptible: true
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
@@ -67,7 +67,7 @@ validate:renovate-config:
 
 scan:renovate:
   stage: scan
-  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:43.242.0
+  image: harbor.hahomelabs.com/ghcr.io/renovatebot/renovate:43.242.2
   resource_group: renovate-main
   interruptible: false
   needs: []
