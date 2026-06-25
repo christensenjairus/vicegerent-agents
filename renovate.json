@@ -49,6 +49,11 @@
     {
       "matchFileNames": [".gitlab-ci.yml"],
       "groupName": "gitlab ci images"
+    },
+    {
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/agentgateway/controller"],
+      "allowedVersions": "<2.0.0"
     }
   ],
   "customManagers": [
