@@ -9,6 +9,7 @@
     "helm-values",
     "kubernetes",
     "kustomize",
+    "npm",
     "pip_requirements",
     "pre-commit"
   ],
@@ -54,17 +55,11 @@
     },
     {
       "matchDatasources": ["docker"],
-      "matchPackageNames": ["ghcr.io/agentgateway/controller"],
-      "allowedVersions": "<2.0.0"
-    },
-    {
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["cr.agentgateway.dev/charts/agentgateway-crds"],
-      "allowedVersions": "<2.0.0"
-    },
-    {
-      "matchDatasources": ["docker"],
-      "matchPackageNames": ["cr.agentgateway.dev/charts/agentgateway"],
+      "matchPackageNames": [
+        "ghcr.io/agentgateway/controller",
+        "cr.agentgateway.dev/charts/agentgateway-crds",
+        "cr.agentgateway.dev/charts/agentgateway"
+      ],
       "allowedVersions": "<2.0.0"
     }
   ],
@@ -83,17 +78,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^infrastructure/controllers/agentgateway/chart/values\\.ya?ml$/"
-      ],
-      "matchStrings": [
-        "registry:\\s*(?<registryOrg>[^\\s]+)\\s*\\n\\s+repository:\\s*(?<depName>[^\\s]+)\\s*\\n\\s+tag:\\s*(?<currentValue>[^\\s]+)"
-      ],
-      "depNameTemplate": "{{registryOrg}}/{{depName}}",
-      "datasourceTemplate": "docker"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
+        "/^infrastructure/controllers/agentgateway/chart/values\\.ya?ml$/",
         "/^apps/vicegerent/gateway/gateway\\.ya?ml$/"
       ],
       "matchStrings": [
@@ -115,10 +100,10 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^images/agentgateway-proxy/Dockerfile$/"
+        "/^images/.+/Dockerfile$/"
       ],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+ARG AGW_VERSION=(?<currentValue>[^\\s]+)"
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+ARG \\w+_VERSION=(?<currentValue>[^\\s]+)"
       ],
       "versioningTemplate": "semver"
     },

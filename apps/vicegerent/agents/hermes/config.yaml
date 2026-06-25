@@ -52,3 +52,4 @@ data:
       search_backend: ddgs
     lsp:
       enabled: true
+      install_strategy: manual
