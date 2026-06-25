@@ -9,6 +9,7 @@
     "helm-values",
     "kubernetes",
     "kustomize",
+    "pip_requirements",
     "pre-commit"
   ],
   "labels": ["renovate"],

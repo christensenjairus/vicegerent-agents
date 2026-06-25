@@ -1,0 +1,6 @@
+# Python packages baked into the hermes image venv (/opt/hermes/.venv).
+# The sandbox is egress-locked with HERMES_DISABLE_LAZY_INSTALLS=1, so anything
+# the agent needs at runtime must be installed here at build time.
+# Pinned for reproducibility; Renovate's pip_requirements manager tracks updates.
+# Add a package = add a line. No renovate.json change needed.
+ddgs==9.14.4
