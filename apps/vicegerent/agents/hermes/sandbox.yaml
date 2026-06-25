@@ -43,6 +43,13 @@ spec:
               cp -an /opt/hermes/mnemosyne-seed/cache/fastembed/. "${dest}/cache/fastembed/"
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
+              # claude-code reads MCP servers only from the stateful ~/.claude.json
+              # (user scope), never from settings.json. Seed it once; claude then
+              # owns the file, so don't clobber on later boots.
+              claudejson=/opt/data/.claude.json
+              if [ ! -f "${claudejson}" ]; then
+                printf '%s\n' '{"mcpServers":{"mnemosyne":{"type":"stdio","command":"/opt/hermes/.venv/bin/mnemosyne","args":["mcp"]}}}' > "${claudejson}"
+              fi
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
@@ -69,6 +76,11 @@ spec:
                 secretKeyRef:
                   name: hermes-agentgateway-api-key
                   key: api-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agentgateway-api-key
+                  key: api-key
           envFrom:
             - secretRef:
                 name: vicegerent-secrets
@@ -91,12 +103,27 @@ spec:
             - name: hermes-config
               mountPath: /opt/data/config.yaml
               subPath: config.yaml
+            - name: hermes-soul
+              mountPath: /opt/data/SOUL.md
+              subPath: SOUL.md
+            - name: coding-agents-config
+              mountPath: /opt/data/.claude/settings.json
+              subPath: settings.json
+            - name: coding-agents-config
+              mountPath: /opt/data/.codex/config.toml
+              subPath: config.toml
       volumes:
         - name: runtime
           emptyDir: {}
         - name: hermes-config
           configMap:
             name: hermes-config
+        - name: hermes-soul
+          configMap:
+            name: hermes-soul
+        - name: coding-agents-config
+          configMap:
+            name: coding-agents-config
   volumeClaimTemplates:
     - metadata:
         name: data

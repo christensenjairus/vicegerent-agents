@@ -52,6 +52,12 @@ spec:
             - name: hermes-config
               mountPath: /reload/config
               readOnly: true
+            - name: hermes-soul
+              mountPath: /reload/soul
+              readOnly: true
+            - name: coding-agents-config
+              mountPath: /reload/coding-agents
+              readOnly: true
             - name: vicegerent-secrets
               mountPath: /reload/vicegerent-secrets
               readOnly: true
@@ -67,6 +73,12 @@ spec:
         - name: hermes-config
           configMap:
             name: hermes-config
+        - name: hermes-soul
+          configMap:
+            name: hermes-soul
+        - name: coding-agents-config
+          configMap:
+            name: coding-agents-config
         - name: vicegerent-secrets
           secret:
             secretName: vicegerent-secrets

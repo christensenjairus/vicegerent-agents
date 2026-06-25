@@ -34,6 +34,7 @@ RUNTIME_ITEM="Runtime"
 CA_ITEM="MCP CA"
 HOST_ITEM="Ghostunnel Host"
 CRED_ITEM="Connect Credentials"
+OPENAI_ITEM="OpenAI"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -345,6 +346,33 @@ else
     info "Stored Anthropic key in '$RUNTIME_ITEM'."
   else
     warn "Authorization left unset — set it later before the agent can route to Anthropic."
+  fi
+fi
+
+# --- OpenAI API key (optional) ---------------------------------------------
+step "OpenAI API key"
+if op_field_exists "$OPENAI_ITEM" "Authorization"; then
+  info "OpenAI key already set in '$OPENAI_ITEM' (Authorization); nothing to do."
+else
+  KEY="${OPENAI_API_KEY:-}"
+  if [[ -z "$KEY" ]]; then
+    if [[ "$ASSUME_YES" == "1" ]]; then
+      warn "No OPENAI_API_KEY in environment and --yes is set; leaving it unset (optional)."
+    else
+      echo
+      echo "${Y}CHANGE:${N} Store the OpenAI API key in '$OPENAI_ITEM' (Authorization)."
+      echo "  Optional — the GPT models simply won't route until it is set."
+      read -r -s -p "  OpenAI API key (sk-..., empty to skip): " KEY; echo
+    fi
+  fi
+  ensure_item "$OPENAI_ITEM"
+  if [[ -n "$KEY" ]]; then
+    op item edit "$OPENAI_ITEM" --vault "$VAULT" "Authorization[concealed]=$KEY" >/dev/null
+    unset KEY
+    info "Stored OpenAI key in '$OPENAI_ITEM'."
+  else
+    op item edit "$OPENAI_ITEM" --vault "$VAULT" "Authorization[concealed]=" >/dev/null
+    warn "OpenAI Authorization left empty — GPT models are unavailable until set."
   fi
 fi
 

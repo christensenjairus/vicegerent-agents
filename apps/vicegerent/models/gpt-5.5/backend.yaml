@@ -1,0 +1,35 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: gpt-5-5
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: openai-gpt-5-5
+            openai:
+              model: gpt-5.5
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-openai-secrets
+              ai:
+                routes:
+                  /v1/responses: Responses
+                  /v1/chat/completions: Completions
+                  '*': Passthrough
+      - providers:
+          - name: openai-gpt-4-1
+            openai:
+              model: gpt-4.1
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-openai-secrets
+              ai:
+                routes:
+                  /v1/responses: Responses
+                  /v1/chat/completions: Completions
+                  '*': Passthrough
