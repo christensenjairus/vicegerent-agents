@@ -28,6 +28,15 @@ hf_hub_download("openbmb/MiniCPM5-1B-GGUF", "MiniCPM5-1B-Q4_K_M.gguf",
 snapshot_download("qdrant/bge-small-en-v1.5-onnx-q",
                   cache_dir="/seed/cache/fastembed")
 PY
+# local_dir leaves a .cache/huggingface metadata dir next to the GGUF; it's
+# download bookkeeping mnemosyne never reads, so drop it before it pollutes the
+# PVC. The fastembed cache_dir layout (blobs/snapshots/refs) is left intact —
+# huggingface-hub needs it verbatim for offline resolution. Then assert both
+# weights actually landed, so a silently-empty seed fails the BUILD loudly here
+# instead of crashing the init-container at runtime.
+RUN rm -rf /seed/mnemosyne/models/.cache \
+    && test -f /seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
+    && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
 
 # Thin Vicegerent derivation of the upstream Hermes Agent image.
 # Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
@@ -45,6 +54,8 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
 # under the churnier requirements/npm/binary layers below. An init-container
 # copies this into the PVC's $HOME/.hermes on first boot (see sandbox.yaml).
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
+RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
+    && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
 
 # shellcheck: bash-language-server delegates ALL diagnostics to it. Without it
 # the server runs but reports nothing — a silent no-op. apt package in trixie.
