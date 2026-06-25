@@ -4,6 +4,8 @@ kind: Sandbox
 metadata:
   name: hermes
   namespace: agent-sandbox
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: Disabled
 spec:
   podTemplate:
     spec:

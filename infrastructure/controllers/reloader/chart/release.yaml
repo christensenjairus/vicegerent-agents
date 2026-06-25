@@ -15,6 +15,7 @@ spec:
     remediation:
       retries: -1
     crds: CreateReplace
+    force: true
   chart:
     spec:
       chart: reloader

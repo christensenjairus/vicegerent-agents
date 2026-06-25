@@ -17,6 +17,7 @@ spec:
     remediation:
       retries: -1
     crds: CreateReplace
+    force: true
   interval: 30m
   chart:
     spec:

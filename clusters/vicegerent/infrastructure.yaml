@@ -43,3 +43,4 @@ spec:
   path: ./infrastructure/controllers
   prune: true
   wait: true
+  force: true
