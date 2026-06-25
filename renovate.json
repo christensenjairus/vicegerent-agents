@@ -114,6 +114,16 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
+        "/^images/agentgateway-proxy/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+ARG AGW_VERSION=(?<currentValue>[^\\s]+)"
+      ],
+      "versioningTemplate": "semver"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
         "/^\\.gitlab-ci\\.yml$/"
       ],
       "matchStrings": [
