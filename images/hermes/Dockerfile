@@ -22,6 +22,12 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.6.19"
 
+# shellcheck: bash-language-server delegates ALL diagnostics to it. Without it
+# the server runs but reports nothing — a silent no-op. apt package in trixie.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends shellcheck \
+    && rm -rf /var/lib/apt/lists/*
+
 # Python packages the egress-locked sandbox can't install at runtime. Add a
 # package by editing requirements.txt; Renovate tracks it natively, no
 # renovate.json change. Installed into the baked venv (on PATH, not /opt/data),

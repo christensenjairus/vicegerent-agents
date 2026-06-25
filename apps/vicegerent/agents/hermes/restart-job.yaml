@@ -12,8 +12,6 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: hermes-restart
-      annotations:
-        vicegerent.hahomelabs.com/restart-trigger: unset
     spec:
       serviceAccountName: hermes-restart
       restartPolicy: OnFailure
@@ -48,6 +46,9 @@ spec:
                 --ignore-not-found \
                 --wait=false
           volumeMounts:
+            - name: hermes-sandbox-spec
+              mountPath: /reload/sandbox-spec
+              readOnly: true
             - name: hermes-config
               mountPath: /reload/config
               readOnly: true
@@ -60,6 +61,9 @@ spec:
             - name: tmp
               mountPath: /tmp
       volumes:
+        - name: hermes-sandbox-spec
+          configMap:
+            name: hermes-sandbox-spec
         - name: hermes-config
           configMap:
             name: hermes-config
