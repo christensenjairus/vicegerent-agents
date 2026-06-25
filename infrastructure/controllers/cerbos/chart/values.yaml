@@ -21,7 +21,8 @@ securityContext:
     drop: [ALL]
 volumes:
   - name: policies
-    emptyDir: {}
+    configMap:
+      name: cerbos-policies
 volumeMounts:
   - name: policies
     mountPath: /policies
