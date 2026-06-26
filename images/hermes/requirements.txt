@@ -3,6 +3,6 @@
 # the agent needs at runtime must be installed here at build time.
 # Pinned for reproducibility; Renovate's pip_requirements manager tracks updates.
 # Add a package = add a line. No renovate.json change needed.
-mnemosyne-hermes[all]==0.1.8
+mnemosyne-hermes[all]==0.2.0
 pygount==3.2.0
 rtk-hermes==1.2.3
