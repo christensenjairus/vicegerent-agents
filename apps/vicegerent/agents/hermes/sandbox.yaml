@@ -22,12 +22,7 @@ spec:
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           imagePullPolicy: Always
           command: [sh, -c]
-          args:
-            - |
-              set -eu
-              chown 10000:10000 /run
-              mkdir -p /opt/data/.codex
-              chown -R 10000:10000 /opt/data/.codex
+          args: ["set -eu\nchown 10000:10000 /run\n"]
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -37,7 +32,7 @@ spec:
               mountPath: /run
             - name: data
               mountPath: /opt/data
-        - name: seed-mnemosyne
+        - name: seed-data
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           imagePullPolicy: Always
           command: [bash, -c]
@@ -50,13 +45,17 @@ spec:
               cp -an /opt/hermes/mnemosyne-seed/cache/fastembed/. "${dest}/cache/fastembed/"
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
-              # claude-code reads MCP servers only from the stateful ~/.claude.json
-              # (user scope), never from settings.json. Seed it once; claude then
-              # owns the file, so don't clobber on later boots.
-              claudejson=/opt/data/.claude.json
-              if [ ! -f "${claudejson}" ]; then
-                printf '%s\n' '{"mcpServers":{"mnemosyne":{"type":"stdio","command":"/opt/hermes/.venv/bin/mnemosyne","args":["mcp"]}}}' > "${claudejson}"
-              fi
+              # Coding-agent config homes live on the PVC (CODEX_HOME / CLAUDE_CONFIG_DIR
+              # point here) so they stay writable under the main container's
+              # readOnlyRootFilesystem. The two ConfigMaps are the source of truth and
+              # are mounted here read-only; seed them onto the PVC each boot. Overwrite
+              # the config files (image/ConfigMap owns config + pre-trust) while leaving
+              # agent-written runtime state (history, sessions, sqlite, transcripts —
+              # different filenames in the same dirs) untouched.
+              mkdir -p /opt/data/.codex /opt/data/.claude
+              cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
+              cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
+              cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
@@ -68,6 +67,12 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            - name: codex-config
+              mountPath: /reload/codex-config
+              readOnly: true
+            - name: claude-config
+              mountPath: /reload/claude-config
+              readOnly: true
       containers:
         - name: hermes
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
@@ -78,6 +83,17 @@ spec:
               value: '1'
             - name: HERMES_DASHBOARD_HOST
               value: 127.0.0.1
+            # Coding-agent config homes on the PVC (seeded by seed-data) so they
+            # stay writable under readOnlyRootFilesystem.
+            - name: CODEX_HOME
+              value: /opt/data/.codex
+            - name: CLAUDE_CONFIG_DIR
+              value: /opt/data/.claude
+            # Redirect transient writes off the now read-only rootfs.
+            - name: TMPDIR
+              value: /tmp
+            - name: PYTHONDONTWRITEBYTECODE
+              value: '1'
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -98,11 +114,14 @@ spec:
               name: dashboard
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities:
               drop: [ALL]
           volumeMounts:
             - name: runtime
               mountPath: /run
+            - name: tmp
+              mountPath: /tmp
             - name: data
               mountPath: /opt/data
             - name: gitrepos
@@ -113,14 +132,10 @@ spec:
             - name: hermes-soul
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
-            - name: coding-agents-config
-              mountPath: /opt/data/.claude/settings.json
-              subPath: settings.json
-            - name: coding-agents-config
-              mountPath: /opt/data/.codex/config.toml
-              subPath: config.toml
       volumes:
         - name: runtime
+          emptyDir: {}
+        - name: tmp
           emptyDir: {}
         - name: hermes-config
           configMap:
@@ -128,9 +143,12 @@ spec:
         - name: hermes-soul
           configMap:
             name: hermes-soul
-        - name: coding-agents-config
+        - name: codex-config
           configMap:
-            name: coding-agents-config
+            name: codex-config
+        - name: claude-config
+          configMap:
+            name: claude-config
   volumeClaimTemplates:
     - metadata:
         name: data

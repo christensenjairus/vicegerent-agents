@@ -88,7 +88,7 @@ RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache -r /tmp/requ
 # globally into /usr/local/bin (on PATH); the egress-locked sandbox can't
 # npm-install at runtime. package.json is the single Renovate-tracked source of
 # truth — add a package = add a line. The coding agents' settings + mnemosyne MCP
-# wiring arrive via mounted ConfigMaps (see apps/vicegerent/agents/hermes).
+# wiring + directory trust are baked just below.
 COPY package.json /tmp/npm/package.json
 RUN cd /tmp/npm \
     && npm install --global --no-fund --no-audit \
