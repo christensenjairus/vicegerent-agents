@@ -66,6 +66,15 @@ spec:
               cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
               cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
+              # Initialize the kanban board so its SQLite schema exists at
+              # $HERMES_HOME/kanban.db (the PVC) before first use; PVC-resident, so
+              # the board survives pod restarts. This container is readOnlyRootFilesystem
+              # with no /tmp mount, so point TMPDIR at the PVC. Non-fatal (|| true): the
+              # board also self-inits on the agent's first kanban call, so a CLI hiccup
+              # here must not crash pod boot.
+              mkdir -p /opt/data/tmp
+              HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
+                /opt/hermes/.venv/bin/hermes kanban init || true
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
