@@ -28,6 +28,8 @@ spec:
             patch: |-
               - op: remove
                 path: /spec/template/spec/containers/0/resources/limits/cpu
+              - op: remove
+                path: /spec/template/spec/containers/0/resources/limits/memory
   chart:
     spec:
       chart: agentgateway

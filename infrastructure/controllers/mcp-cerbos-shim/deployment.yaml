@@ -49,8 +49,6 @@ spec:
             requests:
               cpu: 25m
               memory: 32Mi
-            limits:
-              memory: 64Mi
           volumeMounts:
             - name: mapping
               mountPath: /etc/mcp-cerbos-shim

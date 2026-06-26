@@ -18,15 +18,11 @@ connect:
       requests:
         cpu: 12m
         memory: 125Mi
-      limits:
-        memory: 125Mi
   sync:
     imageRepository: 1password/connect-sync
     resources:
       requests:
         cpu: 12m
-        memory: 125Mi
-      limits:
         memory: 125Mi
   version: *connectTag
 operator:
@@ -42,5 +38,3 @@ operator:
     requests:
       cpu: 10m
       memory: 110M
-    limits:
-      memory: 290M

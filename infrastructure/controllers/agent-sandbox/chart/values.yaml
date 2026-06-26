@@ -4,8 +4,6 @@ image:
   repository: registry.k8s.io/agent-sandbox/agent-sandbox-controller
   tag: v0.5.0
 resources:
-  limits:
-    memory: 256Mi
   requests:
     cpu: 10m
     memory: 55Mi
