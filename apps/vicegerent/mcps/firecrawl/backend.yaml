@@ -1,0 +1,15 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: firecrawl
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+      - name: firecrawl
+        static:
+          host: firecrawl.kmcp.svc.cluster.local
+          port: 3000
+          path: /mcp
+          protocol: StreamableHTTP

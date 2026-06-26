@@ -3,7 +3,7 @@ apiVersion: kagent.dev/v1alpha1
 kind: MCPServer
 metadata:
   name: tavily
-  namespace: tavily-mcp
+  namespace: kmcp
 spec:
   deployment:
     image: docker.io/node:24-alpine3.21

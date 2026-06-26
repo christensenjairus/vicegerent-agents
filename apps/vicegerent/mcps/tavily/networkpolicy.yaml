@@ -3,7 +3,7 @@ apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
   name: tavily
-  namespace: tavily-mcp
+  namespace: kmcp
 spec:
   endpointSelector:
     matchLabels:

@@ -1,0 +1,21 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: firecrawl-mcp-tools
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: firecrawl
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - >-
+              mcp.tool.name in ["firecrawl_scrape", "firecrawl_search",
+              "firecrawl_map", "firecrawl_extract", "firecrawl_crawl",
+              "firecrawl_check_crawl_status"]
