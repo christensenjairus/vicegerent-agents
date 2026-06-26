@@ -22,13 +22,29 @@ spec:
       enableServiceLinks: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
         seccompProfile:
           type: RuntimeDefault
       containers:
         - name: graphiti-mcp
           image: docker.io/zepai/knowledge-graph-mcp:1.0.2-graphiti-0.28.2-standalone
           imagePullPolicy: IfNotPresent
+          # The image runs as root and installs uv under /root/.local/bin with
+          # /root mode 0700 — unreachable by a non-root UID. Invoke the project
+          # venv's interpreter directly (equivalent to `uv run --no-sync main.py`,
+          # whose only job is to run main.py in that venv) so the pod can run as
+          # an unprivileged user. The venv path is world-traversable (0755).
+          command: [/app/mcp/.venv/bin/python, main.py]
+          workingDir: /app/mcp
           env:
+            # Non-root HOME/cache must land on a writable volume under the
+            # read-only rootfs; point them at the /tmp emptyDir.
+            - name: HOME
+              value: /tmp
+            - name: XDG_CACHE_HOME
+              value: /tmp
             # Graph store: the in-cluster FalkorDB pod. The bundled
             # config-docker-falkordb.yaml selects the falkordb driver and reads
             # these; FALKORDB_URI overrides its localhost default.
