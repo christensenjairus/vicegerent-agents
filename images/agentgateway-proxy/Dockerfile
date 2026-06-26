@@ -1,4 +1,4 @@
-# syntax=docker/dockerfile:1.11
+# syntax=docker/dockerfile:1.25
 # Vicegerent build of the upstream agentgateway data plane, carrying a single
 # source patch until it lands upstream: a request-phase mcpGuardrails rejection
 # is returned as HTTP 200 + JSON-RPC error (not 400), so MCP clients surface a
