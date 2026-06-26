@@ -4,3 +4,5 @@
 # Pinned for reproducibility; Renovate's pip_requirements manager tracks updates.
 # Add a package = add a line. No renovate.json change needed.
 mnemosyne-hermes[all]==0.1.8
+pygount==3.2.0
+rtk-hermes==1.2.3

@@ -40,8 +40,7 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
 
 # Thin Vicegerent derivation of the upstream Hermes Agent image.
 # Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
-# and pulled from there by the egress-locked sandbox. Remaining bakes (yq/jq/
-# pygount, rtk-hermes) land as their own layers in follow-up cards.
+# and pulled from there by the egress-locked sandbox.
 FROM nousresearch/hermes-agent:v2026.6.19@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
@@ -164,3 +163,50 @@ RUN case "${TARGETARCH}" in \
     && chmod +x /usr/local/bin/tirith \
     && rm /tmp/tirith.tar.gz \
     && tirith --version
+
+# jq + yq: ubiquitous JSON / YAML processors for infra + manifest work. Both are
+# single static binaries from GitHub releases whose asset suffix matches
+# BuildKit's TARGETARCH verbatim (linux-arm64 / linux-amd64 for jq; linux_arm64 /
+# linux_amd64 for yq), so no arch remap is needed. --version smoke-tests each so a
+# wrong-arch or truncated download fails the build loudly. Renovate github-releases
+# ARGs (jq tag is "jq-<ver>", so the bare version is composed below). Deliberately
+# NOT baking kubectl/helm/gh/glab/terraform/aws — those belong to the MCP servers.
+# renovate: datasource=github-releases depName=jqlang/jq
+ARG JQ_VERSION=1.8.2
+# renovate: datasource=github-releases depName=mikefarah/yq
+ARG YQ_VERSION=v4.53.3
+ARG TARGETARCH
+RUN curl -fsSL -o /usr/local/bin/jq \
+        "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
+    && chmod +x /usr/local/bin/jq \
+    && jq --version \
+    && curl -fsSL -o /usr/local/bin/yq \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH}" \
+    && chmod +x /usr/local/bin/yq \
+    && yq --version
+
+# rtk ("Rust Token Killer", rtk-ai/rtk): a CLI proxy that rewrites verbose tool
+# output into token-minimized form before it reaches the LLM context. The
+# rtk-hermes pip package (requirements.txt) registers the `rtk-rewrite` plugin,
+# which on each terminal command shells out to `rtk rewrite` and locates it via
+# shutil.which — so the binary MUST be on PATH or the plugin fails-open and
+# silently no-ops. Static Rust release binary, `rtk` at the tarball top level.
+# Arch quirk worth noting: arm64 ships an unknown-linux-gnu build but x86_64
+# ships ONLY unknown-linux-musl (there is no x86_64-gnu asset), so the case maps
+# each TARGETARCH to its actual triple rather than assuming a uniform suffix.
+# `rtk --version` smoke-tests the correct-arch bake. No pinned checksum — matches
+# the terraform-ls/tirith convention (CI here has no image-build stage).
+# renovate: datasource=github-releases depName=rtk-ai/rtk
+ARG RTK_VERSION=v0.42.4
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        arm64) RTK_TRIPLE=aarch64-unknown-linux-gnu ;; \
+        amd64) RTK_TRIPLE=x86_64-unknown-linux-musl ;; \
+        *) echo "rtk: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/rtk.tar.gz \
+        "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/rtk-${RTK_TRIPLE}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/rtk.tar.gz rtk \
+    && chmod +x /usr/local/bin/rtk \
+    && rm /tmp/rtk.tar.gz \
+    && rtk --version
