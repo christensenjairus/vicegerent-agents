@@ -210,3 +210,42 @@ RUN case "${TARGETARCH}" in \
     && chmod +x /usr/local/bin/rtk \
     && rm /tmp/rtk.tar.gz \
     && rtk --version
+
+# Tool Search context-length probe fix — source patch to the installed Hermes.
+# model_tools.py::_resolve_active_context_length() sizes the active model's
+# context window to gate Tool Search (defers MCP/plugin tools when their schemas
+# exceed a % of the window). Upstream calls get_model_context_length() with ONLY
+# the model id, so neither the explicit `model.context_length` override nor the
+# per-custom-provider override can resolve, and it falls through to a step-6
+# `GET openrouter.ai/api/v1/models` HTTP fetch. In the egress-locked sandbox that
+# connect is blackholed and retried IPv4+IPv6, adding ~30s to EVERY CLI start.
+# Our providers are custom (`opus`/agentgateway) names with no built-in mapping,
+# so this fires unconditionally. The patch threads base_url/config_context_length/
+# custom_providers into the call so resolution short-circuits from local config —
+# no network — while Tool Search keeps working (it gets a real window to threshold
+# against, which matters once many MCP servers are added). The patcher is
+# fail-loud: it aborts the build if the upstream anchor is missing or duplicated
+# (a refactor signal), and is idempotent on re-run. The post-step asserts the
+# marker landed and that the resolver returns a positive value with sockets
+# blocked, so a silently-ineffective patch fails the BUILD here, not at runtime.
+# Remove once the upstream fix lands.
+COPY patches/0001-toolsearch-context-length.py /tmp/0001-toolsearch-context-length.py
+RUN /opt/hermes/.venv/bin/python /tmp/0001-toolsearch-context-length.py \
+    && /opt/hermes/.venv/bin/python -c "import importlib.util as u; p=u.find_spec('model_tools').origin; s=open(p).read(); assert 'custom_providers=_cps) or 0)' in s, 'toolsearch patch marker missing after apply'; print('toolsearch context-length patch verified in', p)" \
+    && /opt/hermes/.venv/bin/python - <<'PY'
+import socket
+socket.socket.connect = lambda self, addr: (_ for _ in ()).throw(RuntimeError(f"network attempted: {addr}"))
+import hermes_cli.config as C
+C.load_config = lambda *a, **k: {
+    "model": {"provider": "opus", "default": "claude-opus-4-8",
+              "base_url": "http://example.invalid/opus"},
+    "providers": {"opus": {"name": "Opus", "api": "http://example.invalid/opus",
+                  "default_model": "claude-opus-4-8",
+                  "models": {"claude-opus-4-8": {"context_length": 1000000}}}},
+}
+import model_tools
+v = model_tools._resolve_active_context_length()
+assert v == 1000000, f"offline resolution returned {v}, expected 1000000"
+print("toolsearch patch: offline context-length resolution OK ->", v)
+PY
+RUN rm -f /tmp/0001-toolsearch-context-length.py
