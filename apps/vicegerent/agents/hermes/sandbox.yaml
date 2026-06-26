@@ -30,11 +30,7 @@ spec:
             - |
               set -eu
               chown 10000:10000 /run
-              # Reclaim the coding-agent config homes for the non-root agent.
-              # Stale root-owned files persist on the PVC from the previous
-              # design (ConfigMap subPath mounts created /opt/data/.claude and
-              # .codex as uid 0), which makes the uid-10000 seed-data cp fail
-              # with EPERM. chown -R is idempotent and harmless on fresh PVCs.
+              # chown -R: stale uid-0 dirs from old subPath design cause EPERM on reseed; idempotent on fresh PVCs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
           securityContext:
@@ -55,17 +51,7 @@ spec:
               set -euo pipefail
               dest="/opt/data/.hermes"
               mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins
-              # The mnemosyne LLM + fastembed ONNX cache are large and content-stable,
-              # so they are seeded once and skipped on later boots. To let a rebuilt
-              # image with upgraded weights actually replace the PVC copy, gate the copy
-              # on the seed's content digest (baked at build, see images/hermes/Dockerfile):
-              # re-seed only when the image digest differs from the marker last written to
-              # the PVC. Unchanged boots compare one small file and skip the ~720MB walk.
-              # rm-first so renamed/removed weights don't linger; cp -a preserves the
-              # HuggingFace symlink cache layout. The rm is scoped to these two seed-only
-              # subdirs (mnemosyne/models, cache/fastembed) and never touches ${dest}
-              # itself or ${dest}/mnemosyne/ — so agent-written state (the mnemosyne DB,
-              # plugins symlink, codex/claude homes) is untouched.
+              # digest-gated reseed: only re-copy when image digest changes; rm-first so stale weights don't linger.
               seed="/opt/hermes/mnemosyne-seed"
               marker="${dest}/.mnemosyne-seed.sha256"
               want="$(cat "${seed}.sha256")"
@@ -78,23 +64,12 @@ spec:
               fi
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
-              # Coding-agent config homes live on the PVC (CODEX_HOME / CLAUDE_CONFIG_DIR
-              # point here) so they stay writable under the main container's
-              # readOnlyRootFilesystem. The two ConfigMaps are the source of truth and
-              # are mounted here read-only; seed them onto the PVC each boot. Overwrite
-              # the config files (image/ConfigMap owns config + pre-trust) while leaving
-              # agent-written runtime state (history, sessions, sqlite, transcripts —
-              # different filenames in the same dirs) untouched.
+              # Seed ConfigMap-owned config files; agent runtime state uses different files in the same dirs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
               cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
-              # Initialize the kanban board so its SQLite schema exists at
-              # $HERMES_HOME/kanban.db (the PVC) before first use; PVC-resident, so
-              # the board survives pod restarts. This container is readOnlyRootFilesystem
-              # with no /tmp mount, so point TMPDIR at the PVC. Non-fatal (|| true): the
-              # board also self-inits on the agent's first kanban call, so a CLI hiccup
-              # here must not crash pod boot.
+              # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
               mkdir -p /opt/data/tmp
               HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
                 /opt/hermes/.venv/bin/hermes kanban init || true
@@ -147,21 +122,18 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            # Pin tui-gateway session model+provider (config.yaml is read-only;
-            # provider binding must come from env). See MR for rationale.
+            # config.yaml is read-only; model/provider binding must come from env.
             - name: HERMES_MODEL
               value: claude-opus-4-8
             - name: HERMES_TUI_PROVIDER
               value: opus
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
-            # Coding-agent config homes on the PVC (seeded by seed-data) so they
-            # stay writable under readOnlyRootFilesystem.
+            # Config homes on PVC (seeded by seed-data) to stay writable under readOnlyRootFilesystem.
             - name: CODEX_HOME
               value: /opt/data/.codex
             - name: CLAUDE_CONFIG_DIR
               value: /opt/data/.claude
-            # Redirect transient writes off the now read-only rootfs.
             - name: TMPDIR
               value: /tmp
             - name: PYTHONDONTWRITEBYTECODE

@@ -38,13 +38,10 @@ spec:
       memory: 128Mi
   service:
     spec:
-      type: ClusterIP
       ports:
         - name: listener-80
           port: 80
-          protocol: TCP
           targetPort: 80
         - name: metrics
           port: 15020
-          protocol: TCP
           targetPort: 15020

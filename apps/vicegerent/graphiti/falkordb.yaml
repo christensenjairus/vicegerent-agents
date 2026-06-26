@@ -8,7 +8,6 @@ metadata:
     app.kubernetes.io/name: falkordb
 spec:
   serviceName: falkordb
-  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: falkordb
@@ -29,7 +28,6 @@ spec:
       containers:
         - name: falkordb
           image: docker.io/falkordb/falkordb:v4.18.11-alpine
-          imagePullPolicy: IfNotPresent
           command: [redis-server]
           args:
             - --loadmodule

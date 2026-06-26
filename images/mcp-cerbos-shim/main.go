@@ -20,8 +20,7 @@ import (
 func main() {
 	cfg := loadEnv()
 
-	// Load + compile mapping. Any failure here aborts startup (fail closed):
-	// k8s restarts the pod and the gateway's FailClosed denies meanwhile.
+	// Startup failure is fail-closed: k8s restarts the pod, gateway FailClosed denies meanwhile.
 	mapping, err := config.Load(cfg.mappingPath)
 	if err != nil {
 		log.Fatalf("FATAL load mapping: %v", err)

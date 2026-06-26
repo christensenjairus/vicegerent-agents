@@ -1,4 +1,4 @@
-// Package config loads and validates the connector's tool→policy mapping.
+// Package config loads and validates the connector's tool-to-policy mapping.
 //
 // The mapping is the single source of truth for how each MCP (backend, tool)
 // call is translated into a Cerbos CheckResources request. Every value under
@@ -30,8 +30,8 @@ type Mapping struct {
 
 // Backend is one MCP server's policy mapping.
 type Backend struct {
-	// DefaultAction governs unmapped tools AND unmapped request-phase methods.
-	// "deny" is the safe default; the k8s backend MUST use it.
+	// DefaultAction governs unmapped tools and unmapped request-phase methods.
+	// Use "deny" unless an allow-default backend is intentional.
 	DefaultAction DefaultAction `yaml:"defaultAction"`
 	// Helpers names the backend-scoped CEL helper functions in scope for this
 	// backend (e.g. "canonicalK8s"). A helper named here but unknown to the

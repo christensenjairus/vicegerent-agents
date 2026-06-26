@@ -32,8 +32,7 @@ func TestRegisterHelperDuplicatePanics(t *testing.T) {
 	registerHelper("canonicalK8s", func() []cel.EnvOption { return nil })
 }
 
-// A backend that does not list canonicalK8s must not have it in scope — the
-// helper stays backend-scoped, not global.
+// A backend that does not list canonicalK8s must not have it in scope.
 func TestHelperNotInScopeWithoutOptIn(t *testing.T) {
 	env, err := newEnv(nil)
 	if err != nil {

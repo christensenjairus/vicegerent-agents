@@ -1,19 +1,6 @@
 ---
-# Resource policy for k8s MCP tool calls proxied through agentgateway.
-# The ExtMCP shim maps each MCP tool call to a CheckResources request:
-# principal = calling agent, resource = the k8s object the tool targets
-# (kind/apiResource/namespace), action = the MCP tool name.
-#
-# Division of responsibility: agentgateway's tool-name allowlist decides WHICH
-# tools an agent may call at all. This policy makes every deny decision on top
-# of that — the shim only standardizes fields, it never denies. Two denies:
-#   1. deny-secrets    — block any instance that touches a Secret.
-#   2. deny-no-kind     — a kind-bearing tool call with no resolvable kind is
-#      ambiguous (we can't prove it isn't a Secret), so fail closed.
-# Everything else is allowed. DENY beats ALLOW in Cerbos, so order is irrelevant.
-# We deliberately do NOT enumerate readable tools/kinds (that would duplicate the
-# gateway allowlist) and do NOT gate on principal role (one agent per sandbox;
-# identity is enforced by the namespace/network lock, not here).
+# k8s_resource policy: deny Secrets (deny-secrets) and unresolvable kind (deny-no-kind); allow everything else.
+# Do NOT add tools/kinds here to permit them; that belongs in the gateway allowlist.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default

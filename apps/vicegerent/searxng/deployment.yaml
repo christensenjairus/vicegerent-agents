@@ -7,7 +7,6 @@ metadata:
   labels:
     app.kubernetes.io/name: searxng
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: searxng
@@ -28,7 +27,6 @@ spec:
       containers:
         - name: searxng
           image: docker.io/searxng/searxng:2026.6.24-e3126b89e
-          imagePullPolicy: IfNotPresent
           env:
             - name: SEARXNG_SECRET
               valueFrom:

@@ -1,19 +1,7 @@
 ---
-# mcp-cerbos-shim mapping (deploy). See images/mcp-cerbos-shim/mapping.example.yaml
-# for the annotated reference and the shim README for the division of
-# responsibility. In short: agentgateway's tool-name allowlist gates WHICH
-# tools an agent may call; this mapping exists ONLY to extract a Secret
-# reference from the tools that can carry one, so Cerbos can block it.
-#
-# defaultAction: allow — a tool with no mapping entry passes straight through.
-# We map ONLY the kind-bearing tools (the only ones that can name a Secret);
-# every other tool (getEvents, getNodeMetrics, getPodMetrics, getPodsLogs, ...)
-# is non-secret by construction and needs no entry. This avoids a second
-# allowlist that would drift from the gateway's.
-#
-# The shim never denies — it only standardizes fields (canonicalK8s) so the
-# Cerbos policy can decide. A kind-bearing call with no resolvable kind reaches
-# Cerbos as kind=='' and is denied there (deny-no-kind), not here.
+# mcp-cerbos-shim mapping. See mapping.example.yaml + shim README for full docs.
+# Only kind-bearing tools are mapped; unmapped tools pass (defaultAction: allow).
+# Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
 backends:
   kubernetes:
     defaultAction: allow

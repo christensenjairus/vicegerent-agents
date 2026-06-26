@@ -29,9 +29,7 @@ spec:
           rules:
             dns:
               - matchPattern: '*'
-    # Embeddings (and the never-called chat path) route through agentgateway,
-    # which holds the real OpenAI key. No direct world egress — Graphiti never
-    # reaches api.openai.com itself.
+    # LLM/embeddings via agentgateway only; no direct world egress.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: agentgateway-system

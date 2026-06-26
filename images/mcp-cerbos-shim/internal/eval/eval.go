@@ -1,7 +1,7 @@
 // Package eval compiles the mapping's CEL expressions and evaluates them per
 // call. It standardizes a tool call into a Cerbos resource (kind/apiResource/
 // namespace/action); it does not make policy decisions. Error paths here deny
-// only on the shim's own malfunction (CEL eval failure, malformed result) — a
+// only on the shim's own malfunction (CEL eval failure, malformed result); a
 // half-built resource must never reach Cerbos. The policy denies (Secrets, and
 // the empty-kind ambiguity) are made by Cerbos, not here.
 package eval
@@ -68,15 +68,13 @@ func Compile(m *config.Mapping) (*Engine, error) {
 	return e, nil
 }
 
-// newEnv builds a CEL environment with the standard variables and the requested
-// backend-scoped helpers. A helper named in config but unknown here is fatal.
+// newEnv builds the CEL environment; unknown helper name is fatal (fail closed).
 func newEnv(helpers []string) (*cel.Env, error) {
 	opts := []cel.EnvOption{
 		cel.Variable("tool", cel.StringType),
 		cel.Variable("backend", cel.StringType),
 		cel.Variable("method", cel.StringType),
 		cel.Variable("args", cel.MapType(cel.StringType, cel.DynType)),
-		// get(map, key, default) — case-insensitive key lookup with fallback.
 		getFunc(),
 	}
 	for _, h := range helpers {
@@ -192,11 +190,7 @@ func (e *Engine) Eval(in CallInput) (*Resource, error) {
 	if err != nil {
 		return nil, &ErrDeny{Reason: fmt.Sprintf("id eval: %v", err)}
 	}
-	// Cerbos rejects an empty resource.id (InvalidArgument), which the shim would
-	// then fail-closed on — so a collection call (listResources: id '') could
-	// never be evaluated by policy, only ever denied on the malformed request.
-	// Substitute a collection marker; the policy keys on kind/apiResource+action,
-	// never on id, so this is safe and lets Cerbos make a real decision.
+	// empty id causes Cerbos InvalidArgument and shim fail-closed; use "*" so policy can decide.
 	if id == "" {
 		id = "*"
 	}

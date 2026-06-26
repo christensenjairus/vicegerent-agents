@@ -1,6 +1,6 @@
 {
   "name": "vicegerent-hermes-npm",
-  "description": "All globally-installed npm CLIs baked into the sandbox image, since the egress-locked sandbox cannot npm-install at runtime. Two groups: LSP servers from Hermes' INSTALL_RECIPES (agent/lsp/install.py) that Hermes launches by binary name for semantic diagnostics, and the coding-agent CLIs (claude-code, codex) Hermes delegates to. gopls (Go) is built in a separate Dockerfile stage; the three manual-only LSPs (rust-analyzer, clangd, lua-language-server) are intentionally excluded. Add a package = add a line; Renovate's native npm manager tracks them all.",
+  "description": "Global npm CLIs baked into the egress-locked Hermes sandbox image.",
   "private": true,
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.193",

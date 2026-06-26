@@ -1,22 +1,11 @@
-# gopls (Go LSP) is not on npm and the base image has no Go toolchain. Build it
-# in a throwaway stage and copy only the ~30MB binary into the final image. The
-# version ARG carries the leading "v" to match the Go module pseudo-version
-# (Renovate go datasource). GOTOOLCHAIN=auto lets `go` fetch the exact toolchain
-# gopls's go.mod requires, so a Renovate gopls bump that needs a newer Go than
-# the builder ships self-heals instead of breaking the build.
+# gopls is built in a throwaway stage; GOTOOLCHAIN=auto handles newer Renovate bumps.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
 ARG GOPLS_VERSION=v0.22.0
 FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
-# Mnemosyne models, staged so the egress-locked sandbox never fetches them at
-# runtime. Mnemosyne pulls both lazily under $HOME/.hermes — which the data PVC
-# shadows — so they're baked here and an init-container seeds them onto the PVC
-# on first boot (see sandbox.yaml). bge-small (~63MB) is the embedding model hit
-# on every recall; MiniCPM5-1B Q4_K_M (~656MB) is the sleep-consolidation LLM.
-# Both are GGUF/ONNX weights — arch-agnostic — so this stage carries no platform.
-# huggingface-hub's cache layout is what fastembed and mnemosyne expect verbatim.
+# Offline Mnemosyne seed for the egress-locked sandbox; preserve HF cache layout.
 FROM python:3.14-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
 ARG HUGGINGFACE_HUB_VERSION=1.16.1
@@ -28,19 +17,12 @@ hf_hub_download("openbmb/MiniCPM5-1B-GGUF", "MiniCPM5-1B-Q4_K_M.gguf",
 snapshot_download("qdrant/bge-small-en-v1.5-onnx-q",
                   cache_dir="/seed/cache/fastembed")
 PY
-# local_dir leaves a .cache/huggingface metadata dir next to the GGUF; it's
-# download bookkeeping mnemosyne never reads, so drop it before it pollutes the
-# PVC. The fastembed cache_dir layout (blobs/snapshots/refs) is left intact —
-# huggingface-hub needs it verbatim for offline resolution. Then assert both
-# weights actually landed, so a silently-empty seed fails the BUILD loudly here
-# instead of crashing the init-container at runtime.
+# Drop GGUF download metadata, keep fastembed's HF cache layout, and fail build if the seed is empty.
 RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -f /seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
     && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
 
-# Thin Vicegerent derivation of the upstream Hermes Agent image.
-# Built on a laptop with internet, pushed to harbor.hahomelabs.com/vicegerent,
-# and pulled from there by the egress-locked sandbox.
+# Thin Vicegerent derivation of upstream Hermes Agent.
 FROM nousresearch/hermes-agent:v2026.6.19@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
@@ -48,63 +30,37 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.6.19"
 
-# Mnemosyne model seed (~720MB, content-stable) baked outside /opt/data so the
-# data PVC doesn't shadow it. Placed early: it rarely changes, so it stays cached
-# under the churnier requirements/npm/binary layers below. An init-container
-# copies this into the PVC's $HOME/.hermes on first boot (see sandbox.yaml).
+# Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
     && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
-# Content digest of the seed, computed once at build. The init-container (see
-# sandbox.yaml) compares this against a marker on the PVC and re-seeds only when it
-# differs, so a rebuilt image with upgraded weights actually replaces the otherwise
-# copy-once PVC copy. sort -k2 normalizes find's order so unrelated rebuilds don't
-# perturb the digest. Written beside the seed dir so it's never copied onto the PVC.
+# Stable seed digest for init-container reseed-on-change.
 RUN find /opt/hermes/mnemosyne-seed -type f -exec sha256sum {} + \
       | sort -k2 | sha256sum | cut -d' ' -f1 > /opt/hermes/mnemosyne-seed.sha256
 
-# shellcheck: bash-language-server delegates ALL diagnostics to it. Without it
-# the server runs but reports nothing — a silent no-op. apt package in trixie.
+# shellcheck is required by bash-language-server for diagnostics.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends shellcheck \
     && rm -rf /var/lib/apt/lists/*
 
-# Network debugging tools for diagnosing egress / CiliumNetworkPolicy issues from
-# inside the egress-locked sandbox. Default-deny DROPS (doesn't reject) a blocked
-# outbound connect, so it hangs in SYN-SENT until timeout — `ss -tanp state
-# syn-sent` names the stuck dest IP:port + PID with zero added capabilities. dig/
-# nslookup (dnsutils) catch DNS stalls; nc (netcat-openbsd) probes raw TCP port
-# reachability. curl is already in the base image. Deliberately NOT strace or
-# tcpdump: those need CAP_SYS_PTRACE / CAP_NET_RAW, which the locked-down sandbox
-# securityContext strips — they would bake fine but fail to attach at runtime.
+# Network debug tools that work without extra caps; blocked egress shows in ss SYN-SENT.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends iproute2 dnsutils netcat-openbsd \
     && rm -rf /var/lib/apt/lists/*
 
-# Python packages the egress-locked sandbox can't install at runtime. Add a
-# package by editing requirements.txt; Renovate tracks it natively, no
-# renovate.json change. Installed into the baked venv (on PATH, not /opt/data),
-# so no init-container seeding is needed.
+# Runtime Python deps for the egress-locked sandbox; Renovate tracks requirements.txt.
 COPY requirements.txt /tmp/requirements.txt
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
-# Global npm CLIs: LSP servers Hermes launches by binary name for diagnostics,
-# plus the coding-agent CLIs (claude-code, codex) Hermes delegates to. Installed
-# globally into /usr/local/bin (on PATH); the egress-locked sandbox can't
-# npm-install at runtime. package.json is the single Renovate-tracked source of
-# truth — add a package = add a line. The coding agents' settings + mnemosyne MCP
-# wiring + directory trust are baked just below.
+# Global npm CLIs used by Hermes/coding agents; package.json is the Renovate-tracked source.
 COPY package.json /tmp/npm/package.json
 RUN cd /tmp/npm \
     && npm install --global --no-fund --no-audit \
         $(node -p "Object.entries(require('./package.json').dependencies).map(([k,v])=>k+'@'+v).join(' ')") \
     && rm -rf /tmp/npm /root/.npm
 
-# terraform-ls: a HashiCorp Go binary (not on npm). The version ARG carries the
-# leading "v" to match its GitHub release tag (Renovate github-releases); the
-# HashiCorp download URL has no "v", so it is stripped below. TARGETARCH is
-# provided by BuildKit and matches HashiCorp's arch naming (arm64/amd64).
+# terraform-ls is downloaded from HashiCorp releases; strip leading v for URL.
 # renovate: datasource=github-releases depName=hashicorp/terraform-ls
 ARG TERRAFORM_LS_VERSION=v0.38.7
 ARG TARGETARCH
@@ -116,23 +72,10 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
     && rm /tmp/terraform-ls.zip \
     && terraform-ls version
 
-# gopls binary from the build stage above (Go is this repo's primary language —
-# the mcp-cerbos-shim is Go). Copied onto PATH; no Go toolchain in the final image.
+# Copy gopls only; no Go toolchain in final image.
 COPY --from=gopls /out/gopls /usr/local/bin/gopls
 
-# hermes-lcm context engine — the Lossless Context Management plugin selected by
-# context.engine: lcm in apps/vicegerent/agents/hermes/config.yaml. Without it
-# Hermes logs "Context engine 'lcm' not found" and silently falls back to the
-# built-in compressor. It is a pure-stdlib plugin (no PyPI deps) that lives in
-# Hermes' BUNDLED plugins/context_engine/<name>/ tree, which is loaded by the
-# dedicated context-engine discovery, NOT the general ~/.hermes/plugins system —
-# so `hermes plugins install` does not place it correctly. The destination is
-# resolved from the installed Hermes package (plugins.context_engine.__file__) so
-# it tracks the base image's layout instead of hardcoding a path. It is on PATH /
-# in the venv tree, NOT under /opt/data, so the data PVC does not shadow it and no
-# init-container seeding is needed. The version ARG carries the leading "v" to
-# match the GitHub release tag (Renovate github-releases); GitHub's archive top
-# dir drops the "v", so --strip-components=1 flattens it into place.
+# hermes-lcm must live in Hermes' bundled context_engine tree, not ~/.hermes/plugins.
 # renovate: datasource=github-releases depName=stephenschoettler/hermes-lcm
 ARG HERMES_LCM_VERSION=v0.18.0
 RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine as p, os; print(os.path.dirname(p.__file__))')/lcm" \
@@ -141,21 +84,7 @@ RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine a
         | tar -xz -C "$LCM_DEST" --strip-components=1 \
     && /opt/hermes/.venv/bin/python -c "from plugins.context_engine import discover_context_engines as d; assert 'lcm' in [n for n, _, _ in d()], 'lcm engine not discovered after bake'; print('hermes-lcm ${HERMES_LCM_VERSION} baked + discoverable')"
 
-# tirith: Hermes' pre-exec command security scanner (security.tirith_enabled
-# defaults true; security.tirith_path "tirith" resolves the bare name via PATH).
-# It screens each shell command for content-level threats — homograph/punycode
-# URLs, pipe-to-interpreter, terminal-escape injection — returning allow/block/
-# warn before the command runs. The egress-locked sandbox can't run Hermes'
-# runtime auto-download (it would hit the Cilium egress wall and fail open), so
-# bake the binary onto PATH; Hermes resolves it via shutil.which first and never
-# reaches for the network. A Rust release binary from the same GitHub release the
-# Hermes installer pulls; the target-triple arch maps from BuildKit's TARGETARCH
-# (arm64->aarch64, amd64->x86_64). The tarball carries the `tirith` binary at top
-# level (alongside shell completions + a man page we don't need), so only that
-# member is extracted. `tirith --version` smoke-tests that the correct-arch
-# binary landed, failing the build loudly otherwise. No pinned checksum — matches
-# the terraform-ls/gopls convention here, since this repo's CI has no image-build
-# stage to refresh a hash on a Renovate bump.
+# Bake tirith pre-exec scanner; runtime auto-download would fail behind egress policy.
 # renovate: datasource=github-releases depName=sheeki03/tirith
 ARG TIRITH_VERSION=v0.3.3
 ARG TARGETARCH
@@ -171,13 +100,7 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/tirith.tar.gz \
     && tirith --version
 
-# jq + yq: ubiquitous JSON / YAML processors for infra + manifest work. Both are
-# single static binaries from GitHub releases whose asset suffix matches
-# BuildKit's TARGETARCH verbatim (linux-arm64 / linux-amd64 for jq; linux_arm64 /
-# linux_amd64 for yq), so no arch remap is needed. --version smoke-tests each so a
-# wrong-arch or truncated download fails the build loudly. Renovate github-releases
-# ARGs (jq tag is "jq-<ver>", so the bare version is composed below). Deliberately
-# NOT baking kubectl/helm/gh/glab/terraform/aws — those belong to the MCP servers.
+# Bake jq/yq only; cluster/cloud CLIs belong in MCP servers, not the sandbox image.
 # renovate: datasource=github-releases depName=jqlang/jq
 ARG JQ_VERSION=1.8.2
 # renovate: datasource=github-releases depName=mikefarah/yq
@@ -192,17 +115,7 @@ RUN curl -fsSL -o /usr/local/bin/jq \
     && chmod +x /usr/local/bin/yq \
     && yq --version
 
-# rtk ("Rust Token Killer", rtk-ai/rtk): a CLI proxy that rewrites verbose tool
-# output into token-minimized form before it reaches the LLM context. The
-# rtk-hermes pip package (requirements.txt) registers the `rtk-rewrite` plugin,
-# which on each terminal command shells out to `rtk rewrite` and locates it via
-# shutil.which — so the binary MUST be on PATH or the plugin fails-open and
-# silently no-ops. Static Rust release binary, `rtk` at the tarball top level.
-# Arch quirk worth noting: arm64 ships an unknown-linux-gnu build but x86_64
-# ships ONLY unknown-linux-musl (there is no x86_64-gnu asset), so the case maps
-# each TARGETARCH to its actual triple rather than assuming a uniform suffix.
-# `rtk --version` smoke-tests the correct-arch bake. No pinned checksum — matches
-# the terraform-ls/tirith convention (CI here has no image-build stage).
+# Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
 # renovate: datasource=github-releases depName=rtk-ai/rtk
 ARG RTK_VERSION=v0.42.4
 ARG TARGETARCH
@@ -218,24 +131,7 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/rtk.tar.gz \
     && rtk --version
 
-# Tool Search context-length probe fix — source patch to the installed Hermes.
-# model_tools.py::_resolve_active_context_length() sizes the active model's
-# context window to gate Tool Search (defers MCP/plugin tools when their schemas
-# exceed a % of the window). Upstream calls get_model_context_length() with ONLY
-# the model id, so neither the explicit `model.context_length` override nor the
-# per-custom-provider override can resolve, and it falls through to a step-6
-# `GET openrouter.ai/api/v1/models` HTTP fetch. In the egress-locked sandbox that
-# connect is blackholed and retried IPv4+IPv6, adding ~30s to EVERY CLI start.
-# Our providers are custom (`opus`/agentgateway) names with no built-in mapping,
-# so this fires unconditionally. The patch threads base_url/config_context_length/
-# custom_providers into the call so resolution short-circuits from local config —
-# no network — while Tool Search keeps working (it gets a real window to threshold
-# against, which matters once many MCP servers are added). The patcher is
-# fail-loud: it aborts the build if the upstream anchor is missing or duplicated
-# (a refactor signal), and is idempotent on re-run. The post-step asserts the
-# marker landed and that the resolver returns a positive value with sockets
-# blocked, so a silently-ineffective patch fails the BUILD here, not at runtime.
-# Remove once the upstream fix lands.
+# Patch Hermes Tool Search context-length lookup to avoid a 30s OpenRouter probe in the egress-locked sandbox; remove once upstream lands.
 COPY patches/0001-toolsearch-context-length.py /tmp/0001-toolsearch-context-length.py
 RUN /opt/hermes/.venv/bin/python /tmp/0001-toolsearch-context-length.py \
     && /opt/hermes/.venv/bin/python -c "import importlib.util as u; p=u.find_spec('model_tools').origin; s=open(p).read(); assert 'custom_providers=_cps) or 0)' in s, 'toolsearch patch marker missing after apply'; print('toolsearch context-length patch verified in', p)" \

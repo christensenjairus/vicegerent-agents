@@ -16,10 +16,7 @@ data:
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"
     args = ["mcp"]
-    # Pre-trust the sandbox working dirs so codex never shows the directory-trust
-    # prompt. codex persists trust into CODEX_HOME/config.toml; the init container
-    # seeds this onto the PVC (writable) so codex can persist, and pre-trusting
-    # means it never needs to.
+    # Pre-trust PVC-seeded workdirs so codex never blocks on directory trust.
     [projects."/workspace"]
     trust_level = "trusted"
     [projects."/workspace/vicegerent-agents"]
