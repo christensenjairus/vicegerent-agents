@@ -60,15 +60,14 @@ spec:
                   name: graphiti-falkordb
                   key: password
             # LLM + embedder both resolve to this one OpenAI-compatible base URL.
-            # It points at a dedicated agentgateway embeddings backend, which
-            # swaps in the real OpenAI key. Only embeddings traffic actually
-            # flows: the agent path is search-only (gateway tool allowlist) and
-            # curation uses add_triplet, which bypasses LLM extraction — so the
-            # chat-completions path is never called. The key is a non-empty
-            # virtual token (the OpenAI SDK rejects an empty key at construction);
-            # the gateway holds the real credential.
+            # It points at a dedicated agentgateway OpenAI backend that serves
+            # both /v1/embeddings and /v1/chat/completions and swaps in the real
+            # OpenAI key. Embeddings flow on search/add_triplet; chat-completions
+            # flow when add_memory extracts entities/edges from prose. The key is
+            # a non-empty virtual token (the OpenAI SDK rejects an empty key at
+            # construction); the gateway holds the real credential.
             - name: OPENAI_API_URL
-              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-embeddings/v1
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-openai/v1
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:

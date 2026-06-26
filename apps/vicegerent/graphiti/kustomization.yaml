@@ -10,8 +10,8 @@ resources:
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
-  - embeddings-backend.yaml
-  - embeddings-route.yaml
+  - openai-backend.yaml
+  - openai-route.yaml
   - backend.yaml
   - route.yaml
   - policy.yaml
