@@ -45,9 +45,12 @@ Desktop connection keeps working).
    `server.key` (synced into the cluster for the pod sidecar) and `client.crt`/
    `client.key` (pulled to the host by the tunnel script), plus `ca.cert`.
 
-   The server cert's SAN must cover the minikube node IP your host dials. The
-   default is `192.168.49.2`; if `minikube -p vicegerent ip` differs, re-issue
-   with `DASHBOARD_TUNNEL_IP="$(minikube -p vicegerent ip)" ./scripts/install/setup-secrets.sh`.
+   The server cert's SAN must cover the minikube node IP your host dials.
+   `setup-secrets.sh` auto-detects it from `minikube -p vicegerent ip` (the
+   driver sets the range — vfkit/qemu give `192.168.64.x`, docker gives
+   `192.168.49.x`). If the node IP ever changes, just re-run the script: it
+   detects a SAN mismatch and re-issues the server cert automatically. Override
+   with `DASHBOARD_TUNNEL_IP=<ip>` only if auto-detection can't reach minikube.
 
 2. **Deploy** the manifests (Flux picks them up): the `hermes-dashboard-tunnel`
    NodePort Service + the ghostunnel sidecar are in `apps/vicegerent/agents/hermes/`.
