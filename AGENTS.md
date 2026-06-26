@@ -25,7 +25,7 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   `renovate.json`.
 - **Default to secure** — non-root, no privileged containers, `automountServiceAccountToken: false`
   where possible, least-privilege RBAC, secrets via `OnePasswordItem` or Kustomize-generated
-  Secrets (never hardcoded), resource limits set.
+  Secrets (never hardcoded).
 
 ## Repo Conventions
 
@@ -37,6 +37,12 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   model/route by copying `models/sonnet`, a new MCP by copying `mcps/kubernetes`. Keep names
   self-explanatory and do not add explanatory comment blocks — rationale goes in the MR description,
   not inline.
+- **Aggressive cleanup is expected.** Delete redundant config, comments, examples, and docs instead
+  of preserving them out of habit. Keep only comments that prevent likely operational mistakes or
+  explain hard-to-find gotchas; make those comments one terse line when possible. Remove values that
+  merely mirror Kubernetes, controller, chart, or language defaults after verifying the default from
+  the upstream source. Conversation, history, and agent/tool-specific notes belong in the MR, not the
+  repo.
 - **Naming** — the project, cluster, and minikube profile are all `vicegerent`; the shared agent
   namespace is `agent-sandbox`. Only the git repo keeps the `vicegerent-agents` name.
 - **No vendor directories** — controller charts are pulled via Flux `HelmRepository`/`GitRepository`;
@@ -45,8 +51,8 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   read Personal/Private/Employee vaults). Runtime app credentials and mTLS material come from
   `OnePasswordItem`s; the sandbox→agentgateway virtual API key is Kustomize-generated, not stored in
   1Password. Keep a sync job's source Secret scoped to only what it needs (e.g. a CA-only item), so
-  it never gains read access to unrelated keys.
-  the published docs (e.g. `caCertificateRefs` resolves to a ConfigMap keyed `ca.crt`, not a Secret).
+  it never gains read access to unrelated keys. Trust the published CRD behavior (e.g.
+  `caCertificateRefs` resolves to a ConfigMap keyed `ca.crt`, not a Secret).
 - **Generated Flux manifests** (`clusters/*/flux-system/gotk-*.yaml`) are excluded from `yamlfix`;
   leave them as Flux generates them.
 - **MCP authorization layering** — agentgateway's tool-name allowlist is the single gate for
