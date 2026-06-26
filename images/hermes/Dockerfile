@@ -6,23 +6,9 @@
 # the builder ships self-heals instead of breaking the build.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
 ARG GOPLS_VERSION=v0.22.0
-# ghostunnel (mTLS TLS proxy) terminates the host->cluster tunnel that exposes
-# the loopback-bound dashboard to Hermes Desktop. Upstream stopped publishing
-# prebuilt linux/arm64 release binaries after migrating CI to GitHub Actions
-# (only an unofficial SourceForge mirror carries arm64), so it is built from
-# source via `go install` against the trusted module path — same throwaway
-# build-stage + COPY pattern as gopls. Declared before the first FROM so it is a
-# global ARG the ghostunnel stage can inherit (an ARG declared between stages is
-# scoped to the preceding stage, not global).
-# renovate: datasource=go depName=github.com/ghostunnel/ghostunnel
-ARG GHOSTUNNEL_VERSION=v1.8.1
 FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
-
-FROM golang:1.26 AS ghostunnel
-ARG GHOSTUNNEL_VERSION
-RUN GOBIN=/out GOTOOLCHAIN=auto go install "github.com/ghostunnel/ghostunnel@${GHOSTUNNEL_VERSION}"
 
 # Mnemosyne models, staged so the egress-locked sandbox never fetches them at
 # runtime. Mnemosyne pulls both lazily under $HOME/.hermes — which the data PVC
@@ -133,12 +119,6 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
 # gopls binary from the build stage above (Go is this repo's primary language —
 # the mcp-cerbos-shim is Go). Copied onto PATH; no Go toolchain in the final image.
 COPY --from=gopls /out/gopls /usr/local/bin/gopls
-
-# ghostunnel binary from the build stage above. Runs as a second container in
-# the agent pod (reusing this image with a different command) to mTLS-front the
-# loopback-bound dashboard; see apps/vicegerent/agents/hermes/dashboard-tunnel.yaml.
-COPY --from=ghostunnel /out/ghostunnel /usr/local/bin/ghostunnel
-RUN ghostunnel --version
 
 # hermes-lcm context engine — the Lossless Context Management plugin selected by
 # context.engine: lcm in apps/vicegerent/agents/hermes/config.yaml. Without it
