@@ -9,6 +9,6 @@ resources:
   requests:
     cpu: 100m
     memory: 128Mi
-  limits:
-    cpu: 250m  # Removed by postrenderer
+  limits:  # Stripped by the HelmRelease postRenderer on this (laptop) cluster
+    cpu: 250m
     memory: 512Mi
