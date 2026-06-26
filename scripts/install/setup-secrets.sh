@@ -11,6 +11,9 @@
 #       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only)
 #       Dashboard Tunnel server.crt, server.key (cluster) + client.crt, client.key (host) + ca.cert
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
+#   - Graphiti tribal-knowledge secrets: a FalkorDB password (item
+#     "GraphitiFalkorDB", field "password") and a gateway virtual key (item
+#     "GraphitiGatewayKey", field "api-key"), both synced into the cluster
 #
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -41,6 +44,8 @@ OPENAI_ITEM="OpenAI"
 SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="Tavily"
 FIRECRAWL_ITEM="Firecrawl"
+GRAPHITI_FALKORDB_ITEM="GraphitiFalkorDB"
+GRAPHITI_GATEWAY_KEY_ITEM="GraphitiGatewayKey"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -582,6 +587,43 @@ else
   fi
 fi
 
+# --- Graphiti FalkorDB password --------------------------------------------
+# Auth password for the FalkorDB graph store backing the Graphiti tribal-
+# knowledge MCP server. Generated once and reused so the value stays stable
+# across pod restarts (both the FalkorDB StatefulSet and the graphiti-mcp pod
+# read the same item field). Never regenerated unless the field is absent.
+step "Graphiti FalkorDB password"
+if op_field_exists "$GRAPHITI_FALKORDB_ITEM" "password"; then
+  info "Graphiti FalkorDB password already set in '$GRAPHITI_FALKORDB_ITEM' (password); nothing to do."
+else
+  confirm "Generate a FalkorDB password and store it as item '$GRAPHITI_FALKORDB_ITEM' (password)." \
+    || die "Graphiti FalkorDB password is required; aborting."
+  GRAPHITI_FALKORDB_PW="$(openssl rand -hex 24)"
+  ensure_item "$GRAPHITI_FALKORDB_ITEM"
+  op item edit "$GRAPHITI_FALKORDB_ITEM" --vault "$VAULT" "password[concealed]=$GRAPHITI_FALKORDB_PW" >/dev/null
+  unset GRAPHITI_FALKORDB_PW
+  info "Stored Graphiti FalkorDB password in '$GRAPHITI_FALKORDB_ITEM'."
+fi
+
+# --- Graphiti gateway virtual key ------------------------------------------
+# The virtual API key the Graphiti MCP server presents to agentgateway for
+# embeddings. It only needs to be a non-empty string (the OpenAI SDK rejects an
+# empty key at client construction); the real OpenAI key lives in the gateway's
+# OpenAI item and is swapped in by the embeddings backend. Generated once and
+# reused. Never regenerated unless the field is absent.
+step "Graphiti gateway virtual key"
+if op_field_exists "$GRAPHITI_GATEWAY_KEY_ITEM" "api-key"; then
+  info "Graphiti gateway key already set in '$GRAPHITI_GATEWAY_KEY_ITEM' (api-key); nothing to do."
+else
+  confirm "Generate a Graphiti gateway virtual key and store it as item '$GRAPHITI_GATEWAY_KEY_ITEM' (api-key)." \
+    || die "Graphiti gateway virtual key is required; aborting."
+  GRAPHITI_GATEWAY_KEY="$(openssl rand -hex 32)"
+  ensure_item "$GRAPHITI_GATEWAY_KEY_ITEM"
+  op item edit "$GRAPHITI_GATEWAY_KEY_ITEM" --vault "$VAULT" "api-key[concealed]=$GRAPHITI_GATEWAY_KEY" >/dev/null
+  unset GRAPHITI_GATEWAY_KEY
+  info "Stored Graphiti gateway virtual key in '$GRAPHITI_GATEWAY_KEY_ITEM'."
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -609,6 +651,8 @@ check "$DASHBOARD_TUNNEL_ITEM" "client.crt"
 check "$DASHBOARD_TUNNEL_ITEM" "client.key"
 check "$DASHBOARD_TUNNEL_ITEM" "ca.cert"
 check "$SEARXNG_ITEM" "secret_key"
+check "$GRAPHITI_FALKORDB_ITEM" "password"
+check "$GRAPHITI_GATEWAY_KEY_ITEM" "api-key"
 
 echo
 if [[ $missing -eq 0 ]]; then
