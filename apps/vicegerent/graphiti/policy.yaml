@@ -17,4 +17,4 @@ spec:
           matchExpressions:
             - >-
               mcp.tool.name in ["search_nodes", "search_memory_facts",
-              "get_entity_edge", "get_episodes", "get_status"]
+              "get_entity_edge", "get_episodes", "get_status", "add_memory"]
