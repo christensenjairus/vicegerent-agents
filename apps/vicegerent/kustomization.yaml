@@ -11,4 +11,5 @@ resources:
   - models/gpt-4.1
   - models/gpt-4o-mini
   - mcps/kubernetes
+  - searxng
   - agents/hermes
