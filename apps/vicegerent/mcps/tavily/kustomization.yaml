@@ -1,10 +1,14 @@
 ---
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-namespace: tavily-mcp
 resources:
   - namespace.yaml
   - serviceaccount.yaml
   - secret.yaml
   - server.yaml
   - networkpolicy.yaml
+  - backend.yaml
+  - route.yaml
+  - policy.yaml
+commonAnnotations:
+  kustomize.toolkit.fluxcd.io/force: Enabled
