@@ -28,9 +28,9 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 192Mi
+        memory: 256Mi
       limits:
-        memory: 320Mi
+        memory: 512Mi
   stdioTransport: {}
   transportType: stdio
   timeout: 60s
