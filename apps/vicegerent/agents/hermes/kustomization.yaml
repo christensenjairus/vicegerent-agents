@@ -6,7 +6,8 @@ resources:
   - namespace.yaml
   - config.yaml
   - soul.yaml
-  - coding-agents-config.yaml
+  - codex-config.yaml
+  - claude-config.yaml
   - secrets.yaml
   - sandbox.yaml
   - networkpolicy.yaml
