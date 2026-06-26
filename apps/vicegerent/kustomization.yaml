@@ -4,6 +4,7 @@ kind: Kustomization
 resources:
   - gateway
   - ghostunnel-ca
+  - dashboard-tunnel
   - models/sonnet
   - models/haiku
   - models/opus

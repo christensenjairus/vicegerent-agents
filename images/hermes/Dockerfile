@@ -140,13 +140,6 @@ COPY --from=gopls /out/gopls /usr/local/bin/gopls
 COPY --from=ghostunnel /out/ghostunnel /usr/local/bin/ghostunnel
 RUN ghostunnel --version
 
-# Derive the dashboard session token in-pod from the sandbox name at boot, so it
-# is stable across restarts but stored nowhere (not git, not 1Password). Runs as
-# a cont-init.d hook (root, after /init captures the pod env, before the
-# dashboard s6 service starts); see the script header. The host computes the
-# same value via scripts/dashboard-session-token.sh.
-COPY --chmod=0755 cont-init.d/03-dashboard-token /etc/cont-init.d/03-dashboard-token
-
 # hermes-lcm context engine — the Lossless Context Management plugin selected by
 # context.engine: lcm in apps/vicegerent/agents/hermes/config.yaml. Without it
 # Hermes logs "Context engine 'lcm' not found" and silently falls back to the

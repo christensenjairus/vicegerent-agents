@@ -11,6 +11,7 @@ resources:
   - secrets.yaml
   - sandbox.yaml
   - dashboard-tunnel.yaml
+  - dashboard-ingress.yaml
   - networkpolicy.yaml
   - restart-rbac.yaml
   - restart-job.yaml
