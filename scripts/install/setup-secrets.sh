@@ -430,6 +430,32 @@ if [[ $need_dash_client -eq 1 ]]; then
   info "Issued + stored dashboard tunnel client cert (laptop-side, pulled to the host)."
 fi
 
+# --- Dashboard basic-auth (per-agent) --------------------------------------
+# Each agent gets its OWN 1Password item with a random dashboard login password
+# and session-signing secret. They are mounted only into that agent's pod (via
+# its own OnePasswordItem -> Secret -> secretKeyRef), so no agent can read or
+# derive another agent's credentials. Random + per-agent, never in git.
+# Add an agent by appending its sandbox name here.
+DASHBOARD_AUTH_AGENTS=(${DASHBOARD_AUTH_AGENTS:-hermes})
+step "Dashboard basic-auth (per-agent credentials)"
+for agent in "${DASHBOARD_AUTH_AGENTS[@]}"; do
+  item="Dashboard Auth - ${agent}"
+  if op_field_exists "$item" "password" && op_field_exists "$item" "signing-secret"; then
+    info "Dashboard auth for '${agent}' already set in '${item}'; reusing."
+    continue
+  fi
+  ensure_item "$item"
+  if ! op_field_exists "$item" "password"; then
+    openssl rand -base64 24 | tr -d '\n' > "$CERTS/dash-pw"
+    set_field "$item" "password" "$CERTS/dash-pw" concealed
+  fi
+  if ! op_field_exists "$item" "signing-secret"; then
+    openssl rand -base64 32 | tr -d '\n' > "$CERTS/dash-sign"
+    set_field "$item" "signing-secret" "$CERTS/dash-sign" concealed
+  fi
+  info "Generated dashboard login for '${agent}' (item '${item}'; synced only into that agent's pod)."
+done
+
 # --- Anthropic API key -----------------------------------------------------
 step "Anthropic API key"
 if op_field_exists "$RUNTIME_ITEM" "Authorization"; then

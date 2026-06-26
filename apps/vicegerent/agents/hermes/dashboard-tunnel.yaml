@@ -1,12 +1,4 @@
 ---
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: hermes-dashboard-tunnel
-  namespace: agent-sandbox
-spec:
-  itemPath: vaults/Vicegerent/items/Dashboard Tunnel
----
 apiVersion: v1
 kind: Service
 metadata:
@@ -21,3 +13,11 @@ spec:
       port: 8443
       targetPort: tunnel
       nodePort: 30119
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: hermes-dashboard-auth
+  namespace: agent-sandbox
+spec:
+  itemPath: vaults/Vicegerent/items/Dashboard Auth - hermes

@@ -1,0 +1,21 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hermes-dashboard-ingress
+  namespace: agent-sandbox
+spec:
+  endpointSelector:
+    matchLabels:
+      vicegerent.io/dashboard-tunnel: hermes
+  ingress:
+    # Only the host (kubelet health probes + NodePort kube-proxy DNAT, which
+    # SNATs to a host/cluster identity) may reach the mTLS tunnel port. The
+    # dashboard (9119) and gateway API (8642) bind 0.0.0.0 inside the pod but
+    # are NOT listed here, so no peer — including other agent pods — can reach
+    # them on the pod IP. The tunnel itself enforces mTLS on 8443.
+    - fromEntities: [host, remote-node]
+      toPorts:
+        - ports:
+            - port: '8443'
+              protocol: TCP

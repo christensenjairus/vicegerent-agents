@@ -123,7 +123,21 @@ spec:
             - name: HERMES_DASHBOARD
               value: '1'
             - name: HERMES_DASHBOARD_HOST
-              value: 127.0.0.1
+              value: 0.0.0.0
+            - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-dashboard-auth
+                  key: password
+            - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-dashboard-auth
+                  key: signing-secret
             - name: SANDBOX_NAME
               valueFrom:
                 fieldRef:
@@ -213,7 +227,7 @@ spec:
           emptyDir: {}
         - name: dashboard-tunnel-certs
           secret:
-            secretName: hermes-dashboard-tunnel
+            secretName: dashboard-tunnel
             items:
               - key: server.crt
                 path: server.crt

@@ -12,7 +12,8 @@
 #   127.0.0.1:9120 -> <agent2> (NodePort 30120) ...
 #
 # mTLS (client cert from 1Password "Dashboard Tunnel") is the network auth; the
-# stable dashboard session token is the app-layer handshake. Point Hermes
+# dashboard's own basic-auth login (username/password) is the app-layer auth —
+# get an agent's credentials with dashboard-basic-cred.sh. Point Hermes
 # Desktop's "Remote gateway" at http://127.0.0.1:<port> for the agent you want.
 #
 # Run in the foreground for an interactive session, or install the launchd

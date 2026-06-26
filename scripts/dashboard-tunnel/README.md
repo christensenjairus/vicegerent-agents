@@ -6,19 +6,12 @@ tunnel — no `kubectl port-forward`, survives pod and laptop restarts.
 
 ## Why it's built this way
 
-The dashboard inside the pod binds **loopback** (`HERMES_DASHBOARD_HOST=127.0.0.1`).
-That is deliberate and not negotiable here:
+Two independent auth layers protect the dashboard, and the design wires them so
+both can be active at once:
 
-- A non-loopback bind makes Hermes engage its **OAuth auth gate**, which has to
-  reach an external portal to validate logins. The sandbox is egress-sealed, so
-  the gate **fails closed** — the dashboard won't serve at all. The only escape
-  is `--insecure`, which serves the session token to anyone who loads the page.
-- The loopback dashboard also rejects any request whose `Host:` header isn't a
-  loopback name (a DNS-rebinding defense). A browser/Desktop pointed straight at
-  `nodeIP:port` would get a `400 Invalid Host header`.
-
-So exposure is done with **two ghostunnel hops** that keep the dashboard on
-loopback at both ends:
+**Network layer — mTLS.** The dashboard is exposed off the egress-sealed pod
+over **two ghostunnel hops**, so the only way onto the wire is a valid client
+cert:
 
 ```
 Hermes Desktop ──► 127.0.0.1:9119 (host ghostunnel client)
@@ -30,10 +23,17 @@ Hermes Desktop ──► 127.0.0.1:9119 (host ghostunnel client)
             pod: ghostunnel server :8443 ──► 127.0.0.1:9119 (dashboard)
 ```
 
-Every hop the dashboard sees presents `Host: 127.0.0.1`, so it serves normally.
-**mTLS** (client cert) is the network auth; the **stable session token** is the
-dashboard's own app-layer handshake (kept stable across restarts so a saved
-Desktop connection keeps working).
+**App layer — basic-auth login.** The dashboard binds non-loopback
+(`HERMES_DASHBOARD_HOST=0.0.0.0`) inside the pod, which engages Hermes' auth
+gate. Hermes' bundled **`basic` dashboard-auth provider** (username + password,
+scrypt-hashed, no external IDP — works fully offline in the sealed pod) then
+satisfies the gate, so Desktop shows a real login form. No `--insecure`.
+
+The ghostunnel server still targets `127.0.0.1:9119`, so every request the
+dashboard sees comes from loopback and passes its DNS-rebinding `Host:` guard.
+mTLS stops you reaching the dashboard at all without a cert; basic auth stops a
+process that *is* on the wire (e.g. another local app on your Mac, behind the
+host tunnel) from driving the agent without the password.
 
 ## One-time setup
 
@@ -83,11 +83,14 @@ Then point **Hermes Desktop → Remote gateway** at `http://127.0.0.1:9119`.
 
 ## Multiple agents
 
-Each agent gets its own NodePort and its own local port. To add `agent2`:
+Each agent gets its own NodePort and its own local port. The mTLS server cert is
+shared across agents (one node IP, one `dashboard-tunnel` Secret), so adding an
+agent needs no new cert. To add `agent2`:
 
 1. Copy `agents/hermes` and give the new Sandbox a unique
-   `vicegerent.io/dashboard-tunnel: <agent2>` pod label + a `hermes-dashboard-tunnel`-style
-   Service with `nodePort: 30120`.
+   `vicegerent.io/dashboard-tunnel: <agent2>` pod label + a Service (e.g.
+   `agent2-dashboard-tunnel`) with `nodePort: 30120`. It mounts the same shared
+   `dashboard-tunnel` Secret — no `setup-secrets.sh` re-run required.
 2. Add a line to the `AGENTS` array in `dashboard-tunnel.sh`:
    ```sh
    AGENTS=(
@@ -99,17 +102,23 @@ Each agent gets its own NodePort and its own local port. To add `agent2`:
 `127.0.0.1:9119` is hermes, `127.0.0.1:9120` is agent2, and so on — exactly the
 `9119/9120/9121…` model, one Desktop connection per local port.
 
-## Session token
+## Login credentials
 
-The dashboard session token is derived deterministically from the sandbox name,
-so it is stored nowhere — not in git, not in 1Password. The pod derives it at
-boot from its own name (a baked `cont-init.d` hook), and you can compute the
-same value on the host:
+Each agent has its own dashboard login backed by its **own** 1Password item
+(`Dashboard Auth - <agent>`) with a random password — mounted only into that
+agent's pod via a per-agent `OnePasswordItem` → Secret → `secretKeyRef`. No
+shared salt, no derivation: one agent physically cannot read or compute
+another's credentials. The username is the sandbox name. Retrieve an agent's
+credentials on the host:
 
 ```sh
-./scripts/dashboard-session-token.sh hermes
+./scripts/dashboard-tunnel/dashboard-basic-cred.sh hermes
+# username: hermes
+# password: <random>
 ```
 
-Because it's a pure function of the (public) sandbox name it stays stable across
-pod restarts. If Desktop ever asks for the token explicitly, that command prints
-it.
+The password is stable across pod restarts (it's a stored random value, not
+regenerated). Add an agent by appending its name to `DASHBOARD_AUTH_AGENTS` in
+`setup-secrets.sh` (it mints a fresh per-agent item) and pointing the new pod's
+`secretKeyRef` at that agent's Secret. Enter username + password in the Hermes
+Desktop login form after the tunnel is up.
