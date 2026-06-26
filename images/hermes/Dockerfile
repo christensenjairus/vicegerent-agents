@@ -55,6 +55,13 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
     && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
+# Content digest of the seed, computed once at build. The init-container (see
+# sandbox.yaml) compares this against a marker on the PVC and re-seeds only when it
+# differs, so a rebuilt image with upgraded weights actually replaces the otherwise
+# copy-once PVC copy. sort -k2 normalizes find's order so unrelated rebuilds don't
+# perturb the digest. Written beside the seed dir so it's never copied onto the PVC.
+RUN find /opt/hermes/mnemosyne-seed -type f -exec sha256sum {} + \
+      | sort -k2 | sha256sum | cut -d' ' -f1 > /opt/hermes/mnemosyne-seed.sha256
 
 # shellcheck: bash-language-server delegates ALL diagnostics to it. Without it
 # the server runs but reports nothing — a silent no-op. apt package in trixie.
