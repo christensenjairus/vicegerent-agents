@@ -69,6 +69,18 @@ data:
     agent:
       max_turns: 150
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.
+    auxiliary:
+      vision:
+        provider: haiku
+        model: claude-haiku-4-5
+      title_generation:
+        provider: haiku
+        model: claude-haiku-4-5
+      approval:
+        provider: haiku
+        model: claude-haiku-4-5
+    compression:
+      threshold: 0.75
     display:
       personality: technical
       tool_progress: verbose
