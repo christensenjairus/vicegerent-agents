@@ -110,3 +110,4 @@ data:
     plugins:
       enabled:
         - disk-cleanup
+        - rtk-rewrite
