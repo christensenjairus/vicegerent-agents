@@ -1,0 +1,32 @@
+#!/command/with-contenv sh
+# shellcheck shell=sh
+# Derive the dashboard session token in-pod from the sandbox name, so it is
+# stable across pod restarts WITHOUT storing the token anywhere (not git, not
+# 1Password). The dashboard binds loopback and uses this token as its app-layer
+# handshake (X-Hermes-Session-Token); the network boundary is the ghostunnel
+# mTLS tunnel, not this value. Because it is a pure function of the (public)
+# sandbox name, the host computes the same value via
+# scripts/dashboard-session-token.sh with no secret exchange.
+#
+# Runs as root after /init captures the container env (SANDBOX_NAME comes from
+# the pod's downward API) but before s6-rc starts the dashboard service. We
+# write the computed value into /run/s6/container_environment/ so the dashboard
+# service's `with-contenv` exec picks it up as HERMES_DASHBOARD_SESSION_TOKEN.
+set -e
+
+name="${SANDBOX_NAME:-}"
+if [ -z "$name" ]; then
+    echo "[dashboard-token] SANDBOX_NAME unset; leaving session token unset (dashboard will self-generate a per-boot token)" >&2
+    exit 0
+fi
+
+token="$(/opt/hermes/.venv/bin/python - "$name" <<'PY'
+import base64, hashlib, sys
+name = sys.argv[1]
+msg = f"vicegerent/agent-sandbox/{name}/dashboard-session/v1".encode()
+print(base64.urlsafe_b64encode(hashlib.sha256(msg).digest()).decode().rstrip("="))
+PY
+)"
+
+printf '%s' "$token" > /run/s6/container_environment/HERMES_DASHBOARD_SESSION_TOKEN
+echo "[dashboard-token] derived stable dashboard session token for sandbox '${name}'"

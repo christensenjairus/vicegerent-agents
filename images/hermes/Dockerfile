@@ -10,6 +10,20 @@ FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
+# ghostunnel (mTLS TLS proxy) terminates the host->cluster tunnel that exposes
+# the loopback-bound dashboard to Hermes Desktop. Upstream stopped publishing
+# prebuilt linux/arm64 release binaries after migrating CI to GitHub Actions
+# (only an unofficial SourceForge mirror carries arm64), so it is built from
+# source here via `go install` against the trusted module path — same throwaway
+# build-stage + COPY pattern as gopls. GOTOOLCHAIN=auto fetches whatever Go
+# version ghostunnel's go.mod requires. The version ARG carries the leading "v"
+# to match the module pseudo-version (Renovate go datasource).
+# renovate: datasource=go depName=github.com/ghostunnel/ghostunnel
+ARG GHOSTUNNEL_VERSION=v1.8.1
+FROM golang:1.26 AS ghostunnel
+ARG GHOSTUNNEL_VERSION
+RUN GOBIN=/out GOTOOLCHAIN=auto go install "github.com/ghostunnel/ghostunnel@${GHOSTUNNEL_VERSION}"
+
 # Mnemosyne models, staged so the egress-locked sandbox never fetches them at
 # runtime. Mnemosyne pulls both lazily under $HOME/.hermes — which the data PVC
 # shadows — so they're baked here and an init-container seeds them onto the PVC
@@ -19,7 +33,7 @@ RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VER
 # huggingface-hub's cache layout is what fastembed and mnemosyne expect verbatim.
 FROM python:3.14-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
-ARG HUGGINGFACE_HUB_VERSION=1.21.0
+ARG HUGGINGFACE_HUB_VERSION=1.16.1
 RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
 RUN python - <<'PY'
 from huggingface_hub import hf_hub_download, snapshot_download
@@ -119,6 +133,19 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
 # gopls binary from the build stage above (Go is this repo's primary language —
 # the mcp-cerbos-shim is Go). Copied onto PATH; no Go toolchain in the final image.
 COPY --from=gopls /out/gopls /usr/local/bin/gopls
+
+# ghostunnel binary from the build stage above. Runs as a second container in
+# the agent pod (reusing this image with a different command) to mTLS-front the
+# loopback-bound dashboard; see apps/vicegerent/agents/hermes/dashboard-tunnel.yaml.
+COPY --from=ghostunnel /out/ghostunnel /usr/local/bin/ghostunnel
+RUN ghostunnel --version
+
+# Derive the dashboard session token in-pod from the sandbox name at boot, so it
+# is stable across restarts but stored nowhere (not git, not 1Password). Runs as
+# a cont-init.d hook (root, after /init captures the pod env, before the
+# dashboard s6 service starts); see the script header. The host computes the
+# same value via scripts/dashboard-session-token.sh.
+COPY --chmod=0755 cont-init.d/03-dashboard-token /etc/cont-init.d/03-dashboard-token
 
 # hermes-lcm context engine — the Lossless Context Management plugin selected by
 # context.engine: lcm in apps/vicegerent/agents/hermes/config.yaml. Without it
