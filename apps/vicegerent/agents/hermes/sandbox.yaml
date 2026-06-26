@@ -124,6 +124,8 @@ spec:
               value: '1'
             - name: HERMES_DASHBOARD_HOST
               value: 0.0.0.0
+            - name: HERMES_DASHBOARD_PORT
+              value: '9119'
             - name: HERMES_DASHBOARD_BASIC_AUTH_USERNAME
               valueFrom:
                 fieldRef:
