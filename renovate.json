@@ -61,6 +61,12 @@
         "cr.agentgateway.dev/charts/agentgateway"
       ],
       "allowedVersions": "<2.0.0"
+    },
+    {
+      "description": "Flux controllers are upgraded as a matched set via `flux bootstrap` regeneration, never per-image. The flux manager still surfaces a single grouped flux-version signal from the gotk-components header.",
+      "matchFileNames": ["clusters/**/flux-system/gotk-components.yaml"],
+      "matchManagers": ["kubernetes", "kustomize"],
+      "enabled": false
     }
   ],
   "customManagers": [
@@ -113,7 +119,7 @@
         "/^\\.gitlab-ci\\.yml$/"
       ],
       "matchStrings": [
-        "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\\\"']*[a-zA-Z0-9])"
+        "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\\\\\"']*[a-zA-Z0-9])"
       ],
       "datasourceTemplate": "docker"
     },
