@@ -22,7 +22,17 @@ spec:
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           imagePullPolicy: Always
           command: [sh, -c]
-          args: ["set -eu\nchown 10000:10000 /run\n"]
+          args:
+            - |
+              set -eu
+              chown 10000:10000 /run
+              # Reclaim the coding-agent config homes for the non-root agent.
+              # Stale root-owned files persist on the PVC from the previous
+              # design (ConfigMap subPath mounts created /opt/data/.claude and
+              # .codex as uid 0), which makes the uid-10000 seed-data cp fail
+              # with EPERM. chown -R is idempotent and harmless on fresh PVCs.
+              mkdir -p /opt/data/.codex /opt/data/.claude
+              chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
           securityContext:
             runAsUser: 0
             runAsGroup: 0
