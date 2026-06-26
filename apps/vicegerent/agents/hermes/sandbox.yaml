@@ -144,6 +144,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
+            # Pin tui-gateway session model+provider (config.yaml is read-only;
+            # provider binding must come from env). See MR for rationale.
+            - name: HERMES_MODEL
+              value: claude-opus-4-8
+            - name: HERMES_TUI_PROVIDER
+              value: opus
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
             # Coding-agent config homes on the PVC (seeded by seed-data) so they
