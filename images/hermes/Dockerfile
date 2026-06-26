@@ -6,20 +6,20 @@
 # the builder ships self-heals instead of breaking the build.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
 ARG GOPLS_VERSION=v0.22.0
-FROM golang:1.26 AS gopls
-ARG GOPLS_VERSION
-RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
-
 # ghostunnel (mTLS TLS proxy) terminates the host->cluster tunnel that exposes
 # the loopback-bound dashboard to Hermes Desktop. Upstream stopped publishing
 # prebuilt linux/arm64 release binaries after migrating CI to GitHub Actions
 # (only an unofficial SourceForge mirror carries arm64), so it is built from
-# source here via `go install` against the trusted module path — same throwaway
-# build-stage + COPY pattern as gopls. GOTOOLCHAIN=auto fetches whatever Go
-# version ghostunnel's go.mod requires. The version ARG carries the leading "v"
-# to match the module pseudo-version (Renovate go datasource).
+# source via `go install` against the trusted module path — same throwaway
+# build-stage + COPY pattern as gopls. Declared before the first FROM so it is a
+# global ARG the ghostunnel stage can inherit (an ARG declared between stages is
+# scoped to the preceding stage, not global).
 # renovate: datasource=go depName=github.com/ghostunnel/ghostunnel
 ARG GHOSTUNNEL_VERSION=v1.8.1
+FROM golang:1.26 AS gopls
+ARG GOPLS_VERSION
+RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
+
 FROM golang:1.26 AS ghostunnel
 ARG GHOSTUNNEL_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "github.com/ghostunnel/ghostunnel@${GHOSTUNNEL_VERSION}"
