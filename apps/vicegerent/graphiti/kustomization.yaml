@@ -4,7 +4,6 @@ kind: Kustomization
 resources:
   - namespace.yaml
   - falkordb-secret.yaml
-  - gateway-key-secret.yaml
   - falkordb.yaml
   - falkordb-service.yaml
   - falkordb-networkpolicy.yaml
@@ -16,5 +15,16 @@ resources:
   - backend.yaml
   - route.yaml
   - policy.yaml
+secretGenerator:
+  # Virtual key Graphiti presents to agentgateway for embeddings. Like the
+  # bot's own hermes-agentgateway-api-key, this is a non-secret placeholder the
+  # gateway discards and replaces with the real OpenAI credential — agentgateway
+  # does no inbound key validation. Kustomize-generated (not 1Password) to match
+  # that convention; the value is irrelevant, only its presence matters.
+  - name: graphiti-gateway-key
+    namespace: graphiti
+    literals: [api-key=graphiti]
+generatorOptions:
+  disableNameSuffixHash: true
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
