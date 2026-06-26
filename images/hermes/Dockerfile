@@ -63,6 +63,18 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends shellcheck \
     && rm -rf /var/lib/apt/lists/*
 
+# Network debugging tools for diagnosing egress / CiliumNetworkPolicy issues from
+# inside the egress-locked sandbox. Default-deny DROPS (doesn't reject) a blocked
+# outbound connect, so it hangs in SYN-SENT until timeout — `ss -tanp state
+# syn-sent` names the stuck dest IP:port + PID with zero added capabilities. dig/
+# nslookup (dnsutils) catch DNS stalls; nc (netcat-openbsd) probes raw TCP port
+# reachability. curl is already in the base image. Deliberately NOT strace or
+# tcpdump: those need CAP_SYS_PTRACE / CAP_NET_RAW, which the locked-down sandbox
+# securityContext strips — they would bake fine but fail to attach at runtime.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends iproute2 dnsutils netcat-openbsd \
+    && rm -rf /var/lib/apt/lists/*
+
 # Python packages the egress-locked sandbox can't install at runtime. Add a
 # package by editing requirements.txt; Renovate tracks it natively, no
 # renovate.json change. Installed into the baked venv (on PATH, not /opt/data),

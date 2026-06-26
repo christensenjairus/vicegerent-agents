@@ -18,6 +18,7 @@ relies on. Verified against the upstream arm64 image (`v2026.6.19`):
 | hermes-lcm context engine | yes — baked from the pinned GitHub release |
 | LSP servers (pyright, yaml-language-server, terraform-ls, bash-language-server) | no |
 | `ddgs` Python package (web search backend) | no — only the plugin glue is present |
+| netdebug tools (ss, dig, nc) for egress diagnostics | no |
 
 Each of those is baked in its own follow-up (see "Bakes" below). This directory
 starts with only the pinned base + build tooling so the artifact and its
@@ -60,4 +61,11 @@ Tracked separately on the `vicegerent-build` board, each adding its own layer:
   config. Pure stdlib, no PyPI deps.
 - LSP servers via `npm -g` (node + npm are in the base).
 - `ddgs` via `uv pip install` into `/opt/hermes/.venv`.
+- netdebug tools (`iproute2`/`ss`, `dnsutils`/`dig`, `netcat-openbsd`/`nc`) via
+  apt, for diagnosing egress / CiliumNetworkPolicy hangs from inside the sandbox.
+  A default-deny policy DROPS a blocked outbound connect, so it sits in SYN-SENT
+  until timeout — `ss -tanp state syn-sent` names the stuck dest + PID with no
+  added capabilities. Deliberately excludes `strace`/`tcpdump`: those need
+  `CAP_SYS_PTRACE`/`CAP_NET_RAW`, which the locked-down securityContext strips,
+  so they would bake fine but fail to attach at runtime.
 - `yq` + `jq` + `pygount`; `rtk-hermes` plugin.
