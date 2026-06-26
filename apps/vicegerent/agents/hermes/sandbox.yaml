@@ -10,7 +10,7 @@ spec:
   podTemplate:
     metadata:
       labels:
-        vicegerent.io/dashboard-tunnel: hermes
+        vicegerent.io/dashboard: hermes
     spec:
       runtimeClassName: gvisor
       automountServiceAccountToken: false
@@ -193,48 +193,11 @@ spec:
             - name: hermes-soul
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
-        - name: dashboard-tunnel
-          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
-          imagePullPolicy: Always
-          command: [ghostunnel]
-          args:
-            - server
-            - --listen=0.0.0.0:8443
-            - --target=127.0.0.1:9119
-            - --cert=/etc/ghostunnel/server.crt
-            - --key=/etc/ghostunnel/server.key
-            - --cacert=/etc/ghostunnel/ca.cert
-            - --allow-cn=dashboard-client
-          ports:
-            - containerPort: 8443
-              name: tunnel
-          securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem: true
-            runAsUser: 10000
-            runAsGroup: 10000
-            runAsNonRoot: true
-            capabilities:
-              drop: [ALL]
-          volumeMounts:
-            - name: dashboard-tunnel-certs
-              mountPath: /etc/ghostunnel
-              readOnly: true
       volumes:
         - name: runtime
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        - name: dashboard-tunnel-certs
-          secret:
-            secretName: dashboard-tunnel
-            items:
-              - key: server.crt
-                path: server.crt
-              - key: server.key
-                path: server.key
-              - key: ca.cert
-                path: ca.cert
         - name: hermes-config
           configMap:
             name: hermes-config

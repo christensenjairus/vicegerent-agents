@@ -7,18 +7,17 @@ metadata:
 spec:
   endpointSelector:
     matchLabels:
-      vicegerent.io/dashboard-tunnel: hermes
+      vicegerent.io/dashboard: hermes
   ingress:
-    # Only the mTLS tunnel port (8443) is reachable, and only from off-cluster
+    # Only the dashboard port (9119) is reachable, and only from off-cluster
     # (the host laptop dials nodeIP:30119; that external traffic carries the
-    # `world` identity, not `host`) plus node-local probes. ghostunnel enforces
-    # mTLS (--allow-cn=dashboard-client) on 8443, so the cert is the real gate;
-    # this rule is the network layer in front of it. The dashboard (9119) and
-    # gateway API (8642) bind 0.0.0.0 inside the pod but are NOT listed here, so
-    # no peer can reach them on the pod IP. In-cluster pods carry pod identities
-    # (never `world`), so other agents gain nothing from this rule.
+    # `world` identity, not `host`) plus node-local probes. The dashboard's
+    # own basic-auth login gates access at the app layer. The gateway API
+    # (8642) binds 0.0.0.0 inside the pod but is NOT listed here, so no peer —
+    # including other agent pods — can reach it on the pod IP. In-cluster pods
+    # carry pod identities (never `world`), so other agents gain nothing here.
     - fromEntities: [world, host, remote-node]
       toPorts:
         - ports:
-            - port: '8443'
+            - port: '9119'
               protocol: TCP
