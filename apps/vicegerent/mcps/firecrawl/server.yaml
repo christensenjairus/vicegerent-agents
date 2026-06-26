@@ -1,0 +1,36 @@
+---
+apiVersion: kagent.dev/v1alpha1
+kind: MCPServer
+metadata:
+  name: firecrawl
+  namespace: firecrawl-mcp
+spec:
+  deployment:
+    image: docker.io/node:24-alpine3.21
+    cmd: npx
+    args: [-y, firecrawl-mcp@3.22.0]
+    port: 3000
+    env:
+      HOME: /home/node
+    secretRefs:
+      - name: firecrawl-api-key
+    serviceAccountName: firecrawl
+    podSecurityContext:
+      runAsNonRoot: true
+      runAsUser: 1000
+      runAsGroup: 1000
+      seccompProfile:
+        type: RuntimeDefault
+    securityContext:
+      allowPrivilegeEscalation: false
+      capabilities:
+        drop: [ALL]
+    resources:
+      requests:
+        cpu: 50m
+        memory: 192Mi
+      limits:
+        memory: 320Mi
+  stdioTransport: {}
+  transportType: stdio
+  timeout: 60s

@@ -116,6 +116,16 @@
         "harbor\\.hahomelabs\\.com/(?<depName>[a-zA-Z0-9][^:@\\s]*[a-zA-Z0-9])[:@](?<currentValue>[a-zA-Z0-9][^\\s,\\]\\[\\\"']*[a-zA-Z0-9])"
       ],
       "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^apps/vicegerent/mcps/.+/server\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "args:\\s*\\[\\s*-y\\s*,\\s*'?(?<depName>[^@'\\s\\]]+)@(?<currentValue>[^'\\s\\]]+)'?\\s*\\]"
+      ],
+      "datasourceTemplate": "npm"
     }
   ]
 }

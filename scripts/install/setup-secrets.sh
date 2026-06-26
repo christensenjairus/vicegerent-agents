@@ -37,6 +37,8 @@ HOST_ITEM="Ghostunnel Host"
 CRED_ITEM="Connect Credentials"
 OPENAI_ITEM="OpenAI"
 SEARXNG_ITEM="SearXNG"
+TAVILY_ITEM="Tavily"
+FIRECRAWL_ITEM="Firecrawl"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -394,6 +396,62 @@ else
   op item edit "$SEARXNG_ITEM" --vault "$VAULT" "secret_key[concealed]=$SEARXNG_KEY" >/dev/null
   unset SEARXNG_KEY
   info "Stored SearXNG secret key in '$SEARXNG_ITEM'."
+fi
+
+# --- Tavily API key ---------------------------------------------------------
+# Read by the Tavily kmcp MCPServer (npx tavily-mcp). The OnePasswordItem syncs
+# every field of this item into the Secret as a data key, and kmcp mounts that
+# Secret via envFrom, so the field MUST be named exactly TAVILY_API_KEY to land
+# as the env var the server reads.
+step "Tavily API key"
+if op_field_exists "$TAVILY_ITEM" "TAVILY_API_KEY"; then
+  info "Tavily key already set in '$TAVILY_ITEM' (TAVILY_API_KEY); nothing to do."
+else
+  KEY="${TAVILY_API_KEY:-}"
+  if [[ -z "$KEY" ]]; then
+    if [[ "$ASSUME_YES" == "1" ]]; then
+      warn "No TAVILY_API_KEY in environment and --yes is set; leaving it unset (web search/extract via Tavily unavailable until set)."
+    else
+      echo
+      echo "${Y}CHANGE:${N} Store the Tavily API key in '$TAVILY_ITEM' (TAVILY_API_KEY)."
+      read -r -s -p "  Tavily API key (tvly-..., empty to skip): " KEY; echo
+    fi
+  fi
+  ensure_item "$TAVILY_ITEM"
+  if [[ -n "$KEY" ]]; then
+    op item edit "$TAVILY_ITEM" --vault "$VAULT" "TAVILY_API_KEY[concealed]=$KEY" >/dev/null
+    unset KEY
+    info "Stored Tavily key in '$TAVILY_ITEM'."
+  else
+    warn "Tavily TAVILY_API_KEY left unset — the Tavily MCP server will not authenticate until set."
+  fi
+fi
+
+# --- Firecrawl API key ------------------------------------------------------
+# Read by the Firecrawl kmcp MCPServer (npx firecrawl-mcp). Same envFrom rule as
+# Tavily: the field MUST be named exactly FIRECRAWL_API_KEY.
+step "Firecrawl API key"
+if op_field_exists "$FIRECRAWL_ITEM" "FIRECRAWL_API_KEY"; then
+  info "Firecrawl key already set in '$FIRECRAWL_ITEM' (FIRECRAWL_API_KEY); nothing to do."
+else
+  KEY="${FIRECRAWL_API_KEY:-}"
+  if [[ -z "$KEY" ]]; then
+    if [[ "$ASSUME_YES" == "1" ]]; then
+      warn "No FIRECRAWL_API_KEY in environment and --yes is set; leaving it unset (web extract via Firecrawl unavailable until set)."
+    else
+      echo
+      echo "${Y}CHANGE:${N} Store the Firecrawl API key in '$FIRECRAWL_ITEM' (FIRECRAWL_API_KEY)."
+      read -r -s -p "  Firecrawl API key (fc-..., empty to skip): " KEY; echo
+    fi
+  fi
+  ensure_item "$FIRECRAWL_ITEM"
+  if [[ -n "$KEY" ]]; then
+    op item edit "$FIRECRAWL_ITEM" --vault "$VAULT" "FIRECRAWL_API_KEY[concealed]=$KEY" >/dev/null
+    unset KEY
+    info "Stored Firecrawl key in '$FIRECRAWL_ITEM'."
+  else
+    warn "Firecrawl FIRECRAWL_API_KEY left unset — the Firecrawl MCP server will not authenticate until set."
+  fi
 fi
 
 # --- verify ----------------------------------------------------------------
