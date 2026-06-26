@@ -67,8 +67,16 @@ data:
         timeout: 120
         connect_timeout: 60
     agent:
-      personality: technical
       max_turns: 150
+      system_prompt: You are a technical expert. Provide detailed, accurate technical information.
+    display:
+      personality: technical
+      tool_progress: verbose
+    approvals:
+      mode: smart
+    checkpoints:
+      enabled: true
+    timezone: America/Denver
     terminal:
       cwd: /workspace
       persistent_shell: true
@@ -81,3 +89,6 @@ data:
     lsp:
       enabled: true
       install_strategy: manual
+    plugins:
+      enabled:
+        - disk-cleanup
