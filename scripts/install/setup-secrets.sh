@@ -9,6 +9,7 @@
 #       Runtime        tls.crt, tls.key, Authorization   (synced into the cluster)
 #       MCP CA         ca.cert                            (synced into the cluster)
 #       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only)
+#       Dashboard Tunnel server.crt, server.key (cluster) + client.crt, client.key (host) + ca.cert
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #
 # Properties:
@@ -34,6 +35,7 @@ TOKEN_NAME="${OP_CONNECT_TOKEN_NAME:-Vicegerent Operator}"
 RUNTIME_ITEM="Runtime"
 CA_ITEM="MCP CA"
 HOST_ITEM="Ghostunnel Host"
+DASHBOARD_TUNNEL_ITEM="Dashboard Tunnel"
 CRED_ITEM="Connect Credentials"
 OPENAI_ITEM="OpenAI"
 SEARXNG_ITEM="SearXNG"
@@ -44,6 +46,14 @@ TOKEN_ITEM="Connect Token"
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
 SERVER_CN="${SERVER_CN:-host.minikube.internal}"
 CLIENT_CN="${CLIENT_CN:-agent-client}"
+# Dashboard tunnel runs the OTHER direction: the ghostunnel server lives in the
+# agent pod and the laptop runs the client. The server cert's SAN must match the
+# address Hermes Desktop's host-side client dials — the minikube node IP, which
+# the NodePort Service exposes on the host-only network. Override per machine
+# (e.g. DASHBOARD_TUNNEL_IP="$(minikube -p vicegerent ip)").
+DASHBOARD_TUNNEL_SERVER_CN="${DASHBOARD_TUNNEL_SERVER_CN:-hermes-dashboard-tunnel}"
+DASHBOARD_TUNNEL_IP="${DASHBOARD_TUNNEL_IP:-192.168.49.2}"
+DASHBOARD_TUNNEL_CLIENT_CN="${DASHBOARD_TUNNEL_CLIENT_CN:-dashboard-client}"
 
 # Leaf certs are issued for 825 days. Warn and offer to re-issue once a stored
 # leaf has less than this many days of validity left, so the chain never lapses.
@@ -328,6 +338,70 @@ if [[ $need_client -eq 1 ]]; then
   info "Set '$RUNTIME_ITEM' tls.crt + tls.key (client identity, synced into the cluster)."
 fi
 
+# --- dashboard tunnel certificates -----------------------------------------
+# Separate mTLS leaf pair for the dashboard tunnel (pod-side ghostunnel server +
+# laptop-side client), signed by the SAME CA. Issued only when missing or near
+# expiry, and always re-issued when the CA was just rebuilt. The server cert
+# lands in the cluster (pod sidecar); the client cert is pulled to the host.
+step "Dashboard tunnel certificates"
+need_dash_server=0; need_dash_client=0
+if [[ $NEW_CA -eq 1 ]]; then
+  need_dash_server=1; need_dash_client=1
+else
+  if op_field_exists "$DASHBOARD_TUNNEL_ITEM" "server.crt" && op_field_exists "$DASHBOARD_TUNNEL_ITEM" "server.key"; then
+    if leaf_expiring_soon "$DASHBOARD_TUNNEL_ITEM" "server.crt"; then
+      warn "Dashboard tunnel server certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
+      confirm "Re-issue the dashboard tunnel server cert from the existing CA (resets validity to 825 days)." \
+        && need_dash_server=1 || info "Keeping the existing dashboard tunnel server certificate."
+    else
+      info "Dashboard tunnel server certificate already present; reusing it."
+    fi
+  else
+    need_dash_server=1
+  fi
+  if op_field_exists "$DASHBOARD_TUNNEL_ITEM" "client.crt" && op_field_exists "$DASHBOARD_TUNNEL_ITEM" "client.key"; then
+    if leaf_expiring_soon "$DASHBOARD_TUNNEL_ITEM" "client.crt"; then
+      warn "Dashboard tunnel client certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
+      confirm "Re-issue the dashboard tunnel client cert from the existing CA (resets validity to 825 days)." \
+        && need_dash_client=1 || info "Keeping the existing dashboard tunnel client certificate."
+    else
+      info "Dashboard tunnel client certificate already present; reusing it."
+    fi
+  else
+    need_dash_client=1
+  fi
+fi
+
+if [[ $need_dash_server -eq 1 ]]; then
+  confirm "Issue a dashboard tunnel server cert for CN=$DASHBOARD_TUNNEL_SERVER_CN (SAN: DNS:$DASHBOARD_TUNNEL_SERVER_CN, IP:$DASHBOARD_TUNNEL_IP)." \
+    || die "Aborted."
+  openssl genrsa -out "$CERTS/dash-server.key" 2048 >/dev/null 2>&1
+  openssl req -new -key "$CERTS/dash-server.key" -subj "/CN=${DASHBOARD_TUNNEL_SERVER_CN}" -out "$CERTS/dash-server.csr" >/dev/null 2>&1
+  printf 'subjectAltName=DNS:%s,IP:%s\nextendedKeyUsage=serverAuth\n' "$DASHBOARD_TUNNEL_SERVER_CN" "$DASHBOARD_TUNNEL_IP" > "$CERTS/dash-server.ext"
+  openssl x509 -req -in "$CERTS/dash-server.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
+    -CAcreateserial -days 825 -sha256 -extfile "$CERTS/dash-server.ext" -out "$CERTS/dash-server.crt" >/dev/null 2>&1
+  ensure_item "$DASHBOARD_TUNNEL_ITEM"
+  set_field "$DASHBOARD_TUNNEL_ITEM" "server.crt" "$CERTS/dash-server.crt" text
+  set_field "$DASHBOARD_TUNNEL_ITEM" "server.key" "$CERTS/dash-server.key" concealed
+  set_field "$DASHBOARD_TUNNEL_ITEM" "ca.cert"    "$CERTS/ca.crt"          text
+  info "Issued + stored dashboard tunnel server cert (pod sidecar, synced into the cluster)."
+fi
+
+if [[ $need_dash_client -eq 1 ]]; then
+  confirm "Issue a dashboard tunnel client cert for CN=$DASHBOARD_TUNNEL_CLIENT_CN (this is the --allow-cn the pod ghostunnel enforces)." \
+    || die "Aborted."
+  openssl genrsa -out "$CERTS/dash-client.key" 2048 >/dev/null 2>&1
+  openssl req -new -key "$CERTS/dash-client.key" -subj "/CN=${DASHBOARD_TUNNEL_CLIENT_CN}" -out "$CERTS/dash-client.csr" >/dev/null 2>&1
+  printf 'extendedKeyUsage=clientAuth\n' > "$CERTS/dash-client.ext"
+  openssl x509 -req -in "$CERTS/dash-client.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
+    -CAcreateserial -days 825 -sha256 -extfile "$CERTS/dash-client.ext" -out "$CERTS/dash-client.crt" >/dev/null 2>&1
+  ensure_item "$DASHBOARD_TUNNEL_ITEM"
+  set_field "$DASHBOARD_TUNNEL_ITEM" "client.crt" "$CERTS/dash-client.crt" text
+  set_field "$DASHBOARD_TUNNEL_ITEM" "client.key" "$CERTS/dash-client.key" concealed
+  set_field "$DASHBOARD_TUNNEL_ITEM" "ca.cert"    "$CERTS/ca.crt"          text
+  info "Issued + stored dashboard tunnel client cert (laptop-side, pulled to the host)."
+fi
+
 # --- Anthropic API key -----------------------------------------------------
 step "Anthropic API key"
 if op_field_exists "$RUNTIME_ITEM" "Authorization"; then
@@ -475,6 +549,11 @@ check "$HOST_ITEM" "server.crt"
 check "$HOST_ITEM" "server.key"
 check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
+check "$DASHBOARD_TUNNEL_ITEM" "server.crt"
+check "$DASHBOARD_TUNNEL_ITEM" "server.key"
+check "$DASHBOARD_TUNNEL_ITEM" "client.crt"
+check "$DASHBOARD_TUNNEL_ITEM" "client.key"
+check "$DASHBOARD_TUNNEL_ITEM" "ca.cert"
 check "$SEARXNG_ITEM" "secret_key"
 
 echo

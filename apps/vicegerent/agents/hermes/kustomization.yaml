@@ -10,6 +10,7 @@ resources:
   - claude-config.yaml
   - secrets.yaml
   - sandbox.yaml
+  - dashboard-tunnel.yaml
   - networkpolicy.yaml
   - restart-rbac.yaml
   - restart-job.yaml

@@ -1,0 +1,23 @@
+---
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: hermes-dashboard-tunnel
+  namespace: agent-sandbox
+spec:
+  itemPath: vaults/Vicegerent/items/Dashboard Tunnel
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hermes-dashboard-tunnel
+  namespace: agent-sandbox
+spec:
+  type: NodePort
+  selector:
+    vicegerent.io/dashboard-tunnel: hermes
+  ports:
+    - name: tunnel
+      port: 8443
+      targetPort: tunnel
+      nodePort: 30119
