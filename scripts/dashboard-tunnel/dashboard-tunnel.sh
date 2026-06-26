@@ -18,7 +18,20 @@
 #
 # Run in the foreground for an interactive session, or install the launchd
 # agent (see scripts/dashboard-tunnel/README.md) to keep it up across reboots.
+#
+# Agents to tunnel can be passed as positional args, one "name:local:node" spec
+# each; with no args it falls back to the built-in default below:
+#
+#   dashboard-tunnel.sh hermes:9119:30119 agent2:9120:30120
 set -euo pipefail
+
+usage() {
+  sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
+  echo
+  echo "Usage: ${0##*/} [name:local_port:node_port ...]"
+  exit "${1:-0}"
+}
+[[ "${1:-}" == "-h" || "${1:-}" == "--help" ]] && usage 0
 
 OP_VAULT="${OP_VAULT:-Vicegerent}"
 OP_ITEM="${OP_ITEM:-Dashboard Tunnel}"
@@ -32,11 +45,23 @@ if [[ -z "${NODE_IP}" ]]; then
   exit 1
 fi
 
-# Agent -> "local_port:node_port" map. Add a line per agent as you add sandboxes.
+# Agent -> "local_port:node_port" map. Defaults below; override by passing one
+# or more "name:local_port:node_port" specs as positional args.
 # Keep local 9119/9120/... aligned with node 30119/30120/... by convention.
 AGENTS=(
   "hermes:9119:30119"
 )
+if [[ $# -gt 0 ]]; then
+  AGENTS=("$@")
+fi
+
+# Validate each spec is exactly name:local_port:node_port with numeric ports.
+for entry in "${AGENTS[@]}"; do
+  if [[ ! "$entry" =~ ^[A-Za-z0-9_-]+:[0-9]+:[0-9]+$ ]]; then
+    echo "Invalid agent spec '${entry}'. Expected name:local_port:node_port (e.g. hermes:9119:30119)." >&2
+    exit 2
+  fi
+done
 
 command -v "$GHOSTUNNEL" >/dev/null 2>&1 || {
   echo "ghostunnel not found on PATH. brew install ghostunnel (or set GHOSTUNNEL=...)." >&2

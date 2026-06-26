@@ -65,7 +65,11 @@ host tunnel) from driving the agent without the password.
 
 **Foreground (interactive):**
 ```sh
+# Default: tunnels the built-in agent list (just hermes today).
 ./scripts/dashboard-tunnel/dashboard-tunnel.sh
+
+# Or pass an explicit agent list as args (overrides the default):
+./scripts/dashboard-tunnel/dashboard-tunnel.sh hermes:9119:30119 agent2:9120:30120
 ```
 
 **Persistent (launchd, survives reboots):**
@@ -91,12 +95,17 @@ agent needs no new cert. To add `agent2`:
    `vicegerent.io/dashboard-tunnel: <agent2>` pod label + a Service (e.g.
    `agent2-dashboard-tunnel`) with `nodePort: 30120`. It mounts the same shared
    `dashboard-tunnel` Secret — no `setup-secrets.sh` re-run required.
-2. Add a line to the `AGENTS` array in `dashboard-tunnel.sh`:
+2. Tunnel it from the host — either append a line to the `AGENTS` array in
+   `dashboard-tunnel.sh` (the persistent default), or pass it as an arg for a
+   one-off:
    ```sh
+   # persistent default in the script:
    AGENTS=(
      "hermes:9119:30119"
      "agent2:9120:30120"
    )
+   # or ad hoc, no edit:
+   ./scripts/dashboard-tunnel/dashboard-tunnel.sh hermes:9119:30119 agent2:9120:30120
    ```
 
 `127.0.0.1:9119` is hermes, `127.0.0.1:9120` is agent2, and so on — exactly the
