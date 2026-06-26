@@ -22,7 +22,12 @@ spec:
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           imagePullPolicy: Always
           command: [sh, -c]
-          args: [chown 10000:10000 /run]
+          args:
+            - |
+              set -eu
+              chown 10000:10000 /run
+              mkdir -p /opt/data/.codex
+              chown -R 10000:10000 /opt/data/.codex
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -30,6 +35,8 @@ spec:
           volumeMounts:
             - name: runtime
               mountPath: /run
+            - name: data
+              mountPath: /opt/data
         - name: seed-mnemosyne
           image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
           imagePullPolicy: Always
@@ -43,16 +50,6 @@ spec:
               cp -an /opt/hermes/mnemosyne-seed/cache/fastembed/. "${dest}/cache/fastembed/"
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
-              # Pre-create .codex as uid 10000 so the kubelet's config.toml
-              # subPath mount finds the dir present and leaves ownership alone;
-              # otherwise it makes it root:root and codex can't write its state
-              # db. Drop a stale root-owned dir from an earlier boot first so
-              # this also repairs an existing PVC (.codex is empty on the PVC;
-              # config.toml is an overlay mount only present in the main container).
-              if [ -d /opt/data/.codex ] && [ ! -O /opt/data/.codex ]; then
-                rmdir /opt/data/.codex
-              fi
-              mkdir -p /opt/data/.codex
               # claude-code reads MCP servers only from the stateful ~/.claude.json
               # (user scope), never from settings.json. Seed it once; claude then
               # owns the file, so don't clobber on later boots.
