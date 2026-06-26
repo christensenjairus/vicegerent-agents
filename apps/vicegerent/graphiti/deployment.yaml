@@ -1,0 +1,99 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphiti-mcp
+  namespace: graphiti
+  labels:
+    app.kubernetes.io/name: graphiti-mcp
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: graphiti-mcp
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: graphiti-mcp
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: graphiti-mcp
+          image: docker.io/zepai/knowledge-graph-mcp:1.0.2-graphiti-0.28.2-standalone
+          imagePullPolicy: IfNotPresent
+          env:
+            # Graph store: the in-cluster FalkorDB pod. The bundled
+            # config-docker-falkordb.yaml selects the falkordb driver and reads
+            # these; FALKORDB_URI overrides its localhost default.
+            - name: CONFIG_PATH
+              value: /app/mcp/config/config-docker-falkordb.yaml
+            - name: FALKORDB_URI
+              value: redis://falkordb.graphiti.svc.cluster.local:6379
+            - name: FALKORDB_DATABASE
+              value: default_db
+            - name: FALKORDB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: graphiti-falkordb
+                  key: password
+            # LLM + embedder both resolve to this one OpenAI-compatible base URL.
+            # It points at a dedicated agentgateway embeddings backend, which
+            # swaps in the real OpenAI key. Only embeddings traffic actually
+            # flows: the agent path is search-only (gateway tool allowlist) and
+            # curation uses add_triplet, which bypasses LLM extraction — so the
+            # chat-completions path is never called. The key is a non-empty
+            # virtual token (the OpenAI SDK rejects an empty key at construction);
+            # the gateway holds the real credential.
+            - name: OPENAI_API_URL
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-embeddings/v1
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: graphiti-gateway-key
+                  key: api-key
+            # Pin the tribal namespace; clients that omit group_id land here.
+            - name: GRAPHITI_GROUP_ID
+              value: tribal
+            - name: GRAPHITI_TELEMETRY_ENABLED
+              value: 'false'
+            - name: SEMAPHORE_LIMIT
+              value: '10'
+          ports:
+            - containerPort: 8000
+              name: mcp
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: mcp
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: mcp
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}

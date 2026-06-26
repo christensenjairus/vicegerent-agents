@@ -1,0 +1,21 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: graphiti-embeddings
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: openai-embeddings
+            openai:
+              model: text-embedding-3-small
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-openai-secrets
+              ai:
+                routes:
+                  /v1/embeddings: Embeddings
+                  '*': Passthrough
