@@ -40,6 +40,7 @@ spec:
         - matchName: gitlab.hahomelabs.com
         - matchName: github.com
         - matchName: api.github.com
+        - matchName: raw.githubusercontent.com
       toPorts:
         - ports:
             - port: '443'

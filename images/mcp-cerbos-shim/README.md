@@ -6,8 +6,6 @@ agentgateway enforce **argument-level** authorization on MCP traffic — e.g. bl
 from reading Kubernetes Secrets through a generic Kubernetes MCP server, while allowing
 reads of non-secret resources.
 
-Design doc: see the Obsidian note `2026-06-25-mcp-policy-enforcement-connector-design.md`.
-
 ## Division of responsibility (read this first)
 
 Three layers could each try to be an allowlist. Only **one** is. Keeping it that
