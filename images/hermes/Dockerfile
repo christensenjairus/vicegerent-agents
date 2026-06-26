@@ -19,7 +19,7 @@ RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VER
 # huggingface-hub's cache layout is what fastembed and mnemosyne expect verbatim.
 FROM python:3.11-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
-ARG HUGGINGFACE_HUB_VERSION=1.16.1
+ARG HUGGINGFACE_HUB_VERSION=1.21.0
 RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
 RUN python - <<'PY'
 from huggingface_hub import hf_hub_download, snapshot_download
