@@ -26,6 +26,14 @@ spec:
         - ports:
             - port: '80'
               protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: searxng
+            app.kubernetes.io/name: searxng
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
     - toFQDNs:
         - matchName: slack.com
         - matchPattern: '*.slack.com'

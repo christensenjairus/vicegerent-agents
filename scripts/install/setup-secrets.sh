@@ -9,6 +9,7 @@
 #       Runtime        tls.crt, tls.key, Authorization   (synced into the cluster)
 #       MCP CA         ca.cert                            (synced into the cluster)
 #       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only)
+#   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -35,6 +36,7 @@ CA_ITEM="MCP CA"
 HOST_ITEM="Ghostunnel Host"
 CRED_ITEM="Connect Credentials"
 OPENAI_ITEM="OpenAI"
+SEARXNG_ITEM="SearXNG"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -376,6 +378,24 @@ else
   fi
 fi
 
+# --- SearXNG secret key ----------------------------------------------------
+# Signs SearXNG session/limiter tokens. Generated once and reused so the value
+# stays stable across pod restarts (a changed key invalidates SearXNG's cache
+# tables and breaks limiter tokens across replicas). Never regenerated unless
+# the field is absent.
+step "SearXNG secret key"
+if op_field_exists "$SEARXNG_ITEM" "secret_key"; then
+  info "SearXNG secret key already set in '$SEARXNG_ITEM' (secret_key); nothing to do."
+else
+  confirm "Generate a SearXNG secret key and store it as item '$SEARXNG_ITEM' (secret_key)." \
+    || die "SearXNG secret key is required; aborting."
+  SEARXNG_KEY="$(openssl rand -hex 32)"
+  ensure_item "$SEARXNG_ITEM"
+  op item edit "$SEARXNG_ITEM" --vault "$VAULT" "secret_key[concealed]=$SEARXNG_KEY" >/dev/null
+  unset SEARXNG_KEY
+  info "Stored SearXNG secret key in '$SEARXNG_ITEM'."
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -397,6 +417,7 @@ check "$HOST_ITEM" "server.crt"
 check "$HOST_ITEM" "server.key"
 check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
+check "$SEARXNG_ITEM" "secret_key"
 
 echo
 if [[ $missing -eq 0 ]]; then
