@@ -134,3 +134,33 @@ RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine a
     && curl -fsSL "https://github.com/stephenschoettler/hermes-lcm/archive/refs/tags/${HERMES_LCM_VERSION}.tar.gz" \
         | tar -xz -C "$LCM_DEST" --strip-components=1 \
     && /opt/hermes/.venv/bin/python -c "from plugins.context_engine import discover_context_engines as d; assert 'lcm' in [n for n, _, _ in d()], 'lcm engine not discovered after bake'; print('hermes-lcm ${HERMES_LCM_VERSION} baked + discoverable')"
+
+# tirith: Hermes' pre-exec command security scanner (security.tirith_enabled
+# defaults true; security.tirith_path "tirith" resolves the bare name via PATH).
+# It screens each shell command for content-level threats — homograph/punycode
+# URLs, pipe-to-interpreter, terminal-escape injection — returning allow/block/
+# warn before the command runs. The egress-locked sandbox can't run Hermes'
+# runtime auto-download (it would hit the Cilium egress wall and fail open), so
+# bake the binary onto PATH; Hermes resolves it via shutil.which first and never
+# reaches for the network. A Rust release binary from the same GitHub release the
+# Hermes installer pulls; the target-triple arch maps from BuildKit's TARGETARCH
+# (arm64->aarch64, amd64->x86_64). The tarball carries the `tirith` binary at top
+# level (alongside shell completions + a man page we don't need), so only that
+# member is extracted. `tirith --version` smoke-tests that the correct-arch
+# binary landed, failing the build loudly otherwise. No pinned checksum — matches
+# the terraform-ls/gopls convention here, since this repo's CI has no image-build
+# stage to refresh a hash on a Renovate bump.
+# renovate: datasource=github-releases depName=sheeki03/tirith
+ARG TIRITH_VERSION=v0.3.3
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        arm64) TIRITH_ARCH=aarch64 ;; \
+        amd64) TIRITH_ARCH=x86_64 ;; \
+        *) echo "tirith: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/tirith.tar.gz \
+        "https://github.com/sheeki03/tirith/releases/download/${TIRITH_VERSION}/tirith-${TIRITH_ARCH}-unknown-linux-gnu.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/tirith.tar.gz tirith \
+    && chmod +x /usr/local/bin/tirith \
+    && rm /tmp/tirith.tar.gz \
+    && tirith --version
