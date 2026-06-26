@@ -28,7 +28,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: falkordb
-          image: docker.io/falkordb/falkordb:v4.18.10-alpine
+          image: docker.io/falkordb/falkordb:v4.18.11-alpine
           imagePullPolicy: IfNotPresent
           command: [redis-server]
           args:
