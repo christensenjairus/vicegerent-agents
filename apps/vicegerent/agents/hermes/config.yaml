@@ -81,7 +81,7 @@ data:
       cwd: /workspace
       persistent_shell: true
     web:
-      search_backend: ddgs
+      search_backend: searxng
     memory:
       provider: mnemosyne
     context:
