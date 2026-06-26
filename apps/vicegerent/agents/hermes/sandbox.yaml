@@ -51,8 +51,27 @@ spec:
               set -euo pipefail
               dest="/opt/data/.hermes"
               mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins
-              cp -an /opt/hermes/mnemosyne-seed/mnemosyne/models/. "${dest}/mnemosyne/models/"
-              cp -an /opt/hermes/mnemosyne-seed/cache/fastembed/. "${dest}/cache/fastembed/"
+              # The mnemosyne LLM + fastembed ONNX cache are large and content-stable,
+              # so they are seeded once and skipped on later boots. To let a rebuilt
+              # image with upgraded weights actually replace the PVC copy, gate the copy
+              # on the seed's content digest (baked at build, see images/hermes/Dockerfile):
+              # re-seed only when the image digest differs from the marker last written to
+              # the PVC. Unchanged boots compare one small file and skip the ~720MB walk.
+              # rm-first so renamed/removed weights don't linger; cp -a preserves the
+              # HuggingFace symlink cache layout. The rm is scoped to these two seed-only
+              # subdirs (mnemosyne/models, cache/fastembed) and never touches ${dest}
+              # itself or ${dest}/mnemosyne/ — so agent-written state (the mnemosyne DB,
+              # plugins symlink, codex/claude homes) is untouched.
+              seed="/opt/hermes/mnemosyne-seed"
+              marker="${dest}/.mnemosyne-seed.sha256"
+              want="$(cat "${seed}.sha256")"
+              if [ "$(cat "${marker}" 2>/dev/null || true)" != "${want}" ]; then
+                rm -rf "${dest}/mnemosyne/models" "${dest}/cache/fastembed"
+                mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed"
+                cp -a "${seed}/mnemosyne/models/." "${dest}/mnemosyne/models/"
+                cp -a "${seed}/cache/fastembed/." "${dest}/cache/fastembed/"
+                printf '%s\n' "${want}" > "${marker}"
+              fi
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
               # Coding-agent config homes live on the PVC (CODEX_HOME / CLAUDE_CONFIG_DIR
