@@ -1,5 +1,5 @@
 # Build the connector as a static binary, then ship it on distroless nonroot.
-FROM golang:1.22 AS build
+FROM golang:1.26 AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
