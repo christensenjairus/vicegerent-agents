@@ -17,10 +17,12 @@ spec:
         app.kubernetes.io/name: searxng
     spec:
       automountServiceAccountToken: false
+      enableServiceLinks: false
       securityContext:
         runAsUser: 977
         runAsGroup: 977
         runAsNonRoot: true
+        fsGroup: 977
         seccompProfile:
           type: RuntimeDefault
       containers:
