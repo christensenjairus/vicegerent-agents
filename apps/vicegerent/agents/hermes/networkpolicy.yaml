@@ -40,9 +40,6 @@ spec:
         - matchName: gitlab.hahomelabs.com
         - matchName: github.com
         - matchName: api.github.com
-        - matchName: duckduckgo.com
-        - matchName: html.duckduckgo.com
-        - matchName: api.duckduckgo.com
       toPorts:
         - ports:
             - port: '443'
