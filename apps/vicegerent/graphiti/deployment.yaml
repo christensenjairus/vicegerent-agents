@@ -39,6 +39,10 @@ spec:
           command: [/app/mcp/.venv/bin/python, main.py]
           workingDir: /app/mcp
           env:
+            # Put the sitecustomize shim dir on PYTHONPATH so CPython
+            # auto-imports it at interpreter startup (graphiti#1205 Host fix).
+            - name: PYTHONPATH
+              value: /opt/patch
             # Non-root HOME/cache must land on a writable volume under the
             # read-only rootfs; point them at the /tmp emptyDir.
             - name: HOME
@@ -109,6 +113,12 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            - name: patch
+              mountPath: /opt/patch
+              readOnly: true
       volumes:
         - name: tmp
           emptyDir: {}
+        - name: patch
+          configMap:
+            name: graphiti-mcp-patch
