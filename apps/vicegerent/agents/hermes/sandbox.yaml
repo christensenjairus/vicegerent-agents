@@ -83,6 +83,8 @@ spec:
               value: '1'
             - name: HERMES_DASHBOARD_HOST
               value: 127.0.0.1
+            - name: SEARXNG_URL
+              value: http://searxng.searxng.svc.cluster.local:8080
             # Coding-agent config homes on the PVC (seeded by seed-data) so they
             # stay writable under readOnlyRootFilesystem.
             - name: CODEX_HOME
