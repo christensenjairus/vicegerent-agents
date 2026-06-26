@@ -7,7 +7,6 @@ metadata:
   labels:
     app.kubernetes.io/name: mcp-cerbos-shim
 spec:
-  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: mcp-cerbos-shim
@@ -27,16 +26,6 @@ spec:
       containers:
         - name: mcp-cerbos-shim
           image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.1.0
-          args: []
-          env:
-            - name: LISTEN_ADDR
-              value: :4445
-            - name: MAPPING_PATH
-              value: /etc/mcp-cerbos-shim/mapping.yaml
-            - name: CERBOS_ADDR
-              value: cerbos.cerbos.svc.cluster.local:3593
-            - name: CERBOS_PLAINTEXT
-              value: 'true'
           ports:
             - name: grpc
               containerPort: 4445

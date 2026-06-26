@@ -1,13 +1,5 @@
-// Package server implements the agentgateway ExtMcp gRPC service, translating
-// each MCP tool call into a Cerbos authorization decision.
-//
-// Security contract (fail closed everywhere):
-//   - Only "tools/call" is evaluated at the request phase. Any other invoked
-//     method on a deny-default backend is denied (closes hook-broadening drift).
-//   - Unparseable params, unmapped backend/tool, CEL eval errors, unmet required
-//     attrs, unknown kind, and Cerbos errors ALL deny.
-//   - Responses set ONLY pass or error: mutated, header_mutation, and metadata
-//     are always left absent (asserted by tests) so no side-effect channel leaks.
+// Package server implements the agentgateway ExtMcp gRPC service.
+// Fail-closed contract: only tools/call is evaluated; bad params/mapping/eval/Cerbos errors deny; responses set only pass or error.
 package server
 
 import (
@@ -27,19 +19,10 @@ import (
 
 const toolsCall = "tools/call"
 
-// denyMessage is the generic, backend-agnostic reason returned to the MCP
-// client on a policy deny. It deliberately omits the resource/action so it is
-// safe for any MCP backend and does not leak what was probed. It signals that
-// this is a deliberate policy refusal (not a tool malfunction) so the client
-// does not abandon the MCP. The structured detail (action + resource type)
-// goes to the shim's own log for operators.
-const denyMessage = "Access denied by security policy. This is an intentional restriction, not a tool error — try a different resource or action."
+// denyMessage omits resource/action to avoid leaking probed state; detail goes to shim log.
+const denyMessage = "Access denied by security policy. This is an intentional restriction, not a tool error; try a different resource or action."
 
-// Principal is the fixed identity stamped on every Cerbos request. The policy
-// allows all roles and denies only by resource (Secrets) — identity is NOT a
-// control here (one agent per sandbox; the namespace/network lock is the
-// identity boundary). Cerbos still requires a principal + role in the request,
-// so this is a constant for audit/log context, not authorization.
+// Principal is a fixed audit constant (not an authz control; policy denies only by resource).
 type Principal struct {
 	ID    string
 	Roles []string
@@ -75,8 +58,7 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 
 	b := s.mapping.Backends[backend]
 
-	// Method gate (deny-default aware): only tools/call is handled at the
-	// request phase. Any other invoked method denies on a deny-default backend.
+	// Only tools/call is handled; other methods deny on a deny-default backend.
 	if req.GetMethod() != toolsCall {
 		if b.DefaultAction == config.ActionDeny {
 			return deny(fmt.Sprintf("method %q not handled on deny-default backend %q", req.GetMethod(), backend)), nil
@@ -84,8 +66,7 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return pass(), nil
 	}
 
-	// Parse params. Unparseable/missing → deny (do not trust gateway FailClosed
-	// for our own parse failures).
+	// Unparseable/missing params deny; don't rely on gateway FailClosed for our own failures.
 	raw := req.GetMcpRequest()
 	if len(raw) == 0 {
 		return deny("tools/call has no params"), nil
@@ -101,7 +82,6 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		cp.Arguments = map[string]any{} // valid: some tools take no args
 	}
 
-	// Unmapped tool → defaultAction.
 	if _, ok := b.Tools[cp.Name]; !ok {
 		if b.DefaultAction == config.ActionDeny {
 			return deny(fmt.Sprintf("tool %q not mapped on deny-default backend %q", cp.Name, backend)), nil
@@ -109,8 +89,6 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return pass(), nil
 	}
 
-	// Evaluate the mapping → Cerbos resource. Any eval error / unmet required
-	// attr returns *eval.ErrDeny.
 	res, err := s.engine.Eval(eval.CallInput{
 		Tool: cp.Name, Backend: backend, Method: req.GetMethod(), Args: cp.Arguments,
 	})
@@ -122,11 +100,9 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		s.principal.ID, s.principal.Roles,
 		res.ResourceType, res.ID, res.Attr, res.Action)
 	if err != nil {
-		// Cerbos unreachable / error → deny (gateway FailClosed is a backstop).
 		return deny(fmt.Sprintf("authorization check failed: %v", err)), nil
 	}
 	if !allowed {
-		// Operator detail to our own log; generic message to the client.
 		log.Printf("deny: %s on %s (tool=%s backend=%s)", res.Action, res.ResourceType, cp.Name, backend)
 		return deny(denyMessage), nil
 	}
@@ -162,13 +138,11 @@ func deny(reason string) *pb.McpRequestResult {
 	}
 }
 
-// CheckResponse is stubbed for v1: always Pass with no mutation. Response-phase
-// filtering/redaction is a documented follow-up.
+// CheckResponse is stubbed for v1: always Pass with no mutation.
 func (s *Server) CheckResponse(ctx context.Context, _ *pb.McpResponse) (*pb.McpResponseResult, error) {
 	return &pb.McpResponseResult{Result: &pb.McpResponseResult_Pass{Pass: &pb.Pass{}}}, nil
 }
 
-// guard against accidentally returning a gRPC-level error (which the gateway
-// treats as a transport failure, not a deny). All decisions are in-band.
+// Compile-time guard: gRPC-level errors are gateway transport failures, not denies.
 var _ = status.Errorf
 var _ = codes.OK

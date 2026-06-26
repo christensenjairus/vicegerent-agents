@@ -5,14 +5,7 @@ metadata:
   name: graphiti-mcp-patch
   namespace: graphiti
 data:
-  # Auto-imported by CPython at interpreter startup (it lives on PYTHONPATH),
-  # before main.py constructs FastMCP. Works around getzep/graphiti#1205: the
-  # server builds FastMCP() with no host arg, so the MCP SDK (>=1.23) auto-locks
-  # DNS-rebinding protection to localhost-only Host headers and the later
-  # mcp.settings.host="0.0.0.0" never rebuilds that allowlist. agentgateway
-  # connects with Host: graphiti-mcp.graphiti.svc.cluster.local -> 421.
-  # We keep protection ENABLED and trust exactly the in-cluster Service FQDN
-  # (matches backend.yaml's target host), nothing more.
+  # graphiti#1205: FastMCP locks Host allowlist at init; patch trusts in-cluster FQDN before main.py runs.
   sitecustomize.py: |-
     try:
         import mcp.server.fastmcp.server as _fm

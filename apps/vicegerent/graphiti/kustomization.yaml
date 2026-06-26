@@ -17,11 +17,7 @@ resources:
   - route.yaml
   - policy.yaml
 secretGenerator:
-  # Virtual key Graphiti presents to agentgateway for embeddings. Like the
-  # bot's own hermes-agentgateway-api-key, this is a non-secret placeholder the
-  # gateway discards and replaces with the real OpenAI credential — agentgateway
-  # does no inbound key validation. Kustomize-generated (not 1Password) to match
-  # that convention; the value is irrelevant, only its presence matters.
+  # Virtual key: non-secret placeholder; gateway replaces with real credential.
   - name: graphiti-gateway-key
     namespace: graphiti
     literals: [api-key=graphiti]

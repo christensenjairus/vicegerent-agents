@@ -100,9 +100,7 @@ func mcpReq(backend, method string, body []byte) *pb.McpRequest {
 func isPass(r *pb.McpRequestResult) bool { return r.GetPass() != nil }
 func isDeny(r *pb.McpRequestResult) bool { return r.GetError() != nil }
 
-// assertNoSideEffects enforces the v1 invariant: a result must NEVER carry the
-// mutated / header_mutation / metadata channels (the gateway applies metadata
-// even on Pass — round-2 finding).
+// assertNoSideEffects enforces the v1 invariant: results carry no mutation or metadata channels.
 func assertNoSideEffects(t *testing.T, r *pb.McpRequestResult) {
 	t.Helper()
 	if r.GetMutated() != nil {
@@ -209,9 +207,7 @@ func TestCheckRequest_FailClosedPaths(t *testing.T) {
 func TestCheckRequest_ListResourcesReachesPolicy(t *testing.T) {
 	// A collection call has no single object name (mapping sets id ''). The
 	// engine must substitute a non-empty id so the real Cerbos PDP evaluates
-	// policy instead of rejecting on InvalidArgument. Regression for the
-	// in-cluster bug where listResources could never be allowed/denied by
-	// policy — only failed-closed on a malformed request.
+	// policy instead of rejecting on InvalidArgument.
 	t.Run("Pod list allowed", func(t *testing.T) {
 		d := &stubDecider{allow: true}
 		s := newTestServer(t, d)
@@ -286,8 +282,7 @@ func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
 // tools exist; here, anything that isn't a Secret passes.
 func TestCheckRequest_PassDefaultContract(t *testing.T) {
 	t.Run("arbitrary non-secret kind (CRD) reaches Cerbos and passes", func(t *testing.T) {
-		// A kind the shim has never heard of must NOT be denied for being
-		// unknown — only Secrets are blocked. It reaches Cerbos (allow) intact.
+		// Unknown non-Secret kinds reach Cerbos; the shim is not a kind allowlist.
 		d := &stubDecider{allow: true}
 		s := newTestServer(t, d)
 		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",

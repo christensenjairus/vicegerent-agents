@@ -13,4 +13,3 @@ spec:
     - name: grpc
       port: 4445
       targetPort: grpc
-      protocol: TCP

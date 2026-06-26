@@ -6,9 +6,6 @@ controller:
     repository: controller
     tag: v1.3.1
 resources:
-  requests:
-    cpu: 100m
-    memory: 128Mi
   limits:  # Stripped by the HelmRelease postRenderer on this (laptop) cluster
     cpu: 250m
     memory: 512Mi

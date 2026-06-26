@@ -7,7 +7,6 @@ metadata:
   labels:
     app.kubernetes.io/name: graphiti-mcp
 spec:
-  replicas: 1
   strategy:
     type: Recreate
   selector:
@@ -30,28 +29,17 @@ spec:
       containers:
         - name: graphiti-mcp
           image: docker.io/zepai/knowledge-graph-mcp:1.0.2-graphiti-0.28.2-standalone
-          imagePullPolicy: IfNotPresent
-          # The image runs as root and installs uv under /root/.local/bin with
-          # /root mode 0700 — unreachable by a non-root UID. Invoke the project
-          # venv's interpreter directly (equivalent to `uv run --no-sync main.py`,
-          # whose only job is to run main.py in that venv) so the pod can run as
-          # an unprivileged user. The venv path is world-traversable (0755).
+          # invoke venv python directly; /root/.local/bin (uv) is unreachable by non-root UID.
           command: [/app/mcp/.venv/bin/python, main.py]
           workingDir: /app/mcp
           env:
-            # Put the sitecustomize shim dir on PYTHONPATH so CPython
-            # auto-imports it at interpreter startup (graphiti#1205 Host fix).
+            # PYTHONPATH: sitecustomize shim for graphiti#1205 Host fix.
             - name: PYTHONPATH
               value: /opt/patch
-            # Non-root HOME/cache must land on a writable volume under the
-            # read-only rootfs; point them at the /tmp emptyDir.
             - name: HOME
               value: /tmp
             - name: XDG_CACHE_HOME
               value: /tmp
-            # Graph store: the in-cluster FalkorDB pod. The bundled
-            # config-docker-falkordb.yaml selects the falkordb driver and reads
-            # these; FALKORDB_URI overrides its localhost default.
             - name: CONFIG_PATH
               value: /app/mcp/config/config-docker-falkordb.yaml
             - name: FALKORDB_URI
@@ -63,13 +51,7 @@ spec:
                 secretKeyRef:
                   name: graphiti-falkordb
                   key: password
-            # LLM + embedder both resolve to this one OpenAI-compatible base URL.
-            # It points at a dedicated agentgateway OpenAI backend that serves
-            # both /v1/embeddings and /v1/chat/completions and swaps in the real
-            # OpenAI key. Embeddings flow on search/add_triplet; chat-completions
-            # flow when add_memory extracts entities/edges from prose. The key is
-            # a non-empty virtual token (the OpenAI SDK rejects an empty key at
-            # construction); the gateway holds the real credential.
+            # Gateway serves embeddings + chat completions; virtual key must be non-empty.
             - name: OPENAI_API_URL
               value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-openai/v1
             - name: OPENAI_API_KEY
@@ -77,7 +59,6 @@ spec:
                 secretKeyRef:
                   name: graphiti-gateway-key
                   key: api-key
-            # Pin the tribal namespace; clients that omit group_id land here.
             - name: GRAPHITI_GROUP_ID
               value: tribal
             - name: GRAPHITI_TELEMETRY_ENABLED
