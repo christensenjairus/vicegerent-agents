@@ -1,0 +1,57 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: langfuse-otel-collector
+  namespace: langfuse
+  labels:
+    app.kubernetes.io/name: langfuse-otel-collector
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: langfuse-otel-collector
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: langfuse-otel-collector
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: collector
+          image: docker.io/otel/opentelemetry-collector-contrib:0.154.0
+          imagePullPolicy: IfNotPresent
+          args: [--config=/conf/config.yaml]
+          env:
+            - name: LANGFUSE_OTEL_AUTH
+              valueFrom:
+                secretKeyRef:
+                  name: langfuse-secrets
+                  key: otel-basic-auth
+                  optional: true
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+          resources:
+            requests:
+              cpu: 10m
+              memory: 64Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          volumeMounts:
+            - name: config
+              mountPath: /conf
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: langfuse-otel-collector-config

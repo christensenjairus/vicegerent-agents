@@ -1,0 +1,20 @@
+---
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: langfuse
+resources:
+  - namespace.yaml
+  - repository.yaml
+  - release.yaml
+  - secrets.yaml
+  - otel-configmap.yaml
+  - otel-deployment.yaml
+  - otel-service.yaml
+  - app-networkpolicy.yaml
+  - otel-networkpolicy.yaml
+configMapGenerator:
+  - name: langfuse-values
+    files: [values.yaml=values.yaml]
+configurations: [kustomizeconfig.yaml]
+commonAnnotations:
+  kustomize.toolkit.fluxcd.io/force: Enabled

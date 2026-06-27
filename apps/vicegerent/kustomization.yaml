@@ -15,4 +15,5 @@ resources:
   - mcps/firecrawl
   - searxng
   - graphiti
+  - langfuse
   - agents/hermes
