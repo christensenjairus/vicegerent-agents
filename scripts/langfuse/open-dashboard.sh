@@ -8,6 +8,8 @@ NAMESPACE="${LANGFUSE_NAMESPACE:-langfuse}"
 SERVICE="${LANGFUSE_SERVICE:-langfuse-web}"
 BACKEND_PORT="${LANGFUSE_FORWARD_PORT:-3000}"
 PROXY_PORT="${LANGFUSE_DASHBOARD_PORT:-3001}"
+DASHBOARD_PATH="${LANGFUSE_DASHBOARD_PATH:-/project/vicegerent}"
+[[ "$DASHBOARD_PATH" == /* ]] || DASHBOARD_PATH="/$DASHBOARD_PATH"
 EMAIL="${LANGFUSE_EMAIL:-admin@vicegerent.local}"
 CONTEXT_ARG=()
 if [[ -n "${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-}}" ]]; then
@@ -190,6 +192,7 @@ for _ in $(seq 1 80); do
 done
 url="$(cat "$tmpdir/proxy.url")"
 [[ -n "$url" ]] || { echo "Langfuse auth proxy did not report a URL" >&2; cat "$tmpdir/proxy.log" >&2; exit 1; }
+url="${url%/}${DASHBOARD_PATH}"
 
 if command -v open >/dev/null 2>&1; then
   open "$url"
