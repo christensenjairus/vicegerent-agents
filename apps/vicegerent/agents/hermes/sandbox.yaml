@@ -145,6 +145,15 @@ spec:
                 secretKeyRef:
                   name: hermes-agentgateway-api-key
                   key: api-key
+            # Langfuse plugin: use pod name as environment so each sandbox is
+            # identifiable in Langfuse. The keys come from vicegerent-secrets
+            # (1Password Vicegerent/Runtime vault item).
+            - name: HERMES_LANGFUSE_ENV
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: HERMES_LANGFUSE_BASE_URL
+              value: http://langfuse-web.langfuse.svc.cluster.local:3000
           envFrom:
             - secretRef:
                 name: vicegerent-secrets

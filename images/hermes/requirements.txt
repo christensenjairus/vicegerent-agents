@@ -6,3 +6,5 @@
 mnemosyne-hermes[all]==0.2.0
 pygount==3.2.0
 rtk-hermes==1.2.3
+# renovate: datasource=pypi depName=langfuse
+langfuse==3.0.10

@@ -130,6 +130,7 @@ data:
       enabled:
         - disk-cleanup
         - rtk-rewrite
+        - observability/langfuse
       disabled:
         - raft-platform
         - web/exa
