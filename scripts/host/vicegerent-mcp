@@ -2,4 +2,10 @@
 set -euo pipefail
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-exec python3 "$repo_root/host/mcp/vicegerent_mcp.py" "$@"
+venv_python="$repo_root/host/mcp/.venv/bin/python"
+if [[ -x "$venv_python" ]]; then
+  exec "$venv_python" "$repo_root/host/mcp/vicegerent_mcp.py" "$@"
+else
+  echo "ERROR: venv not found. Run: ./scripts/host/setup-host-mcp" >&2
+  exit 1
+fi
