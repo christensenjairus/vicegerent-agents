@@ -1,0 +1,33 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: langfuse-tracing
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: agentgateway-proxy
+  frontend:
+    tracing:
+      backendRef:
+        name: langfuse-otel-collector
+        namespace: langfuse
+        port: 4317
+      protocol: GRPC
+      clientSampling: 'true'
+      randomSampling: 'true'
+      resources:
+        - name: deployment.environment.name
+          expression: '"vicegerent"'
+        - name: service.name
+          expression: '"agentgateway-proxy"'
+      attributes:
+        add:
+          - name: gen_ai.system
+            expression: llm.provider
+          - name: gen_ai.usage.completion_tokens
+            expression: llm.outputTokens
+          - name: gen_ai.usage.prompt_tokens
+            expression: llm.inputTokens

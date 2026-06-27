@@ -1,0 +1,40 @@
+---
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: langfuse-otel-collector
+  namespace: langfuse
+spec:
+  endpointSelector:
+    matchLabels:
+      app.kubernetes.io/name: langfuse-otel-collector
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: agentgateway-system
+            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
+      toPorts:
+        - ports:
+            - port: '4317'
+              protocol: TCP
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: '53'
+              protocol: UDP
+          rules:
+            dns:
+              - matchPattern: '*'
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: langfuse
+            app.kubernetes.io/name: langfuse
+            app: web
+      toPorts:
+        - ports:
+            - port: '3000'
+              protocol: TCP

@@ -12,7 +12,8 @@
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #   - a Graphiti FalkorDB password (item "GraphitiFalkorDB", field "password")
 #     synced into the cluster
-#
+#   - Langfuse bootstrap secrets (item "Langfuse") synced into the cluster
+
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
 #     The CA private key is kept in "Ghostunnel Host" so a missing leaf cert can be
@@ -42,6 +43,7 @@ SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="Tavily"
 FIRECRAWL_ITEM="Firecrawl"
 GRAPHITI_FALKORDB_ITEM="GraphitiFalkorDB"
+LANGFUSE_ITEM="Langfuse"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -119,6 +121,14 @@ set_field() {
   local title="$1" field="$2" file="$3" type="${4:-concealed}"
   local esc="${field//./\\.}"
   op item edit "$title" --vault "$VAULT" "${esc}[${type}]=$(cat "$file")" >/dev/null
+}
+
+set_value_field() {
+  local title="$1" field="$2" value="$3" type="${4:-concealed}"
+  local tmp
+  tmp="$(mktemp "$CERTS/field.XXXXXX")"
+  printf %s "$value" > "$tmp"
+  set_field "$title" "$field" "$tmp" "$type"
 }
 
 connect_server_exists() {
@@ -502,6 +512,56 @@ else
 fi
 
 
+# --- Langfuse bootstrap secrets --------------------------------------------
+# App/session/datastore credentials for the self-hosted Langfuse stack. These
+# are generated once and reused because changing them can break app sessions or
+# make stateful dependencies unusable. otel-basic-auth is populated later from
+# Langfuse project keys: base64 of "public-key:secret-key".
+step "Langfuse bootstrap secrets"
+ensure_item "$LANGFUSE_ITEM"
+langfuse_generated=0
+langfuse_field() {
+  local field="$1" value="$2" type="${3:-concealed}"
+  if op_field_exists "$LANGFUSE_ITEM" "$field"; then
+    info "Langfuse '$field' already set in '$LANGFUSE_ITEM'; reusing."
+    return
+  fi
+  if [[ $langfuse_generated -eq 0 ]]; then
+    confirm "Generate missing Langfuse bootstrap fields in item '$LANGFUSE_ITEM'." \
+      || die "Langfuse bootstrap secrets are required; aborting."
+    langfuse_generated=1
+  fi
+  set_value_field "$LANGFUSE_ITEM" "$field" "$value" "$type"
+  info "Set Langfuse '$field' in '$LANGFUSE_ITEM'."
+}
+langfuse_field "nextauth-secret" "$(openssl rand -base64 32)"
+langfuse_field "salt" "$(openssl rand -base64 32)"
+langfuse_field "encryption-key" "$(openssl rand -hex 32)"
+langfuse_field "postgres-password" "$(openssl rand -hex 24)"
+langfuse_field "redis-password" "$(openssl rand -hex 24)"
+langfuse_field "clickhouse-password" "$(openssl rand -hex 24)"
+langfuse_field "minio-root-user" "langfuse" text
+langfuse_field "minio-root-password" "$(openssl rand -hex 24)"
+
+if op_field_exists "$LANGFUSE_ITEM" "otel-basic-auth"; then
+  info "Langfuse OTEL auth already set in '$LANGFUSE_ITEM' (otel-basic-auth); reusing."
+else
+  OTEL_AUTH="${LANGFUSE_OTEL_BASIC_AUTH:-}"
+  if [[ -z "$OTEL_AUTH" && "$ASSUME_YES" != "1" ]]; then
+    echo
+    echo "${Y}CHANGE:${N} Optionally store Langfuse OTEL Basic auth in '$LANGFUSE_ITEM' (otel-basic-auth)."
+    echo "  Value is base64 of pk-lf-...:sk-lf-... after the Langfuse project exists; empty to skip."
+    read -r -s -p "  Langfuse OTEL Basic auth (empty to skip): " OTEL_AUTH; echo
+  fi
+  if [[ -n "$OTEL_AUTH" ]]; then
+    set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH" concealed
+    unset OTEL_AUTH
+    info "Stored Langfuse OTEL auth in '$LANGFUSE_ITEM'."
+  else
+    warn "Langfuse otel-basic-auth left unset — collector exports will fail until project keys are added."
+  fi
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -525,6 +585,14 @@ check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
 check "$SEARXNG_ITEM" "secret_key"
 check "$GRAPHITI_FALKORDB_ITEM" "password"
+check "$LANGFUSE_ITEM" "nextauth-secret"
+check "$LANGFUSE_ITEM" "salt"
+check "$LANGFUSE_ITEM" "encryption-key"
+check "$LANGFUSE_ITEM" "postgres-password"
+check "$LANGFUSE_ITEM" "redis-password"
+check "$LANGFUSE_ITEM" "clickhouse-password"
+check "$LANGFUSE_ITEM" "minio-root-user"
+check "$LANGFUSE_ITEM" "minio-root-password"
 
 echo
 if [[ $missing -eq 0 ]]; then
