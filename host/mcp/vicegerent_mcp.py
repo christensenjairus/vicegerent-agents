@@ -1104,6 +1104,20 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     return doctor(args.config, args.runtime_dir, args.auth_dir)
 
 
+def cmd_tui(args: argparse.Namespace) -> int:
+    """Launch the interactive TUI."""
+    from host.mcp.tui import HostMCPApp
+
+    app = HostMCPApp(
+        config_path=args.config,
+        runtime_dir=args.runtime_dir,
+        proxy_dir=args.proxy_dir,
+        auth_dir=args.auth_dir,
+    )
+    app.run()
+    return 0
+
+
 # ---------------------------------------------------------------------------
 # Parser
 # ---------------------------------------------------------------------------
@@ -1177,6 +1191,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     # doctor
     sub.add_parser("doctor", help="check host prerequisites and auth state").set_defaults(func=cmd_doctor)
+
+    # tui
+    tui_p = sub.add_parser("tui", help="launch interactive TUI dashboard")
+    tui_p.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
+    tui_p.set_defaults(func=cmd_tui)
 
     return parser
 
