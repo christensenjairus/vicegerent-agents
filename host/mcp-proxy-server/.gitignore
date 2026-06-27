@@ -1,0 +1,18 @@
+node_modules/
+build/
+*.log
+.env*
+*.db
+index.md
+SETTINGS.md
+reverse-transform.js
+# Session secret file for Admin UI
+config/.session_secret
+browser-*
+chatmcp
+typescript-sdk
+inspector
+MCP-protocol.txt
+tools/**
+config/mcp_server.json
+config/tool_config.json

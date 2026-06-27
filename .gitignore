@@ -11,3 +11,7 @@ host/mcp/.venv/
 
 # Compiled Go binaries
 host/k8s-mcp-server/k8s-mcp-server
+
+# mcp-proxy-server vendored build artifacts
+host/mcp-proxy-server/build/
+host/mcp-proxy-server/node_modules/
