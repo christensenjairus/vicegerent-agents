@@ -6,48 +6,73 @@ metadata:
   namespace: langfuse
 data:
   seed.py: |-
-    import base64, json, time, urllib.request, urllib.error, os
-    pk = os.environ['LANGFUSE_PUBLIC_KEY']
-    sk = os.environ['LANGFUSE_SECRET_KEY']
-    base_url = os.environ.get('LANGFUSE_URL', 'http://langfuse-web.langfuse.svc.cluster.local:3000')
-    auth = base64.b64encode(f'{pk}:{sk}'.encode()).decode()
-    headers = {'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'}
-    for _ in range(120):
+    """Seed Langfuse model definitions from models.json with live pricing from LiteLLM."""
+    import base64, json, time, urllib.request, urllib.error, os, sys
+    LITELLM_PRICES_URL = (
+        "https://raw.githubusercontent.com/BerriAI/litellm/main/"
+        "model_prices_and_context_window.json"
+    )
+    CONFIG_PATH = "/config/models.json"
+    pk = os.environ["LANGFUSE_PUBLIC_KEY"]
+    sk = os.environ["LANGFUSE_SECRET_KEY"]
+    base_url = os.environ.get(
+        "LANGFUSE_URL", "http://langfuse-web.langfuse.svc.cluster.local:3000"
+    )
+    auth = base64.b64encode(f"{pk}:{sk}".encode()).decode()
+    headers = {"Authorization": f"Basic {auth}", "Content-Type": "application/json"}
+
+    # Wait for Langfuse to be ready.
+    print("waiting for Langfuse...", flush=True)
+    for i in range(120):
         try:
-            urllib.request.urlopen(base_url + '/api/public/health', timeout=3)
+            urllib.request.urlopen(base_url + "/api/public/health", timeout=3)
+            print("Langfuse ready", flush=True)
             break
-        except Exception:
+        except Exception as e:
+            if i % 12 == 0:
+                print(f"  still waiting ({i * 5}s): {e}", flush=True)
             time.sleep(5)
     else:
-        raise SystemExit('Langfuse did not become ready')
+        raise SystemExit("Langfuse did not become ready after 10 minutes")
 
-    # Prices are USD per token (not per million).
-    # Sources: platform.anthropic.com/docs/en/about-claude/models#model-names
-    #          openai.com/api/pricing
-    MODELS = [
-        dict(modelName='claude-opus-4-8',   matchPattern=r'(?i)^claude-opus-4[-_.]8',
-             unit='TOKENS', inputPrice=0.000005,    outputPrice=0.000025),
-        dict(modelName='claude-sonnet-4-6', matchPattern=r'(?i)^claude-sonnet-4[-_.]6',
-             unit='TOKENS', inputPrice=0.000003,    outputPrice=0.000015),
-        dict(modelName='claude-haiku-4-5',  matchPattern=r'(?i)^claude-haiku-4[-_.]5',
-             unit='TOKENS', inputPrice=0.000001,    outputPrice=0.000005),
-        dict(modelName='gpt-4.1',           matchPattern=r'(?i)^gpt-4\.1$',
-             unit='TOKENS', inputPrice=0.000002,    outputPrice=0.000008),
-        dict(modelName='gpt-4o-mini',       matchPattern=r'(?i)^gpt-4o-mini',
-             unit='TOKENS', inputPrice=0.00000015,  outputPrice=0.0000006),
-        dict(modelName='gpt-5.5',           matchPattern=r'(?i)^gpt-5\.5',
-             unit='TOKENS', inputPrice=0.000005,    outputPrice=0.00003),
-    ]
-    for m in MODELS:
-        body = json.dumps(m).encode()
-        req = urllib.request.Request(base_url + '/api/public/models',
-                                     data=body, headers=headers, method='POST')
+    # Fetch live prices from LiteLLM.
+    litellm = {}
+    try:
+        resp = urllib.request.urlopen(LITELLM_PRICES_URL, timeout=15)
+        litellm = json.loads(resp.read())
+        print(f"fetched LiteLLM price catalog ({len(litellm)} entries)", flush=True)
+    except Exception as e:
+        print(f"WARNING: could not fetch LiteLLM prices, using fallbacks: {e}", flush=True)
+    with open(CONFIG_PATH) as f:
+        models = json.load(f)
+    for m in models:
+        entry = litellm.get(m["litellm_key"], {})
+        # LiteLLM stores prices per token already (not per million).
+        input_price = entry.get("input_cost_per_token", m["fallback_input_price"])
+        output_price = entry.get("output_cost_per_token", m["fallback_output_price"])
+        source = "litellm" if m["litellm_key"] in litellm else "fallback"
+        print(
+            f"  {m['name']}: in=${input_price:.2e} out=${output_price:.2e} ({source})",
+            flush=True,
+        )
+        body = json.dumps({
+            "modelName": m["name"],
+            "matchPattern": m["match_pattern"],
+            "unit": "TOKENS",
+            "inputPrice": input_price,
+            "outputPrice": output_price,
+        }).encode()
+        req = urllib.request.Request(
+            base_url + "/api/public/models", data=body, headers=headers, method="POST"
+        )
         try:
             urllib.request.urlopen(req, timeout=30)
-            print(f"created {m['modelName']}")
+            print(f"  -> created", flush=True)
         except urllib.error.HTTPError as e:
             if e.code == 409:
-                print(f"exists  {m['modelName']}")
+                print(f"  -> already exists", flush=True)
             else:
-                raise RuntimeError(f"{m['modelName']}: {e.code} {e.read().decode()!r}")
-    print('done')
+                raise RuntimeError(
+                    f"{m['name']}: {e.code} {e.read().decode()!r}"
+                )
+    print("done", flush=True)

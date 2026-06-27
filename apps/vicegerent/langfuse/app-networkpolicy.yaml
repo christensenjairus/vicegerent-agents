@@ -17,6 +17,14 @@ spec:
         - ports:
             - port: '3000'
               protocol: TCP
+    - fromEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: langfuse
+            batch.kubernetes.io/job-name: langfuse-model-seed
+      toPorts:
+        - ports:
+            - port: '3000'
+              protocol: TCP
   egress:
     - toEndpoints:
         - matchLabels:

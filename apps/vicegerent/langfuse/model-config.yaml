@@ -1,0 +1,59 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: langfuse-model-config
+  namespace: langfuse
+data:
+  # Edit this file to add, remove, or reprice models.
+  # name:                 model ID as emitted by agentgateway (what Langfuse sees in traces)
+  # match_pattern:        regex matched against the generation's model field in Langfuse
+  # litellm_key:          key in the LiteLLM model cost map for live price lookup
+  #                       https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json
+  # fallback_input_price: USD per token if the LiteLLM fetch fails
+  # fallback_output_price: USD per token if the LiteLLM fetch fails
+  models.json: |-
+    [
+      {
+        "name": "claude-opus-4-8",
+        "match_pattern": "(?i)^claude-opus-4[-_.]8",
+        "litellm_key": "claude-opus-4-5",
+        "fallback_input_price": 0.000005,
+        "fallback_output_price": 0.000025
+      },
+      {
+        "name": "claude-sonnet-4-6",
+        "match_pattern": "(?i)^claude-sonnet-4[-_.]6",
+        "litellm_key": "claude-sonnet-4-5",
+        "fallback_input_price": 0.000003,
+        "fallback_output_price": 0.000015
+      },
+      {
+        "name": "claude-haiku-4-5",
+        "match_pattern": "(?i)^claude-haiku-4[-_.]5",
+        "litellm_key": "claude-haiku-4-5",
+        "fallback_input_price": 0.000001,
+        "fallback_output_price": 0.000005
+      },
+      {
+        "name": "gpt-4.1",
+        "match_pattern": "(?i)^gpt-4\\.1$",
+        "litellm_key": "gpt-4.1",
+        "fallback_input_price": 0.000002,
+        "fallback_output_price": 0.000008
+      },
+      {
+        "name": "gpt-4o-mini",
+        "match_pattern": "(?i)^gpt-4o-mini",
+        "litellm_key": "gpt-4o-mini",
+        "fallback_input_price": 0.00000015,
+        "fallback_output_price": 0.0000006
+      },
+      {
+        "name": "gpt-5.5",
+        "match_pattern": "(?i)^gpt-5\\.5",
+        "litellm_key": "gpt-5.5",
+        "fallback_input_price": 0.000005,
+        "fallback_output_price": 0.00003
+      }
+    ]

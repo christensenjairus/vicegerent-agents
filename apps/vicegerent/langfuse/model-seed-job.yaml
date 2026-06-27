@@ -5,7 +5,6 @@ metadata:
   name: langfuse-model-seed
   namespace: langfuse
   annotations:
-    # Re-runs whenever this Job manifest changes (Flux reconciles deletions/recreations).
     kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   ttlSecondsAfterFinished: 600
@@ -20,7 +19,7 @@ spec:
       containers:
         - name: seed
           image: python:3.13-alpine
-          command: [python, /scripts/seed.py]
+          command: [python, -u, /scripts/seed.py]
           env:
             - name: LANGFUSE_PUBLIC_KEY
               valueFrom:
@@ -36,6 +35,12 @@ spec:
             - name: seed-script
               mountPath: /scripts
               readOnly: true
+            - name: model-config
+              mountPath: /config
+              readOnly: true
+            # Python needs a writable tmp dir for bytecode cache.
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 10m
@@ -47,3 +52,8 @@ spec:
         - name: seed-script
           configMap:
             name: langfuse-model-seed
+        - name: model-config
+          configMap:
+            name: langfuse-model-config
+        - name: tmp
+          emptyDir: {}
