@@ -21,9 +21,9 @@ spec:
         policy:
           matchExpressions:
             - >-
-              mcp.tool.name in ["kubernetes__getResource", "kubernetes__listResources",
-              "kubernetes__describeResource", "kubernetes__getPodsLogs", "kubernetes__getEvents",
-              "kubernetes__getNodeMetrics", "kubernetes__getPodMetrics"]
+              mcp.tool.name in ["getResource", "listResources",
+              "describeResource", "getPodsLogs", "getEvents",
+              "getNodeMetrics", "getPodMetrics"]
       guardrails:
         processors:
           - methods:

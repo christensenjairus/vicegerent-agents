@@ -10,6 +10,6 @@ spec:
       - name: kubernetes
         static:
           host: host.minikube.internal
-          port: 8453
+          port: 8443
           path: /mcp
           protocol: StreamableHTTP
