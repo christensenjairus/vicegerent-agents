@@ -1,0 +1,179 @@
+#!/usr/bin/env bash
+# scripts/host/setup-host-mcp
+#
+# Idempotent setup of all host-side prerequisites for vicegerent host MCP:
+#
+#   1. Homebrew packages: caddy ghostunnel node supervisor
+#   2. Python deps: pip install -r host/mcp/requirements-host.txt
+#   3. mcp-proxy-server: clone (or update) ~/HomeLab/mcp-proxy-server and build
+#   4. k8s-mcp-server: build the in-repo Go binary (host/k8s-mcp-server/k8s-mcp-server)
+#   5. Final doctor check: vicegerent-mcp doctor
+#
+# Flags:
+#   -y, --yes      auto-approve every step (non-interactive)
+#   --update       pull + rebuild mcp-proxy-server even if it already exists
+#   -h, --help     show this help
+#
+# Prerequisites on the host Mac: Homebrew, Go (for k8s-mcp-server)
+
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+PROXY_DIR="${PROXY_DIR:-$HOME/HomeLab/mcp-proxy-server}"
+PROXY_REPO="https://github.com/ptbsare/mcp-proxy-server.git"
+
+ASSUME_YES=0
+UPDATE_PROXY=0
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    -y|--yes)    ASSUME_YES=1 ;;
+    --update)    UPDATE_PROXY=1 ;;
+    -h|--help)   sed -n '2,18p' "$0"; exit 0 ;;
+    *) echo "unknown argument: $1" >&2; exit 2 ;;
+  esac
+  shift
+done
+
+if [[ -t 1 ]]; then
+  B=$'\033[1m'; G=$'\033[0;32m'; Y=$'\033[0;33m'; R=$'\033[0;31m'; N=$'\033[0m'
+else
+  B=""; G=""; Y=""; R=""; N=""
+fi
+info()    { echo "${G}✓${N} $*"; }
+step()    { echo; echo "${B}== $* ==${N}"; }
+warn()    { echo "${Y}!${N} $*" >&2; }
+die()     { echo "${R}ERROR:${N} $*" >&2; exit 1; }
+skipped() { echo "  (already present — skipping)"; }
+
+confirm() {
+  if [[ "$ASSUME_YES" == "1" ]]; then return 0; fi
+  local ans
+  read -r -p "  Proceed? [y/N] " ans
+  [[ "$ans" =~ ^[Yy]$ ]]
+}
+
+need_cmd() {
+  command -v "$1" >/dev/null 2>&1 || die "$1 is required but not found — install Homebrew first"
+}
+
+# ---------------------------------------------------------------------------
+# 0. Sanity
+# ---------------------------------------------------------------------------
+need_cmd brew
+need_cmd python3
+
+# ---------------------------------------------------------------------------
+# 1. Homebrew packages
+# ---------------------------------------------------------------------------
+step "Homebrew packages"
+
+BREW_PACKAGES=(caddy ghostunnel node supervisor)
+MISSING=()
+for pkg in "${BREW_PACKAGES[@]}"; do
+  if brew list --formula "$pkg" >/dev/null 2>&1; then
+    info "$pkg already installed"
+  else
+    MISSING+=("$pkg")
+  fi
+done
+
+if [[ ${#MISSING[@]} -gt 0 ]]; then
+  echo "  Will install: ${MISSING[*]}"
+  confirm "Install missing Homebrew packages?" || die "Aborted."
+  brew install "${MISSING[@]}"
+  info "Installed: ${MISSING[*]}"
+fi
+
+# ---------------------------------------------------------------------------
+# 2. Python deps
+# ---------------------------------------------------------------------------
+step "Python dependencies"
+
+REQ="$REPO_ROOT/host/mcp/requirements-host.txt"
+[[ -f "$REQ" ]] || die "requirements-host.txt not found: $REQ"
+
+# Check if all deps are already satisfied
+if python3 -c "
+import importlib, sys
+pkgs = {'rich': 'rich', 'textual': 'textual'}
+missing = [name for name, mod in pkgs.items() if importlib.util.find_spec(mod) is None]
+if missing:
+    print('missing:', ' '.join(missing))
+    sys.exit(1)
+" 2>/dev/null; then
+  info "Python dependencies already installed (rich, textual)"
+else
+  echo "  Installing from $REQ"
+  confirm "pip install -r host/mcp/requirements-host.txt?" || die "Aborted."
+  pip install -r "$REQ" --break-system-packages -q
+  info "Python dependencies installed"
+fi
+
+# ---------------------------------------------------------------------------
+# 3. mcp-proxy-server
+# ---------------------------------------------------------------------------
+step "mcp-proxy-server (${PROXY_DIR})"
+
+if [[ -d "$PROXY_DIR" ]]; then
+  if [[ "$UPDATE_PROXY" == "1" ]]; then
+    echo "  Updating mcp-proxy-server..."
+    confirm "git pull + npm ci + npm run build in $PROXY_DIR?" || die "Aborted."
+    git -C "$PROXY_DIR" pull
+    npm --prefix "$PROXY_DIR" ci --quiet
+    npm --prefix "$PROXY_DIR" run build --silent
+    info "mcp-proxy-server updated and rebuilt"
+  elif [[ -f "$PROXY_DIR/build/sse.js" ]]; then
+    info "mcp-proxy-server already built at $PROXY_DIR"
+    echo "  (Run with --update to pull latest and rebuild)"
+  else
+    warn "mcp-proxy-server directory exists but build is missing — rebuilding"
+    npm --prefix "$PROXY_DIR" ci --quiet
+    npm --prefix "$PROXY_DIR" run build --silent
+    info "mcp-proxy-server built"
+  fi
+else
+  echo "  Will clone $PROXY_REPO → $PROXY_DIR"
+  confirm "Clone and build mcp-proxy-server?" || die "Aborted."
+  mkdir -p "$(dirname "$PROXY_DIR")"
+  git clone "$PROXY_REPO" "$PROXY_DIR"
+  npm --prefix "$PROXY_DIR" ci --quiet
+  npm --prefix "$PROXY_DIR" run build --silent
+  info "mcp-proxy-server cloned and built at $PROXY_DIR"
+fi
+
+# ---------------------------------------------------------------------------
+# 4. k8s-mcp-server (in-repo Go binary)
+# ---------------------------------------------------------------------------
+step "k8s-mcp-server (host/k8s-mcp-server/)"
+
+K8S_MCP_DIR="$REPO_ROOT/host/k8s-mcp-server"
+K8S_MCP_BIN="$K8S_MCP_DIR/k8s-mcp-server"
+
+[[ -d "$K8S_MCP_DIR" ]] || die "k8s-mcp-server source not found: $K8S_MCP_DIR"
+
+if ! command -v go >/dev/null 2>&1; then
+  warn "go not found — skipping k8s-mcp-server build. Install Go and run: make -C host/k8s-mcp-server"
+elif [[ -f "$K8S_MCP_BIN" ]]; then
+  info "k8s-mcp-server binary already built: $K8S_MCP_BIN"
+else
+  echo "  Building k8s-mcp-server with Go..."
+  confirm "make -C host/k8s-mcp-server?" || die "Aborted."
+  make -C "$K8S_MCP_DIR" --quiet
+  [[ -f "$K8S_MCP_BIN" ]] || die "Build failed — binary not found: $K8S_MCP_BIN"
+  info "k8s-mcp-server built: $K8S_MCP_BIN"
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Doctor check
+# ---------------------------------------------------------------------------
+step "Doctor check"
+echo
+python3 "$REPO_ROOT/host/mcp/vicegerent_mcp.py" doctor || true
+
+echo
+echo "${G}${B}Host MCP setup complete.${N}"
+echo
+echo "Next steps:"
+echo "  1. Sign in to 1Password:  op signin"
+echo "  2. Start the stack:       ./scripts/host/vicegerent-mcp start --proxy-dir $PROXY_DIR"
+echo "  3. Open the TUI:          ./scripts/host/vicegerent-mcp tui"

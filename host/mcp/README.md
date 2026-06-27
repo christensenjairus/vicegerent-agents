@@ -24,8 +24,21 @@ Each infrastructure process (proxy, Caddy, ghostunnel) runs under supervisord wi
 
 ## Prerequisites
 
+Run the setup script — it handles everything idempotently:
+
 ```bash
-brew install caddy ghostunnel node op supervisor
+./scripts/host/setup-host-mcp
+```
+
+This installs Homebrew packages (`caddy ghostunnel node supervisor`), Python deps, clones and builds `mcp-proxy-server`, and builds the in-repo `k8s-mcp-server` Go binary. Run with `--update` to pull and rebuild `mcp-proxy-server` after upstream changes. Pass `-y` to skip confirmation prompts.
+
+Requires: macOS with Homebrew and Go installed.
+
+<details>
+<summary>Manual steps (if you prefer)</summary>
+
+```bash
+brew install caddy ghostunnel node supervisor
 pip install -r host/mcp/requirements-host.txt
 # build the in-repo Kubernetes MCP server (requires Go):
 make -C host/k8s-mcp-server
@@ -37,6 +50,8 @@ Clone and build mcp-proxy-server outside this repo:
 git clone https://github.com/ptbsare/mcp-proxy-server.git ~/HomeLab/mcp-proxy-server
 cd ~/HomeLab/mcp-proxy-server && npm ci && npm run build
 ```
+
+</details>
 
 ## Subcommands
 
