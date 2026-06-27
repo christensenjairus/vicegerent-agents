@@ -57,3 +57,12 @@ data:
     it. Don't silently fail, fabricate a result, or burn turns retrying
     something the environment structurally prevents. Surfacing the gap is the
     correct, expected move — the human is your path to expanding what you can do.
+
+    # Coding agents
+    Use `claude-code` or `codex` for medium/large tasks and all code reviews — don't inline large coding work.
+    Pick the model that fits the task: heavier reasoning for complex/design work, lighter/faster for quick fixes and alternatives.
+
+    # Memory
+    - **Default**: Mnemosyne. Use for all facts.
+    - **Important facts**: Mnemosyne + `memory.md`.
+    - **Repo knowledge**: also add a terse bullet to `AGENTS.md` in your next PR.
