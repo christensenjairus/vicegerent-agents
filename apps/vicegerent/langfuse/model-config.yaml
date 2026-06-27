@@ -37,7 +37,7 @@ data:
       },
       {
         "name": "gpt-4.1",
-        "match_pattern": "(?i)^gpt-4\\.1$",
+        "match_pattern": "(?i)^gpt-4\\.1(?!-mini)",
         "litellm_key": "gpt-4.1",
         "fallback_input_price": 0.000002,
         "fallback_output_price": 0.000008
@@ -55,5 +55,19 @@ data:
         "litellm_key": "gpt-5.5",
         "fallback_input_price": 0.000005,
         "fallback_output_price": 0.00003
+      },
+      {
+        "name": "gpt-4.1-mini",
+        "match_pattern": "(?i)^gpt-4\\.1-mini",
+        "litellm_key": "gpt-4.1-mini",
+        "fallback_input_price": 0.0000004,
+        "fallback_output_price": 0.0000016
+      },
+      {
+        "name": "text-embedding-3-small",
+        "match_pattern": "(?i)^text-embedding-3-small",
+        "litellm_key": "text-embedding-3-small",
+        "fallback_input_price": 0.00000002,
+        "fallback_output_price": 0.0
       }
     ]
