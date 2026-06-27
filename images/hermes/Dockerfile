@@ -167,7 +167,8 @@ RUN rm -f /tmp/0002-langfuse-source-tags.py
 COPY patches/0003-mcp-keep-retrying-after-initial-failure.py /tmp/0003-mcp-keep-retrying-after-initial-failure.py
 RUN /opt/hermes/.venv/bin/python /tmp/0003-mcp-keep-retrying-after-initial-failure.py \
     && /opt/hermes/.venv/bin/python -c "\
-s = open('/usr/local/lib/hermes-agent/tools/mcp_tool.py').read(); \
+import importlib.util; spec = importlib.util.find_spec('tools.mcp_tool'); \
+s = open(spec.origin).read(); \
 assert 'will keep retrying in background' in s, 'mcp-keep-retrying patch marker missing after apply'; \
-print('mcp-keep-retrying patch verified in tools/mcp_tool.py')"
+print('mcp-keep-retrying patch verified in ' + spec.origin)"
 RUN rm -f /tmp/0003-mcp-keep-retrying-after-initial-failure.py
