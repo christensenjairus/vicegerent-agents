@@ -52,7 +52,13 @@ spec:
                   name: graphiti-falkordb
                   key: password
             # Gateway serves embeddings + chat completions; virtual key must be non-empty.
+            # OPENAI_API_URL: read by graphiti's config loader.
+            # OPENAI_BASE_URL: read by the OpenAI SDK when factories.py constructs AsyncOpenAI
+            # without an explicit base_url (LLM path). Both must point at the gateway or LLM
+            # extraction calls bypass it and hit api.openai.com directly (Cilium drops → timeout).
             - name: OPENAI_API_URL
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-openai/v1
+            - name: OPENAI_BASE_URL
               value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/graphiti-openai/v1
             - name: OPENAI_API_KEY
               valueFrom:
