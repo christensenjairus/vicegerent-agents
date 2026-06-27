@@ -87,13 +87,19 @@ fi
 # ---------------------------------------------------------------------------
 # 2. Python deps
 # ---------------------------------------------------------------------------
-step "Python dependencies"
+step "Python venv + dependencies"
 
 REQ="$REPO_ROOT/host/mcp/requirements-host.txt"
+VENV="$REPO_ROOT/host/mcp/.venv"
 [[ -f "$REQ" ]] || die "requirements-host.txt not found: $REQ"
 
-# Check if all deps are already satisfied
-if python3 -c "
+if [[ ! -d "$VENV" ]]; then
+  echo "  Creating venv at host/mcp/.venv"
+  python3 -m venv "$VENV"
+fi
+
+# Check if all deps are already satisfied inside the venv
+if "$VENV/bin/python" -c "
 import importlib, sys
 pkgs = {'rich': 'rich', 'textual': 'textual'}
 missing = [name for name, mod in pkgs.items() if importlib.util.find_spec(mod) is None]
@@ -101,12 +107,12 @@ if missing:
     print('missing:', ' '.join(missing))
     sys.exit(1)
 " 2>/dev/null; then
-  info "Python dependencies already installed (rich, textual)"
+  info "Python dependencies up to date (host/mcp/.venv)"
 else
-  echo "  Installing from $REQ"
-  confirm "pip install -r host/mcp/requirements-host.txt?" || die "Aborted."
-  pip install -r "$REQ" --break-system-packages -q
-  info "Python dependencies installed"
+  echo "  Installing from $REQ into host/mcp/.venv"
+  confirm "pip install -r host/mcp/requirements-host.txt into venv?" || die "Aborted."
+  "$VENV/bin/pip" install -r "$REQ" -q
+  info "Python dependencies installed into host/mcp/.venv"
 fi
 
 # ---------------------------------------------------------------------------
@@ -168,7 +174,7 @@ fi
 # ---------------------------------------------------------------------------
 step "Doctor check"
 echo
-python3 "$REPO_ROOT/host/mcp/vicegerent_mcp.py" doctor || true
+"$REPO_ROOT/host/mcp/.venv/bin/python" "$REPO_ROOT/host/mcp/vicegerent_mcp.py" doctor || true
 
 echo
 echo "${G}${B}Host MCP setup complete.${N}"
