@@ -152,3 +152,17 @@ assert v == 1000000, f"offline resolution returned {v}, expected 1000000"
 print("toolsearch patch: offline context-length resolution OK ->", v)
 PY
 RUN rm -f /tmp/0001-toolsearch-context-length.py
+
+# Bound remote MCP HTTP/SSE session teardown so post-drain shutdown does not tail on advisory remote cleanup; remove once upstream lands.
+COPY patches/0002-mcp-http-shutdown-timeout.py /tmp/0002-mcp-http-shutdown-timeout.py
+RUN /opt/hermes/.venv/bin/python /tmp/0002-mcp-http-shutdown-timeout.py \
+    && /opt/hermes/.venv/bin/python -c "import importlib.util as u; p=u.find_spec('tools.mcp_tool').origin; s=open(p).read(); assert '_DEFAULT_HTTP_SHUTDOWN_TIMEOUT = 3.0' in s, 'mcp shutdown patch marker missing after apply'; print('mcp shutdown-timeout patch verified in', p)" \
+    && /opt/hermes/.venv/bin/python - <<'PY'
+from tools.mcp_tool import _shutdown_timeout_for_config
+assert _shutdown_timeout_for_config({}, is_http=True) == 3.0
+assert _shutdown_timeout_for_config({}, is_http=False) == 10.0
+assert _shutdown_timeout_for_config({'shutdown_timeout': '0'}, is_http=True) == 0.5
+assert _shutdown_timeout_for_config({'shutdown_timeout': '7.5'}, is_http=True) == 7.5
+print('mcp shutdown-timeout patch: helper behavior OK')
+PY
+RUN rm -f /tmp/0002-mcp-http-shutdown-timeout.py
