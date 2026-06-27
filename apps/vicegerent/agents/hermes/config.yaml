@@ -82,6 +82,10 @@ data:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl
         timeout: 120
         connect_timeout: 60
+      host:
+        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/host
+        timeout: 120
+        connect_timeout: 60
     agent:
       max_turns: 150
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.

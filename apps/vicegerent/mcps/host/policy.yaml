@@ -1,0 +1,36 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: host-mcp-tools
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: host
+  backend:
+    tls:
+      mtlsCertificateRef:
+        - name: vicegerent-secrets
+      caCertificateRefs:
+        - name: ghostunnel-ca
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - >-
+              mcp.tool.name.startsWith("notion__") ||
+              mcp.tool.name.startsWith("linear__") ||
+              mcp.tool.name.startsWith("kubernetes__")
+      guardrails:
+        processors:
+          - methods:
+              tools/call: Request
+            remote:
+              backendRef:
+                name: mcp-cerbos-shim
+                namespace: cerbos
+                port: 4445
+              failureMode: FailClosed

@@ -11,6 +11,7 @@ resources:
   - models/gpt-4.1
   - models/gpt-4o-mini
   - mcps/kubernetes
+  - mcps/host
   - mcps/tavily
   - mcps/firecrawl
   - searxng
