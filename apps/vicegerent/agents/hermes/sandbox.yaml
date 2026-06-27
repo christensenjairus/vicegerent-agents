@@ -14,7 +14,6 @@ spec:
     spec:
       runtimeClassName: gvisor
       automountServiceAccountToken: false
-      terminationGracePeriodSeconds: 220
       securityContext:
         runAsUser: 10000
         runAsGroup: 10000
@@ -96,8 +95,6 @@ spec:
           imagePullPolicy: Always
           args: [gateway]
           env:
-            - name: S6_KILL_GRACETIME
-              value: '200000'
             - name: HERMES_DASHBOARD
               value: '1'
             - name: HERMES_DASHBOARD_HOST
