@@ -1,2 +1,10 @@
 # GitHub actions binaries
 bin/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Compiled Go binaries
+host/k8s-mcp-server/k8s-mcp-server

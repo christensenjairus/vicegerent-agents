@@ -38,6 +38,9 @@ from vicegerent_mcp import (
     DEFAULT_CONFIG,
     DEFAULT_PROXY_DIR,
     DEFAULT_RUNTIME_DIR,
+    _auth_label,
+    _style_auth,
+    _style_proc,
     auth_state,
     get_supervisor_states,
     iter_servers,
@@ -310,11 +313,11 @@ class HostMCPApp(App):
         state = load_state(runtime_paths(self.runtime_dir)["state"])
         self._servers = iter_servers(config, state)
         for server in self._servers:
-            auth_label = self._auth_label(server)
+            auth_label = _auth_label(server, self.auth_dir)
             table.add_row(
                 server.key,
                 server.mode,
-                self._style_auth(auth_label),
+                _style_auth(auth_label),
                 "[green]yes[/green]" if server.enabled else "[red]no[/red]",
             )
         if table.row_count > 0 and cursor_row < table.row_count:
@@ -326,7 +329,7 @@ class HostMCPApp(App):
         parts = []
         for proc in ("proxy", "caddy", "ghostunnel"):
             s = sup_states.get(proc, "STOPPED")
-            parts.append(f"{proc}: {self._style_proc(s)}")
+            parts.append(f"{proc}: {_style_proc(s)}")
         status_widget.update("  │  ".join(parts))
 
     # ------------------------------------------------------------------
@@ -356,34 +359,6 @@ class HostMCPApp(App):
                 self.call_from_thread(log_widget.write_line, line)
         except Exception:
             pass
-
-    # ------------------------------------------------------------------
-    # Helpers
-    # ------------------------------------------------------------------
-
-    def _auth_label(self, server) -> str:
-        if server.mode != "remote-oauth":
-            return "n/a"
-        st, _ = auth_state(server, self.auth_dir)
-        return st
-
-    @staticmethod
-    def _style_auth(label: str) -> str:
-        if label == "authenticated":
-            return f"[green]{label}[/green]"
-        if label == "n/a":
-            return f"[dim]{label}[/dim]"
-        return f"[yellow]{label}[/yellow]"
-
-    @staticmethod
-    def _style_proc(state: str) -> str:
-        if state == "RUNNING":
-            return f"[green]{state}[/green]"
-        if state in ("STARTING", "BACKOFF"):
-            return f"[yellow]{state}[/yellow]"
-        if state in ("STOPPED", "EXITED", "FATAL", "UNKNOWN"):
-            return f"[red]{state}[/red]"
-        return f"[dim]{state or '—'}[/dim]"
 
     def _selected_server(self):
         table = self.query_one("#server-table", DataTable)

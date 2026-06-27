@@ -73,7 +73,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^infrastructure/controllers/agent-sandbox/repository\\.ya?ml$/"
+        "/^infrastructure/controllers/agent-sandbox/chart/repository\\.ya?ml$/"
       ],
       "matchStrings": [
         "url:\\s*https://github\\.com/(?<depName>[^\\s]+?)\\.git\\s+ref:\\s+tag:\\s*(?<currentValue>[^\\s]+)"
