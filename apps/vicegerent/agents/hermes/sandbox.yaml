@@ -124,9 +124,9 @@ spec:
                   fieldPath: metadata.name
             # config.yaml is read-only; model/provider binding must come from env.
             - name: HERMES_MODEL
-              value: claude-opus-4-8
+              value: claude-sonnet-4-6
             - name: HERMES_TUI_PROVIDER
-              value: opus
+              value: sonnet
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
             # Config homes on PVC (seeded by seed-data) to stay writable under readOnlyRootFilesystem.

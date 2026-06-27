@@ -7,9 +7,9 @@ metadata:
 data:
   config.yaml: |-
     model:
-      provider: opus
-      default: claude-opus-4-8
-      base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/opus
+      provider: sonnet
+      default: claude-sonnet-4-6
+      base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/sonnet
       key_env: ANTHROPIC_API_KEY
       api_mode: anthropic_messages
     providers:
