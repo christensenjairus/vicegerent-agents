@@ -22,7 +22,9 @@ import urllib.parse
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from queue import Empty, Queue
+from threading import Thread
+from typing import Any, Iterator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -531,6 +533,62 @@ def reload_proxy(runtime_dir: Path, config: dict[str, Any]) -> None:
 
 
 # ---------------------------------------------------------------------------
+# TUI helpers
+# ---------------------------------------------------------------------------
+
+
+def tail_log_iter(log_file: Path, n_lines: int = 50) -> Iterator[str]:
+    """Yield lines from log_file like `tail -n N -f`, non-blocking.
+
+    Reads the last N lines immediately, then yields new lines as they arrive.
+    Uses a daemon thread that polls every 100ms. Thread stops when generator
+    is garbage-collected. Suitable for a TUI log pane.
+    """
+    queue: Queue[str] = Queue()
+
+    def _read_last_n_lines(path: Path, n: int) -> list[str]:
+        if not path.exists():
+            return []
+        with path.open("rb") as f:
+            f.seek(0, 2)
+            size = f.tell()
+            if size == 0:
+                return []
+            block_size = 8192
+            lines: list[bytes] = []
+            remaining = size
+            while remaining > 0 and len(lines) <= n:
+                read_size = min(block_size, remaining)
+                remaining -= read_size
+                f.seek(remaining)
+                chunk = f.read(read_size)
+                lines = chunk.splitlines() + lines
+            return [line.decode("utf-8", errors="replace") for line in lines[-n:]]
+
+    def _tail_worker() -> None:
+        with log_file.open("r", encoding="utf-8", errors="replace") as f:
+            f.seek(0, 2)
+            while True:
+                data = f.read()
+                if data:
+                    for line in data.splitlines():
+                        queue.put(line)
+                time.sleep(0.1)
+
+    for line in _read_last_n_lines(log_file, n_lines):
+        yield line
+
+    thread = Thread(target=_tail_worker, daemon=True)
+    thread.start()
+
+    while True:
+        try:
+            yield queue.get(timeout=0.1)
+        except Empty:
+            pass
+
+
+# ---------------------------------------------------------------------------
 # Utility
 # ---------------------------------------------------------------------------
 
@@ -653,15 +711,19 @@ def _style_proc(state: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Commands
+# Action functions (TUI callable)
 # ---------------------------------------------------------------------------
 
 
-def cmd_list(args: argparse.Namespace) -> int:
+def list_servers(
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    auth_dir: Path = DEFAULT_AUTH_DIR,
+) -> int:
     """Show all configured MCP servers and their declared state (no stack required)."""
     console, Table = _require_rich()
-    config = load_config(args.config)
-    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    config = load_config(config_path)
+    state = load_state(runtime_paths(runtime_dir)["state"])
     servers = iter_servers(config, state)
 
     table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
@@ -673,20 +735,24 @@ def cmd_list(args: argparse.Namespace) -> int:
         table.add_row(
             server.key,
             server.mode,
-            _style_auth(_auth_label(server, args.auth_dir)),
+            _style_auth(_auth_label(server, auth_dir)),
             "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
         )
     console.print(table)
     return 0
 
 
-def cmd_status(args: argparse.Namespace) -> int:
+def status(
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    auth_dir: Path = DEFAULT_AUTH_DIR,
+) -> int:
     """Show server auth state and infrastructure process state as rich tables."""
     console, Table = _require_rich()
-    config = load_config(args.config)
-    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    config = load_config(config_path)
+    state = load_state(runtime_paths(runtime_dir)["state"])
     servers = iter_servers(config, state)
-    sup_states = get_supervisor_states(args.runtime_dir)
+    sup_states = get_supervisor_states(runtime_dir)
 
     srv_table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
     srv_table.add_column("Server", style="bold")
@@ -697,7 +763,7 @@ def cmd_status(args: argparse.Namespace) -> int:
         srv_table.add_row(
             server.key,
             server.mode,
-            _style_auth(_auth_label(server, args.auth_dir)),
+            _style_auth(_auth_label(server, auth_dir)),
             "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
         )
     console.print(srv_table)
@@ -712,64 +778,75 @@ def cmd_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def _update_enabled(args: argparse.Namespace, enabled: bool) -> int:
-    config = load_config(args.config)
-    paths = runtime_paths(args.runtime_dir)
+def set_server_enabled(
+    server_key: str,
+    enabled: bool,
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    proxy_dir: Path = DEFAULT_PROXY_DIR,
+) -> int:
+    """Enable or disable a server and hot-reload the proxy if running."""
+    config = load_config(config_path)
+    paths = runtime_paths(runtime_dir)
     all_keys = {s.key for s in iter_servers(config)}
-    if args.server not in all_keys:
-        raise SystemExit(f"unknown server: {args.server!r}. Known: {sorted(all_keys)}")
+    if server_key not in all_keys:
+        raise SystemExit(f"unknown server: {server_key!r}. Known: {sorted(all_keys)}")
 
     state = load_state(paths["state"])
-    state[args.server] = enabled
+    state[server_key] = enabled
     save_state(paths["state"], state)
 
     servers = iter_servers(config, state)
     paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
     write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
-    copy_proxy_config(args.runtime_dir, args.proxy_dir)
+    copy_proxy_config(runtime_dir, proxy_dir)
 
     verb = "enabled" if enabled else "disabled"
-    print(f"{verb} {args.server!r}")
+    print(f"{verb} {server_key!r}")
 
-    if is_supervisor_running(args.runtime_dir):
-        reload_proxy(args.runtime_dir, config)
+    if is_supervisor_running(runtime_dir):
+        reload_proxy(runtime_dir, config)
     else:
         print("  stack not running — change takes effect on next start")
     return 0
 
 
-def cmd_enable(args: argparse.Namespace) -> int:
-    return _update_enabled(args, True)
-
-
-def cmd_disable(args: argparse.Namespace) -> int:
-    return _update_enabled(args, False)
-
-
-def cmd_reload(args: argparse.Namespace) -> int:
+def reload_config(
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    proxy_dir: Path = DEFAULT_PROXY_DIR,
+) -> int:
     """Re-render proxy config from current state and hot-reload the proxy.
 
     Use after git pull updates servers.json to pick up new server declarations.
     """
-    config = load_config(args.config)
-    paths = runtime_paths(args.runtime_dir)
+    config = load_config(config_path)
+    paths = runtime_paths(runtime_dir)
     state = load_state(paths["state"])
     servers = iter_servers(config, state)
     paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
     write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
-    copy_proxy_config(args.runtime_dir, args.proxy_dir)
+    copy_proxy_config(runtime_dir, proxy_dir)
     print("proxy config re-rendered")
 
-    if is_supervisor_running(args.runtime_dir):
-        reload_proxy(args.runtime_dir, config)
+    if is_supervisor_running(runtime_dir):
+        reload_proxy(runtime_dir, config)
     else:
         print("stack not running — change takes effect on next start")
     return 0
 
 
-def cmd_start(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    paths = runtime_paths(args.runtime_dir)
+def start_stack(
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    proxy_dir: Path = DEFAULT_PROXY_DIR,
+    ghostshell: Path | None = None,
+    listen: str | None = None,
+    allow_cn: str | None = None,
+) -> int:
+    """Start proxy, Caddy, and ghostunnel via supervisord."""
+    config = load_config(config_path)
+    paths = runtime_paths(runtime_dir)
     state = load_state(paths["state"])
     servers = iter_servers(config, state)
     active = [s for s in servers if s.enabled]
@@ -778,11 +855,10 @@ def cmd_start(args: argparse.Namespace) -> int:
         print("no enabled MCP servers — not starting")
         return 0
 
-    proxy_dir: Path = args.proxy_dir
     if not (proxy_dir / "build" / "sse.js").exists():
         raise SystemExit(f"mcp-proxy-server build not found: {proxy_dir / 'build' / 'sse.js'}")
 
-    if is_supervisor_running(args.runtime_dir):
+    if is_supervisor_running(runtime_dir):
         print("supervisord is already running. Use 'reload' to update config or 'stop' first.")
         return 1
 
@@ -790,23 +866,23 @@ def cmd_start(args: argparse.Namespace) -> int:
     ensure_proxy_binds_loopback(proxy_dir, str(proxy["listen_host"]))
     ensure_list_changed_notification(proxy_dir)
 
-    render_proxy_config(config, servers, args.runtime_dir)
-    copy_proxy_config(args.runtime_dir, proxy_dir)
+    render_proxy_config(config, servers, runtime_dir)
+    copy_proxy_config(runtime_dir, proxy_dir)
 
     admin_password = get_or_create_secret(paths["admin_password"])
     session_secret = get_or_create_secret(paths["session_secret"], lambda: secrets.token_hex(32))
     proxy_env = make_proxy_env(config, admin_password, session_secret)
 
-    ghostshell = args.ghostshell or DEFAULT_GHOSTSHELL
-    listen = args.listen or default_tunnel_listen()
+    effective_ghostshell = ghostshell or DEFAULT_GHOSTSHELL
+    effective_listen = listen or default_tunnel_listen()
     tunnel_env: dict[str, str] = {
         "TARGET": f"{proxy['listen_host']}:{int(proxy['filtered_port'])}",
-        "LISTEN": listen,
+        "LISTEN": effective_listen,
     }
-    if args.allow_cn:
-        tunnel_env["ALLOW_CN"] = args.allow_cn
+    if allow_cn:
+        tunnel_env["ALLOW_CN"] = allow_cn
 
-    conf_text = build_supervisord_conf(paths, proxy_dir, proxy_env, ghostshell, tunnel_env)
+    conf_text = build_supervisord_conf(paths, proxy_dir, proxy_env, effective_ghostshell, tunnel_env)
     paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
     paths["supervisord_conf"].chmod(0o600)  # contains plaintext secrets
 
@@ -825,64 +901,74 @@ def cmd_start(args: argparse.Namespace) -> int:
     # Wait up to 10s for all three programs to reach RUNNING.
     deadline = time.time() + 10
     while time.time() < deadline:
-        sup_states = get_supervisor_states(args.runtime_dir)
+        sup_states = get_supervisor_states(runtime_dir)
         if all(sup_states.get(p) == "RUNNING" for p in ("proxy", "caddy", "ghostunnel")):
             break
         time.sleep(0.5)
 
-    sup_states = get_supervisor_states(args.runtime_dir)
+    sup_states = get_supervisor_states(runtime_dir)
     print("enabled servers: " + ", ".join(s.key for s in active))
     failed = [p for p in ("proxy", "caddy", "ghostunnel") if sup_states.get(p) != "RUNNING"]
     for prog in ("proxy", "caddy", "ghostunnel"):
         print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
     print(f"filtered MCP:  http://{proxy['listen_host']}:{int(proxy['filtered_port'])}/mcp")
-    print(f"ghostunnel:    {listen}")
+    print(f"ghostunnel:    {effective_listen}")
     if failed:
         print(f"\nwarning: {failed} did not reach RUNNING; check logs under {paths['logs']}", file=sys.stderr)
         return 1
     return 0
 
 
-def cmd_stop(args: argparse.Namespace) -> int:
-    if not is_supervisor_running(args.runtime_dir):
+def stop_stack(runtime_dir: Path = DEFAULT_RUNTIME_DIR) -> int:
+    """Shut down supervisord and all managed processes."""
+    if not is_supervisor_running(runtime_dir):
         print("supervisord is not running")
         return 0
-    result = supervisorctl("shutdown", runtime_dir=args.runtime_dir)
+    result = supervisorctl("shutdown", runtime_dir=runtime_dir)
     print(result.stdout.strip() or "supervisord shutdown initiated")
     return 0
 
 
-def cmd_logs(args: argparse.Namespace) -> int:
-    """Tail logs for a supervised process (or supervisord itself)."""
-    paths = runtime_paths(args.runtime_dir)
+def tail_log(
+    process_name: str,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    n_lines: int = 50,
+) -> int:
+    """Tail logs for a supervised process (or supervisord itself). Blocking CLI version."""
+    paths = runtime_paths(runtime_dir)
     log_map = {
         "proxy": paths["logs"] / "proxy.log",
         "caddy": paths["logs"] / "caddy.log",
         "ghostunnel": paths["logs"] / "ghostunnel.log",
         "supervisord": paths["logs"] / "supervisord.log",
     }
-    target = args.process
-    log_file = log_map[target]
+    log_file = log_map[process_name]
     if not log_file.exists():
-        print(f"no log file yet for {target!r}: {log_file}", file=sys.stderr)
+        print(f"no log file yet for {process_name!r}: {log_file}", file=sys.stderr)
         return 1
     try:
-        subprocess.run(["tail", f"-n{args.lines}", "-f", str(log_file)])
+        subprocess.run(["tail", f"-n{n_lines}", "-f", str(log_file)])
     except KeyboardInterrupt:
         pass
     return 0
 
 
-def cmd_auth_status(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    state = load_state(runtime_paths(args.runtime_dir)["state"])
+def auth_status(
+    server_key: str | None = None,
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    auth_dir: Path = DEFAULT_AUTH_DIR,
+) -> int:
+    """Show mcp-remote OAuth cache state per server."""
+    config = load_config(config_path)
+    state = load_state(runtime_paths(runtime_dir)["state"])
     all_servers = {s.key: s for s in iter_servers(config, state)}
-    selected = [all_servers[args.server]] if getattr(args, "server", None) else list(all_servers.values())
+    selected = [all_servers[server_key]] if server_key else list(all_servers.values())
     for server in selected:
         if server.mode != "remote-oauth":
             print(f"{server.key}: {server.mode}")
             continue
-        st, files = auth_state(server, args.auth_dir)
+        st, files = auth_state(server, auth_dir)
         print(f"{server.key}: {st}")
         if server.url:
             print(f"  url: {server.url}")
@@ -892,18 +978,26 @@ def cmd_auth_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_auth_reset(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    state = load_state(runtime_paths(args.runtime_dir)["state"])
+def auth_reset(
+    server_key: str,
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    auth_dir: Path = DEFAULT_AUTH_DIR,
+    yes: bool = False,
+    force: bool = False,
+) -> int:
+    """Delete OAuth cache for a server (stop stack first)."""
+    config = load_config(config_path)
+    state = load_state(runtime_paths(runtime_dir)["state"])
     all_servers = {s.key: s for s in iter_servers(config, state)}
-    if args.server not in all_servers:
-        raise SystemExit(f"unknown server: {args.server!r}")
-    server = all_servers[args.server]
+    if server_key not in all_servers:
+        raise SystemExit(f"unknown server: {server_key!r}")
+    server = all_servers[server_key]
     if server.mode != "remote-oauth" or not server.url:
         raise SystemExit(f"{server.key!r} is not a remote-oauth server")
 
     # Guard: refuse if supervisord is running (mcp-remote may be active).
-    if is_supervisor_running(args.runtime_dir) and not args.force:
+    if is_supervisor_running(runtime_dir) and not force:
         print(
             "Refusing to delete OAuth cache while the stack is running.\n"
             "Stop it first ('stop'), or pass --force.",
@@ -911,11 +1005,11 @@ def cmd_auth_reset(args: argparse.Namespace) -> int:
         )
         return 2
 
-    files = auth_files(mcp_remote_hash(server.url), args.auth_dir)
+    files = auth_files(mcp_remote_hash(server.url), auth_dir)
     if not files:
         print(f"no auth files found for {server.key!r}")
         return 0
-    if not args.yes:
+    if not yes:
         print(f"would delete {len(files)} auth file(s) for {server.key!r}:")
         for path in files:
             print(f"  {path}")
@@ -927,8 +1021,13 @@ def cmd_auth_reset(args: argparse.Namespace) -> int:
     return 0
 
 
-def cmd_doctor(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
+def doctor(
+    config_path: Path = DEFAULT_CONFIG,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    auth_dir: Path = DEFAULT_AUTH_DIR,
+) -> int:
+    """Check host prerequisites and auth state."""
+    config = load_config(config_path)
     proxy = proxy_settings(config)
     print("host MCP doctor")
 
@@ -946,11 +1045,63 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
     print(f"proxy port:    {proxy['proxy_port']}")
     print(f"filtered port: {proxy['filtered_port']}")
-    print(f"auth dir:      {args.auth_dir}")
+    print(f"auth dir:      {auth_dir}")
     print()
-    return cmd_auth_status(
-        argparse.Namespace(config=args.config, auth_dir=args.auth_dir, runtime_dir=args.runtime_dir, server=None)
+    return auth_status(
+        server_key=None,
+        config_path=config_path,
+        runtime_dir=runtime_dir,
+        auth_dir=auth_dir,
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI command wrappers (thin adapters from argparse.Namespace to action fns)
+# ---------------------------------------------------------------------------
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    return list_servers(args.config, args.runtime_dir, args.auth_dir)
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    return status(args.config, args.runtime_dir, args.auth_dir)
+
+
+def cmd_enable(args: argparse.Namespace) -> int:
+    return set_server_enabled(args.server, True, args.config, args.runtime_dir, args.proxy_dir)
+
+
+def cmd_disable(args: argparse.Namespace) -> int:
+    return set_server_enabled(args.server, False, args.config, args.runtime_dir, args.proxy_dir)
+
+
+def cmd_reload(args: argparse.Namespace) -> int:
+    return reload_config(args.config, args.runtime_dir, args.proxy_dir)
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    return start_stack(args.config, args.runtime_dir, args.proxy_dir, args.ghostshell, args.listen, args.allow_cn)
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    return stop_stack(args.runtime_dir)
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    return tail_log(args.process, args.runtime_dir, args.lines)
+
+
+def cmd_auth_status(args: argparse.Namespace) -> int:
+    return auth_status(getattr(args, "server", None), args.config, args.runtime_dir, args.auth_dir)
+
+
+def cmd_auth_reset(args: argparse.Namespace) -> int:
+    return auth_reset(args.server, args.config, args.runtime_dir, args.auth_dir, args.yes, args.force)
+
+
+def cmd_doctor(args: argparse.Namespace) -> int:
+    return doctor(args.config, args.runtime_dir, args.auth_dir)
 
 
 # ---------------------------------------------------------------------------
@@ -1038,6 +1189,42 @@ def main(argv: list[str] | None = None) -> int:
         if args.server not in servers:
             raise SystemExit(f"unknown server: {args.server!r}")
     return args.func(args)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+__all__ = [
+    # Data reading (pure)
+    "load_config",
+    "load_state",
+    "iter_servers",
+    "proxy_settings",
+    "get_supervisor_states",
+    "is_supervisor_running",
+    "auth_state",
+    # Actions (TUI callable)
+    "list_servers",
+    "status",
+    "set_server_enabled",
+    "reload_config",
+    "start_stack",
+    "stop_stack",
+    "auth_status",
+    "auth_reset",
+    "doctor",
+    # TUI helpers
+    "tail_log_iter",
+    # Constants
+    "DEFAULT_CONFIG",
+    "DEFAULT_RUNTIME_DIR",
+    "DEFAULT_PROXY_DIR",
+    "DEFAULT_AUTH_DIR",
+    "DEFAULT_GHOSTSHELL",
+    "DEFAULT_HOST_ONLY_IP",
+    "DEFAULT_HOST_MCP_TUNNEL_PORT",
+]
 
 
 if __name__ == "__main__":
