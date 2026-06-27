@@ -26,6 +26,7 @@ upstream code.
 
 Drop this patch once upstream adds a 'keep-retrying' or 'lazy-connect' option.
 """
+import importlib.util
 import sys
 
 # The exact block to replace — match must be unique
@@ -62,9 +63,13 @@ REPLACEMENT = """\
                         # fall through (no continue, no return)
 """
 
-path = "/usr/local/lib/hermes-agent/tools/mcp_tool.py"
+spec = importlib.util.find_spec("tools.mcp_tool")
+if spec is None or spec.origin is None:
+    print("PATCH FAILED: cannot locate tools.mcp_tool module", file=sys.stderr)
+    sys.exit(1)
+path = spec.origin
 
-with open(path, "r") as f:
+with open(path, "r", encoding="utf-8") as f:
     src = f.read()
 
 count = src.count(ANCHOR)
@@ -78,7 +83,7 @@ if count > 1:
 
 patched = src.replace(ANCHOR, REPLACEMENT, 1)
 
-with open(path, "w") as f:
+with open(path, "w", encoding="utf-8") as f:
     f.write(patched)
 
 print(f"Patched {path}: MCP initial-retry give-up → keep-retrying")
