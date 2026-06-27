@@ -70,10 +70,6 @@ data:
     prompt_caching:
       cache_ttl: 1h
     mcp_servers:
-      kubernetes:
-        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kubernetes
-        timeout: 120
-        connect_timeout: 60
       tavily:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily
         timeout: 120
