@@ -169,12 +169,12 @@ def make_caddyfile(config: dict[str, Any]) -> str:
 }}
 
 http://{host}:{filtered_port} {{
-  @mcp_post {{
-    method POST
+  @mcp_request {{
+    method POST GET
     path /mcp
   }}
 
-  handle @mcp_post {{
+  handle @mcp_request {{
     reverse_proxy {host}:{proxy_port}
   }}
 

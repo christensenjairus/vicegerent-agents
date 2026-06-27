@@ -21,19 +21,24 @@ op account get >/dev/null 2>&1 || {
 CERTS="$(mktemp -d "${TMPDIR:-/tmp}/ghostshell.XXXXXX")"
 chmod 700 "$CERTS"
 cleanup() { rm -rf "$CERTS"; }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
 
 for f in server.crt server.key ca.cert; do
   op read "op://${OP_VAULT}/${OP_HOST_ITEM}/${f}" >"$CERTS/$f"
 done
 chmod 600 "$CERTS"/*
 
-# Run ghostunnel as a child (not exec) so the cleanup trap fires on exit,
-# Ctrl-C, or termination and the pulled key material is always wiped.
+# Run ghostunnel as a child and forward TERM/INT to it so supervisord's
+# SIGTERM reaches ghostunnel directly. The EXIT trap then wipes the certs.
 "$GHOSTUNNEL" server \
   --listen "$LISTEN" \
   --target "$TARGET" \
   --cert "$CERTS/server.crt" \
   --key "$CERTS/server.key" \
   --cacert "$CERTS/ca.cert" \
-  --allow-cn "$ALLOW_CN"
+  --allow-cn "$ALLOW_CN" &
+GHOSTUNNEL_PID=$!
+forward_signal() { kill -s "$1" "$GHOSTUNNEL_PID" 2>/dev/null || true; }
+trap 'forward_signal TERM' TERM
+trap 'forward_signal INT' INT
+wait "$GHOSTUNNEL_PID"
