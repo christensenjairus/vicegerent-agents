@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: collector
-          image: docker.io/otel/opentelemetry-collector-contrib:0.154.0
+          image: docker.io/otel/opentelemetry-collector-contrib:0.155.0
           imagePullPolicy: IfNotPresent
           args: [--config=/conf/config.yaml]
           env:
