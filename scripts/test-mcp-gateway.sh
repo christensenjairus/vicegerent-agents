@@ -13,7 +13,7 @@
 #
 # Override API key (default is the kustomize-generated literal "hermes"):
 #   MYKEY=myval bash scripts/test-mcp-gateway.sh
-set -euo pipefail
+set -uo pipefail
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:-hermes}"
