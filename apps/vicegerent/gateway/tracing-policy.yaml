@@ -35,3 +35,7 @@ spec:
             expression: llm.cachedInputTokens
           - name: gen_ai.usage.cache_creation_input_tokens
             expression: llm.cacheCreationInputTokens
+          # Tag for source filtering in Langfuse: filter tag=source:agentgateway-otel
+          # to see only gateway spans, vs source:hermes-sdk for SDK traces.
+          - name: langfuse.trace.tags
+            expression: '"source:agentgateway-otel"'
