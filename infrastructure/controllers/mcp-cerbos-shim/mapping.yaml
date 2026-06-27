@@ -22,3 +22,22 @@ backends:
         action: describeResource
         id: get(args,'name','')
         attrFrom: canonicalK8s(args)
+  host:
+    defaultAction: allow
+    helpers: [canonicalK8s]
+    tools:
+      kubernetes__getResource:
+        resourceType: k8s_resource
+        action: getResource
+        id: get(args,'name','')
+        attrFrom: canonicalK8s(args)
+      kubernetes__listResources:
+        resourceType: k8s_resource
+        action: listResources
+        id: "''"
+        attrFrom: canonicalK8s(args)
+      kubernetes__describeResource:
+        resourceType: k8s_resource
+        action: describeResource
+        id: get(args,'name','')
+        attrFrom: canonicalK8s(args)

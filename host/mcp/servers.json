@@ -6,6 +6,16 @@
     "disable_stdio_retries": true
   },
   "servers": {
+    "kubernetes": {
+      "enabled": true,
+      "mode": "local-stdio",
+      "name": "Kubernetes (all contexts)",
+      "command": "k8s-mcp-server",
+      "args": ["--mode", "stdio", "--read-only", "--no-helm"],
+      "env": {
+        "KUBECONFIG": "~/.kube/config"
+      }
+    },
     "notion": {
       "enabled": true,
       "mode": "remote-oauth",
@@ -21,14 +31,6 @@
       "url": "https://mcp.linear.app/mcp",
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
-    },
-    "jira": {
-      "enabled": true,
-      "mode": "remote-oauth",
-      "name": "Jira",
-      "url": "https://mcp.atlassian.com/v1/mcp/authv2",
-      "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.atlassian.com/v1/mcp/authv2"]
     }
   }
 }

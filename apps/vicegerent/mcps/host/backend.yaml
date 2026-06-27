@@ -1,0 +1,15 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: host
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+      - name: host
+        static:
+          host: host.minikube.internal
+          port: 8453
+          path: /mcp
+          protocol: StreamableHTTP
