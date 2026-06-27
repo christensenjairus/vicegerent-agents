@@ -67,6 +67,8 @@ data:
         models:
           gpt-4o-mini:
             context_length: 128000
+    prompt_caching:
+      cache_ttl: 1h
     mcp_servers:
       kubernetes:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kubernetes
