@@ -1235,6 +1235,10 @@ __all__ = [
     "doctor",
     # TUI helpers
     "tail_log_iter",
+    "runtime_paths",
+    "_auth_label",
+    "_style_auth",
+    "_style_proc",
     # Constants
     "DEFAULT_CONFIG",
     "DEFAULT_RUNTIME_DIR",
