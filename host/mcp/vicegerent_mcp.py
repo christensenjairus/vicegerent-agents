@@ -30,7 +30,7 @@ from typing import Any, Iterator
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG = REPO_ROOT / "host" / "mcp" / "servers.json"
 DEFAULT_RUNTIME_DIR = Path.home() / ".vicegerent" / "mcp"
-DEFAULT_PROXY_DIR = Path.home() / "HomeLab" / "mcp-proxy-server"
+DEFAULT_PROXY_DIR = Path(__file__).parent.parent / "mcp-proxy-server"
 DEFAULT_GHOSTSHELL = REPO_ROOT / "scripts" / "ghostunnel" / "ghostshell.sh"
 DEFAULT_AUTH_DIR = Path.home() / ".mcp-auth"
 DEFAULT_HOST_ONLY_IP = "192.168.64.1"
@@ -1106,7 +1106,13 @@ def cmd_doctor(args: argparse.Namespace) -> int:
 
 def cmd_tui(args: argparse.Namespace) -> int:
     """Launch the interactive TUI."""
-    from host.mcp.tui import HostMCPApp
+    import importlib.util
+
+    tui_path = Path(__file__).parent / "tui.py"
+    spec = importlib.util.spec_from_file_location("tui", tui_path)
+    tui_mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(tui_mod)  # type: ignore[union-attr]
+    HostMCPApp = tui_mod.HostMCPApp
 
     app = HostMCPApp(
         config_path=args.config,

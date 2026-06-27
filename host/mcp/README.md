@@ -44,11 +44,11 @@ pip install -r host/mcp/requirements-host.txt
 make -C host/k8s-mcp-server
 ```
 
-Clone and build mcp-proxy-server outside this repo:
+Build mcp-proxy-server (vendored at `host/mcp-proxy-server/`):
 
 ```bash
-git clone https://github.com/ptbsare/mcp-proxy-server.git ~/HomeLab/mcp-proxy-server
-cd ~/HomeLab/mcp-proxy-server && npm ci && npm run build
+npm --prefix host/mcp-proxy-server ci && npm --prefix host/mcp-proxy-server run build
+# or just run setup-host-mcp — it does this automatically
 ```
 
 </details>
@@ -73,10 +73,10 @@ doctor        check host prerequisites and auth state
 ## Start the stack
 
 ```bash
-./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
+./scripts/host/vicegerent-mcp start
 ```
 
-`start` applies two idempotent patches to mcp-proxy-server, renders runtime config, and launches supervisord. After updating mcp-proxy-server (`git pull && npm run build`), run `start` again to re-apply patches.
+`start` applies two idempotent patches to mcp-proxy-server (vendored at `host/mcp-proxy-server/`), renders runtime config, and launches supervisord. After rebuilding mcp-proxy-server (`npm --prefix host/mcp-proxy-server run build`), run `start` again to re-apply patches.
 
 ## Enable / disable servers
 
@@ -92,7 +92,7 @@ State lives in `~/.vicegerent/mcp/state.json` (not committed). When the stack is
 After `git pull` adds new servers to `servers.json`:
 
 ```bash
-./scripts/host/vicegerent-mcp reload --proxy-dir ~/HomeLab/mcp-proxy-server
+./scripts/host/vicegerent-mcp reload
 ```
 
 ## Status and logs
@@ -160,7 +160,7 @@ Stop the stack before deleting OAuth cache to avoid wedged PKCE flows:
 ```bash
 ./scripts/host/vicegerent-mcp stop
 ./scripts/host/vicegerent-mcp auth-reset notion --yes
-./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
+./scripts/host/vicegerent-mcp start
 ```
 
 ## mcp-proxy-server patches (applied at start)
@@ -175,7 +175,7 @@ Both patches are idempotent and re-applied on `start` if a fresh `npm run build`
 Launch an interactive dashboard with live server state, infrastructure status, and log tailing:
 
 ```bash
-./scripts/host/vicegerent-mcp tui --proxy-dir ~/HomeLab/mcp-proxy-server
+./scripts/host/vicegerent-mcp tui
 ```
 
 Keybindings follow k9s conventions — mutating actions use `ctrl+` prefix, navigation is vim-style.
