@@ -12,8 +12,6 @@ spec:
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: agent-sandbox
-        - matchLabels:
-            io.kubernetes.pod.namespace: graphiti
       toPorts:
         - ports:
             - port: '80'
