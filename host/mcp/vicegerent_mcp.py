@@ -1,23 +1,25 @@
 #!/usr/bin/env python3
 """Host-side MCP control helper for vicegerent.
 
-This is intentionally a thin host helper, not a daemon. It renders the proven
-mcp-proxy-server + mcp-remote + Caddy shape and reports/reset OAuth cache state.
+Manages N stdio MCP servers via mcp-proxy-server with supervisord supervision,
+hot-reload on enable/disable, and a rich CLI status display.
 """
 
 from __future__ import annotations
 
 import argparse
 import hashlib
+import http.cookiejar
 import json
 import os
 import re
 import secrets
 import shutil
-import signal
 import subprocess
 import sys
 import time
+import urllib.parse
+import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -46,6 +48,11 @@ class Server:
     env: dict[str, str]
 
 
+# ---------------------------------------------------------------------------
+# Config & runtime state
+# ---------------------------------------------------------------------------
+
+
 def load_config(path: Path) -> dict[str, Any]:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
@@ -65,7 +72,30 @@ def proxy_settings(config: dict[str, Any]) -> dict[str, Any]:
     return proxy
 
 
-def iter_servers(config: dict[str, Any]) -> list[Server]:
+def load_state(state_path: Path) -> dict[str, bool]:
+    """Return runtime enable/disable overrides. Missing key = use servers.json default."""
+    if not state_path.exists():
+        return {}
+    try:
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        return {k: bool(v) for k, v in (data.get("enabled") or {}).items()}
+    except Exception:
+        print(
+            f"warning: could not parse {state_path}; ignoring runtime overrides.\n"
+            "  If you deliberately disabled a server, re-run 'disable <key>' after fixing the file.",
+            file=sys.stderr,
+        )
+        return {}
+
+
+def save_state(state_path: Path, overrides: dict[str, bool]) -> None:
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    state_path.write_text(json.dumps({"enabled": overrides}, indent=2) + "\n", encoding="utf-8")
+
+
+def iter_servers(config: dict[str, Any], state: dict[str, bool] | None = None) -> list[Server]:
+    """Return servers in sorted key order, applying runtime state overrides."""
+    overrides = state or {}
     servers = []
     for key, raw in sorted((config.get("servers") or {}).items()):
         if not isinstance(raw, dict):
@@ -80,10 +110,13 @@ def iter_servers(config: dict[str, Any]) -> list[Server]:
             raise SystemExit(f"server {key!r} env must be an object of string keys and values")
         if not isinstance(command, str) or not command:
             raise SystemExit(f"server {key!r} command must be a non-empty string")
+        # Expand ~ in env values at load time so subprocesses see real paths.
+        env = {k: str(Path(v).expanduser()) if v.startswith("~") else v for k, v in env.items()}
+        enabled = overrides[key] if key in overrides else bool(raw.get("enabled", True))
         servers.append(
             Server(
                 key=key,
-                enabled=bool(raw.get("enabled", True)),
+                enabled=enabled,
                 mode=str(mode),
                 name=str(raw.get("name") or key),
                 url=raw.get("url"),
@@ -95,25 +128,15 @@ def iter_servers(config: dict[str, Any]) -> list[Server]:
     return servers
 
 
-def mcp_remote_hash(server_url: str, authorize_resource: str | None = None, headers: dict[str, str] | None = None) -> str:
-    """Match mcp-remote getServerUrlHash(): md5(parts.join('|'))."""
-    parts = [server_url]
-    if authorize_resource:
-        parts.append(authorize_resource)
-    if headers:
-        sorted_keys = sorted(headers.keys())
-        parts.append(json.dumps(headers, sort_keys=True, separators=(",", ":")))
-        # json.dumps(sort_keys=True) matches semantic ordering; mcp-remote's value
-        # includes default JSON spacing, but host configs here do not use headers.
-        # Keep this branch explicit for future work instead of silently guessing.
-        if sorted_keys:
-            raise SystemExit("mcp-remote header hashing is not supported yet")
-    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
+# ---------------------------------------------------------------------------
+# Proxy config generation
+# ---------------------------------------------------------------------------
 
 
-def proxy_config(config: dict[str, Any]) -> dict[str, Any]:
+def make_proxy_config(servers: list[Server]) -> dict[str, Any]:
+    """Build the mcp-proxy-server JSON config from a server list."""
     mcp_servers: dict[str, dict[str, Any]] = {}
-    for server in iter_servers(config):
+    for server in servers:
         if server.mode not in {"remote-oauth", "local-stdio"}:
             raise SystemExit(f"unsupported server mode for {server.key}: {server.mode}")
         command = server.command
@@ -132,12 +155,13 @@ def proxy_config(config: dict[str, Any]) -> dict[str, Any]:
     return {"mcpServers": mcp_servers}
 
 
-def caddyfile(config: dict[str, Any]) -> str:
+def make_caddyfile(config: dict[str, Any]) -> str:
     proxy = proxy_settings(config)
     host = proxy["listen_host"]
     filtered_port = int(proxy["filtered_port"])
     proxy_port = int(proxy["proxy_port"])
-    return f"""{{
+    return f"""\
+{{
   admin off
   auto_https off
 }}
@@ -157,20 +181,26 @@ http://{host}:{filtered_port} {{
 """
 
 
-def env_file(config: dict[str, Any]) -> str:
+def make_proxy_env(config: dict[str, Any], admin_password: str, session_secret: str) -> dict[str, str]:
+    """Return env vars for the proxy supervisord program."""
     proxy = proxy_settings(config)
-    lines = [
-        f"PORT={int(proxy['proxy_port'])}",
-        "ENABLE_ADMIN_UI=true",
-        "LOGGING=info",
-    ]
+    env: dict[str, str] = {
+        "PORT": str(int(proxy["proxy_port"])),
+        "ENABLE_ADMIN_UI": "true",
+        "LOGGING": "info",
+        "ADMIN_USERNAME": "admin",
+        "ADMIN_PASSWORD": admin_password,
+        "SESSION_SECRET": session_secret,
+    }
     if proxy.get("disable_stdio_retries", True):
-        lines.extend(["RETRY_STDIO_TOOL_CALL=false", "STDIO_TOOL_CALL_MAX_RETRIES=0"])
-    return "\n".join(lines) + "\n"
+        env["RETRY_STDIO_TOOL_CALL"] = "false"
+        env["STDIO_TOOL_CALL_MAX_RETRIES"] = "0"
+    return env
 
 
-def enabled_servers(config: dict[str, Any]) -> list[Server]:
-    return [server for server in iter_servers(config) if server.enabled]
+# ---------------------------------------------------------------------------
+# Runtime paths & secrets
+# ---------------------------------------------------------------------------
 
 
 def runtime_paths(runtime_dir: Path) -> dict[str, Path]:
@@ -178,112 +208,132 @@ def runtime_paths(runtime_dir: Path) -> dict[str, Path]:
         "runtime": runtime_dir,
         "proxy_config_dir": runtime_dir / "mcp-proxy-server" / "config",
         "caddyfile": runtime_dir / "caddy" / "Caddyfile",
-        "env": runtime_dir / "proxy.env",
         "logs": runtime_dir / "logs",
-        "pids": runtime_dir / "pids",
         "admin_password": runtime_dir / "admin_password",
+        "session_secret": runtime_dir / "session_secret",
+        "supervisord_conf": runtime_dir / "supervisord.conf",
+        "supervisord_sock": runtime_dir / "supervisor.sock",
+        "supervisord_pid": runtime_dir / "supervisord.pid",
+        "state": runtime_dir / "state.json",
     }
 
 
-def render_runtime(config: dict[str, Any], runtime_dir: Path) -> dict[str, Path]:
+def get_or_create_secret(path: Path, generator: Any = None) -> str:
+    if path.exists():
+        # Re-apply restrictive permissions in case created with a permissive umask.
+        path.chmod(0o600)
+        return path.read_text(encoding="utf-8").strip()
+    value = generator() if generator else secrets.token_urlsafe(24)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(value + "\n", encoding="utf-8")
+    path.chmod(0o600)
+    return value
+
+
+# ---------------------------------------------------------------------------
+# supervisord config generation
+# ---------------------------------------------------------------------------
+
+
+def _supervisord_env_str(env: dict[str, str]) -> str:
+    """Format a dict as supervisord environment= value (KEY="val",...).
+
+    Supervisord splits on unescaped commas; double any literal comma in values.
+    Also escape % (supervisord expands %(...)s) and quotes.
+    """
+    parts = []
+    for k, v in sorted(env.items()):
+        escaped = v.replace("%", "%%").replace('"', '\\"').replace(",", ",,")
+        parts.append(f'{k}="{escaped}"')
+    return ",".join(parts)
+
+
+def build_supervisord_conf(
+    paths: dict[str, Path],
+    proxy_dir: Path,
+    proxy_env: dict[str, str],
+    ghostshell: Path,
+    tunnel_env: dict[str, str],
+) -> str:
+    sock = paths["supervisord_sock"]
+    pidfile = paths["supervisord_pid"]
+    logs = paths["logs"]
+    caddyfile_path = paths["caddyfile"]
+    return f"""\
+[unix_http_server]
+file={sock}
+
+[supervisord]
+pidfile={pidfile}
+logfile={logs}/supervisord.log
+logfile_maxbytes=5MB
+logfile_backups=2
+loglevel=info
+nodaemon=false
+directory={REPO_ROOT}
+
+[rpcinterface:supervisor]
+supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
+
+[supervisorctl]
+serverurl=unix://{sock}
+
+[program:proxy]
+command=node build/sse.js
+directory={proxy_dir}
+environment={_supervisord_env_str(proxy_env)}
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=8
+redirect_stderr=true
+stdout_logfile={logs}/proxy.log
+stdout_logfile_maxbytes=5MB
+stdout_logfile_backups=2
+
+[program:caddy]
+command=caddy run --config {caddyfile_path}
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=8
+redirect_stderr=true
+stdout_logfile={logs}/caddy.log
+stdout_logfile_maxbytes=5MB
+stdout_logfile_backups=2
+
+[program:ghostunnel]
+command={ghostshell}
+directory={REPO_ROOT}
+environment={_supervisord_env_str(tunnel_env)}
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=8
+redirect_stderr=true
+stdout_logfile={logs}/ghostunnel.log
+stdout_logfile_maxbytes=5MB
+stdout_logfile_backups=2
+"""
+
+
+# ---------------------------------------------------------------------------
+# Render helpers
+# ---------------------------------------------------------------------------
+
+
+def render_proxy_config(config: dict[str, Any], servers: list[Server], runtime_dir: Path) -> dict[str, Path]:
+    """Write mcp_server.json + Caddyfile into the runtime dir."""
     paths = runtime_paths(runtime_dir)
     paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
     paths["caddyfile"].parent.mkdir(parents=True, exist_ok=True)
     paths["logs"].mkdir(parents=True, exist_ok=True)
-    paths["pids"].mkdir(parents=True, exist_ok=True)
-    write_json(paths["proxy_config_dir"] / "mcp_server.json", proxy_config(config))
+    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
     tool_config = paths["proxy_config_dir"] / "tool_config.json"
     if not tool_config.exists():
         write_json(tool_config, {"tools": {}})
-    paths["caddyfile"].write_text(caddyfile(config), encoding="utf-8")
-    paths["env"].write_text(env_file(config), encoding="utf-8")
+    paths["caddyfile"].write_text(make_caddyfile(config), encoding="utf-8")
     return paths
-
-
-def parse_env_file(path: Path) -> dict[str, str]:
-    env: dict[str, str] = {}
-    if not path.exists():
-        return env
-    for raw in path.read_text(encoding="utf-8").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        env[key] = value
-    return env
-
-
-def get_or_create_admin_password(path: Path) -> str:
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-    password = secrets.token_urlsafe(24)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(password + "\n", encoding="utf-8")
-    path.chmod(0o600)
-    return password
-
-
-def read_pid(path: Path) -> int | None:
-    try:
-        return int(path.read_text(encoding="utf-8").strip())
-    except Exception:
-        return None
-
-
-def pid_running(path: Path) -> bool:
-    pid = read_pid(path)
-    return bool(pid and pid_alive(pid))
-
-
-def start_process(name: str, command: list[str], cwd: Path | None, env: dict[str, str], runtime_dir: Path) -> bool:
-    paths = runtime_paths(runtime_dir)
-    pidfile = paths["pids"] / f"{name}.pid"
-    if pid_running(pidfile):
-        print(f"{name}: already running (pid {read_pid(pidfile)})")
-        return False
-    logfile = paths["logs"] / f"{name}.log"
-    logfile.parent.mkdir(parents=True, exist_ok=True)
-    out = logfile.open("ab")
-    proc = subprocess.Popen(command, cwd=str(cwd) if cwd else None, env=env, stdout=out, stderr=subprocess.STDOUT, start_new_session=True)
-    pidfile.write_text(str(proc.pid) + "\n", encoding="utf-8")
-    print(f"{name}: started pid {proc.pid}; log {logfile}")
-    time.sleep(0.5)
-    if proc.poll() is not None:
-        pidfile.unlink(missing_ok=True)
-        raise SystemExit(f"{name}: exited immediately with code {proc.returncode}; see {logfile}")
-    return True
-
-
-def stop_process(name: str, runtime_dir: Path, timeout: float = 8.0) -> None:
-    paths = runtime_paths(runtime_dir)
-    pidfile = paths["pids"] / f"{name}.pid"
-    pid = read_pid(pidfile)
-    if not pid:
-        print(f"{name}: not running (no pid file)")
-        return
-    if not pid_alive(pid):
-        print(f"{name}: stale pid {pid}")
-        pidfile.unlink(missing_ok=True)
-        return
-    print(f"{name}: stopping pid {pid}")
-    try:
-        os.killpg(pid, signal.SIGTERM)
-    except ProcessLookupError:
-        pidfile.unlink(missing_ok=True)
-        return
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if not pid_alive(pid):
-            pidfile.unlink(missing_ok=True)
-            print(f"{name}: stopped")
-            return
-        time.sleep(0.2)
-    print(f"{name}: still running after SIGTERM; sending SIGKILL")
-    try:
-        os.killpg(pid, signal.SIGKILL)
-    except ProcessLookupError:
-        pass
-    pidfile.unlink(missing_ok=True)
 
 
 def copy_proxy_config(runtime_dir: Path, proxy_dir: Path) -> None:
@@ -295,8 +345,13 @@ def copy_proxy_config(runtime_dir: Path, proxy_dir: Path) -> None:
             shutil.copy2(file, dst / file.name)
 
 
+# ---------------------------------------------------------------------------
+# mcp-proxy-server patches (idempotent, applied at start)
+# ---------------------------------------------------------------------------
+
+
 def ensure_proxy_binds_loopback(proxy_dir: Path, host: str) -> None:
-    """Patch mcp-proxy-server's HTTP listener to loopback.
+    """Patch mcp-proxy-server's HTTP listener to bind loopback only.
 
     Upstream listens on all interfaces. The host stack must keep the raw admin UI
     local-only and expose only the filtered Caddy port to ghostunnel.
@@ -328,34 +383,174 @@ def ensure_proxy_binds_loopback(proxy_dir: Path, host: str) -> None:
 
     source = proxy_dir / "src" / "sse.ts"
     if source.exists() and desired not in source.read_text(encoding="utf-8"):
-        print(f"warning: source listener was not patched; npm run build may restore a non-loopback bind: {source}", file=sys.stderr)
+        print(
+            f"warning: source listener not patched; npm run build may undo this: {source}",
+            file=sys.stderr,
+        )
 
 
-def default_tunnel_listen() -> str:
-    host_only_ip = os.environ.get("HOST_ONLY_IP", DEFAULT_HOST_ONLY_IP)
-    return f"{host_only_ip}:{DEFAULT_HOST_MCP_TUNNEL_PORT}"
+def ensure_list_changed_notification(proxy_dir: Path) -> None:
+    """Patch mcp-proxy-server to emit notifications/tools/list_changed after admin reload.
+
+    Covers both sseTransports and streamableHttpTransports maps so agentgateway
+    (StreamableHTTP) and any SSE clients both receive the notification.
+    Idempotent: skips if already patched. Re-applies if a fresh npm build overwrites.
+
+    Full chain: enable/disable -> admin reload -> list_changed ->
+    agentgateway forwards -> Hermes auto-refreshes tool list (no /reload-mcp).
+    """
+    sentinel = "notifications/tools/list_changed"
+    src = proxy_dir / "src" / "sse.ts"
+    build = proxy_dir / "build" / "sse.js"
+
+    if not src.exists():
+        print(f"warning: {src} not found; skipping list_changed patch", file=sys.stderr)
+        return
+
+    text = src.read_text(encoding="utf-8")
+    if sentinel in text:
+        # Check the build too — a fresh npm build may have overwritten it.
+        if build.exists() and sentinel not in build.read_text(encoding="utf-8"):
+            print("list_changed patch present in source but missing from build; rebuilding...")
+            _npm_build(proxy_dir)
+        return
+
+    marker = "await updateBackendConnections(latestServerConfig, latestToolConfig);"
+    if marker not in text:
+        print(f"warning: reload marker not found in {src}; skipping list_changed patch", file=sys.stderr)
+        return
+
+    notification_block = """\
+
+            // Notify all connected MCP clients that the tool list has changed.
+            // Hermes receives this via agentgateway and auto-refreshes without /reload-mcp.
+            const listChangedNotification = {
+              jsonrpc: '2.0' as const,
+              method: 'notifications/tools/list_changed',
+            };
+            for (const transport of sseTransports.values()) {
+              transport.send(listChangedNotification).catch((err: Error) => {
+                logger.error('Failed to send list_changed to SSE client:', err);
+              });
+            }
+            for (const transport of streamableHttpTransports.values()) {
+              transport.send(listChangedNotification).catch((err: Error) => {
+                logger.error('Failed to send list_changed to StreamableHTTP client:', err);
+              });
+            }"""
+
+    patched = text.replace(marker, marker + notification_block, 1)
+    src.write_text(patched, encoding="utf-8")
+    print(f"patched {src} to emit notifications/tools/list_changed")
+    _npm_build(proxy_dir)
 
 
-def cmd_render(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    runtime_dir: Path = args.runtime_dir
-    paths = render_runtime(config, runtime_dir)
+def _npm_build(proxy_dir: Path) -> None:
+    print("rebuilding mcp-proxy-server...")
+    result = subprocess.run(["npm", "run", "build"], cwd=str(proxy_dir), capture_output=True, text=True)
+    if result.returncode != 0:
+        raise SystemExit(
+            f"npm run build failed — list_changed patch will not be active:\n{result.stderr}"
+        )
+    print("rebuild complete")
 
-    print(f"rendered runtime files under {runtime_dir}")
-    print(f"mcp-proxy config: {paths['proxy_config_dir'] / 'mcp_server.json'}")
-    print(f"caddy config:     {paths['caddyfile']}")
-    print("\nNext steps:")
-    print(f"  mkdir -p config && cp -R {paths['proxy_config_dir']}/. ./config/")
-    print(f"  set -a; source {paths['env']}; set +a")
-    print("  export ADMIN_USERNAME=admin ADMIN_PASSWORD='<local password>' SESSION_SECRET='<random hex>'")
-    print("  # Leave ALLOWED_KEYS unset for the ghostunnel/Caddy path; ghostunnel mTLS + Caddy path filtering gate access.")
-    print("  node build/sse.js")
-    print(f"  caddy run --config {paths['caddyfile']}")
-    return 0
+
+# ---------------------------------------------------------------------------
+# supervisord interaction
+# ---------------------------------------------------------------------------
+
+
+def supervisorctl(*args: str, runtime_dir: Path) -> subprocess.CompletedProcess[str]:
+    conf = runtime_paths(runtime_dir)["supervisord_conf"]
+    return subprocess.run(
+        ["supervisorctl", "-c", str(conf), *args],
+        capture_output=True, text=True, check=False,
+    )
+
+
+def get_supervisor_states(runtime_dir: Path) -> dict[str, str]:
+    """Return {program_name: SUPERVISOR_STATE} for all programs, or {} if not running."""
+    if not runtime_paths(runtime_dir)["supervisord_sock"].exists():
+        return {}
+    result = supervisorctl("status", runtime_dir=runtime_dir)
+    states: dict[str, str] = {}
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            states[parts[0]] = parts[1]
+    return states
+
+
+def is_supervisor_running(runtime_dir: Path) -> bool:
+    states = get_supervisor_states(runtime_dir)
+    return bool(states)
+
+
+# ---------------------------------------------------------------------------
+# Hot reload
+# ---------------------------------------------------------------------------
+
+
+def reload_proxy(runtime_dir: Path, config: dict[str, Any]) -> None:
+    """Hot-reload mcp-proxy-server via session-cookie admin API.
+
+    Flow: POST /admin/login (get cookie) -> POST /admin/server/reload.
+    After reload, the patched proxy sends list_changed to all MCP sessions
+    so Hermes auto-refreshes without a manual /reload-mcp.
+    """
+    proxy = proxy_settings(config)
+    base = f"http://{proxy['listen_host']}:{proxy['proxy_port']}"
+    password = get_or_create_secret(runtime_paths(runtime_dir)["admin_password"])
+
+    jar = http.cookiejar.CookieJar()
+    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
+
+    login_data = urllib.parse.urlencode({"username": "admin", "password": password}).encode()
+    try:
+        opener.open(f"{base}/admin/login", login_data, timeout=5)
+    except Exception as e:
+        print(f"  proxy reload: login failed ({e}) — is the stack running?")
+        return
+
+    # Confirm a session cookie was set; wrong password returns HTTP 200 with no cookie.
+    if not any(c.name == "connect.sid" for c in jar):
+        print("  proxy reload: login did not return a session cookie — check admin password")
+        return
+
+    try:
+        resp = opener.open(
+            urllib.request.Request(f"{base}/admin/server/reload", data=b"", method="POST"),
+            timeout=10,
+        )
+        if resp.status == 200:
+            print("  proxy reloaded — notifications/tools/list_changed sent to clients")
+        else:
+            print(f"  proxy reload returned HTTP {resp.status}")
+    except Exception as e:
+        print(f"  proxy reload failed: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Utility
+# ---------------------------------------------------------------------------
 
 
 def write_json(path: Path, data: Any) -> None:
     path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def mcp_remote_hash(
+    server_url: str,
+    authorize_resource: str | None = None,
+    headers: dict[str, str] | None = None,
+) -> str:
+    """Match mcp-remote getServerUrlHash(): md5(parts.join('|'))."""
+    parts = [server_url]
+    if authorize_resource:
+        parts.append(authorize_resource)
+    if headers:
+        raise SystemExit("mcp-remote header hashing is not supported yet")
+    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
 
 
 def auth_prefixes(server: Server) -> list[str]:
@@ -412,16 +607,283 @@ def auth_state(server: Server, auth_dir: Path) -> tuple[str, list[Path]]:
     return "unknown", files
 
 
+def default_tunnel_listen() -> str:
+    host_only_ip = os.environ.get("HOST_ONLY_IP", DEFAULT_HOST_ONLY_IP)
+    return f"{host_only_ip}:{DEFAULT_HOST_MCP_TUNNEL_PORT}"
+
+
+# ---------------------------------------------------------------------------
+# Rich display helpers
+# ---------------------------------------------------------------------------
+
+
+def _require_rich() -> tuple[Any, Any]:
+    try:
+        from rich.console import Console
+        from rich.table import Table
+
+        return Console(), Table
+    except ImportError:
+        raise SystemExit("rich is required: pip install -r host/mcp/requirements-host.txt")
+
+
+def _auth_label(server: Server, auth_dir: Path) -> str:
+    if server.mode != "remote-oauth":
+        return "n/a"
+    state, _ = auth_state(server, auth_dir)
+    return state
+
+
+def _style_auth(label: str) -> str:
+    if label == "authenticated":
+        return f"[green]{label}[/green]"
+    if label == "n/a":
+        return f"[dim]{label}[/dim]"
+    return f"[yellow]{label}[/yellow]"
+
+
+def _style_proc(state: str) -> str:
+    if state == "RUNNING":
+        return f"[green]{state}[/green]"
+    if state in ("STARTING", "BACKOFF"):
+        return f"[yellow]{state}[/yellow]"
+    if state in ("STOPPED", "EXITED", "FATAL", "UNKNOWN"):
+        return f"[red]{state}[/red]"
+    return f"[dim]{state or '—'}[/dim]"
+
+
+# ---------------------------------------------------------------------------
+# Commands
+# ---------------------------------------------------------------------------
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    """Show all configured MCP servers and their declared state (no stack required)."""
+    console, Table = _require_rich()
+    config = load_config(args.config)
+    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    servers = iter_servers(config, state)
+
+    table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
+    table.add_column("Server", style="bold")
+    table.add_column("Mode")
+    table.add_column("Auth")
+    table.add_column("Enabled")
+    for server in servers:
+        table.add_row(
+            server.key,
+            server.mode,
+            _style_auth(_auth_label(server, args.auth_dir)),
+            "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
+        )
+    console.print(table)
+    return 0
+
+
+def cmd_status(args: argparse.Namespace) -> int:
+    """Show server auth state and infrastructure process state as rich tables."""
+    console, Table = _require_rich()
+    config = load_config(args.config)
+    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    servers = iter_servers(config, state)
+    sup_states = get_supervisor_states(args.runtime_dir)
+
+    srv_table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
+    srv_table.add_column("Server", style="bold")
+    srv_table.add_column("Mode")
+    srv_table.add_column("Auth")
+    srv_table.add_column("Enabled")
+    for server in servers:
+        srv_table.add_row(
+            server.key,
+            server.mode,
+            _style_auth(_auth_label(server, args.auth_dir)),
+            "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
+        )
+    console.print(srv_table)
+
+    inf_table = Table(title="Infrastructure", show_header=True, header_style="bold cyan")
+    inf_table.add_column("Process", style="bold")
+    inf_table.add_column("State")
+    not_running = not sup_states
+    for prog in ("proxy", "caddy", "ghostunnel"):
+        inf_table.add_row(prog, _style_proc(sup_states.get(prog, "STOPPED" if not_running else "")))
+    console.print(inf_table)
+    return 0
+
+
+def _update_enabled(args: argparse.Namespace, enabled: bool) -> int:
+    config = load_config(args.config)
+    paths = runtime_paths(args.runtime_dir)
+    all_keys = {s.key for s in iter_servers(config)}
+    if args.server not in all_keys:
+        raise SystemExit(f"unknown server: {args.server!r}. Known: {sorted(all_keys)}")
+
+    state = load_state(paths["state"])
+    state[args.server] = enabled
+    save_state(paths["state"], state)
+
+    servers = iter_servers(config, state)
+    paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
+    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
+    copy_proxy_config(args.runtime_dir, args.proxy_dir)
+
+    verb = "enabled" if enabled else "disabled"
+    print(f"{verb} {args.server!r}")
+
+    if is_supervisor_running(args.runtime_dir):
+        reload_proxy(args.runtime_dir, config)
+    else:
+        print("  stack not running — change takes effect on next start")
+    return 0
+
+
+def cmd_enable(args: argparse.Namespace) -> int:
+    return _update_enabled(args, True)
+
+
+def cmd_disable(args: argparse.Namespace) -> int:
+    return _update_enabled(args, False)
+
+
+def cmd_reload(args: argparse.Namespace) -> int:
+    """Re-render proxy config from current state and hot-reload the proxy.
+
+    Use after git pull updates servers.json to pick up new server declarations.
+    """
+    config = load_config(args.config)
+    paths = runtime_paths(args.runtime_dir)
+    state = load_state(paths["state"])
+    servers = iter_servers(config, state)
+    paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
+    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
+    copy_proxy_config(args.runtime_dir, args.proxy_dir)
+    print("proxy config re-rendered")
+
+    if is_supervisor_running(args.runtime_dir):
+        reload_proxy(args.runtime_dir, config)
+    else:
+        print("stack not running — change takes effect on next start")
+    return 0
+
+
+def cmd_start(args: argparse.Namespace) -> int:
+    config = load_config(args.config)
+    paths = runtime_paths(args.runtime_dir)
+    state = load_state(paths["state"])
+    servers = iter_servers(config, state)
+    active = [s for s in servers if s.enabled]
+
+    if not active:
+        print("no enabled MCP servers — not starting")
+        return 0
+
+    proxy_dir: Path = args.proxy_dir
+    if not (proxy_dir / "build" / "sse.js").exists():
+        raise SystemExit(f"mcp-proxy-server build not found: {proxy_dir / 'build' / 'sse.js'}")
+
+    if is_supervisor_running(args.runtime_dir):
+        print("supervisord is already running. Use 'reload' to update config or 'stop' first.")
+        return 1
+
+    proxy = proxy_settings(config)
+    ensure_proxy_binds_loopback(proxy_dir, str(proxy["listen_host"]))
+    ensure_list_changed_notification(proxy_dir)
+
+    render_proxy_config(config, servers, args.runtime_dir)
+    copy_proxy_config(args.runtime_dir, proxy_dir)
+
+    admin_password = get_or_create_secret(paths["admin_password"])
+    session_secret = get_or_create_secret(paths["session_secret"], lambda: secrets.token_hex(32))
+    proxy_env = make_proxy_env(config, admin_password, session_secret)
+
+    ghostshell = args.ghostshell or DEFAULT_GHOSTSHELL
+    listen = args.listen or default_tunnel_listen()
+    tunnel_env: dict[str, str] = {
+        "TARGET": f"{proxy['listen_host']}:{int(proxy['filtered_port'])}",
+        "LISTEN": listen,
+    }
+    if args.allow_cn:
+        tunnel_env["ALLOW_CN"] = args.allow_cn
+
+    conf_text = build_supervisord_conf(paths, proxy_dir, proxy_env, ghostshell, tunnel_env)
+    paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
+    paths["supervisord_conf"].chmod(0o600)  # contains plaintext secrets
+
+    # Remove stale socket so supervisord doesn't refuse to start.
+    sock = paths["supervisord_sock"]
+    if sock.exists():
+        sock.unlink()
+
+    try:
+        subprocess.run(["supervisord", "-c", str(paths["supervisord_conf"])], check=True)
+    except subprocess.CalledProcessError as exc:
+        raise SystemExit(
+            f"supervisord failed to start (exit {exc.returncode}); check {paths['logs']}/supervisord.log"
+        ) from None
+
+    # Wait up to 10s for all three programs to reach RUNNING.
+    deadline = time.time() + 10
+    while time.time() < deadline:
+        sup_states = get_supervisor_states(args.runtime_dir)
+        if all(sup_states.get(p) == "RUNNING" for p in ("proxy", "caddy", "ghostunnel")):
+            break
+        time.sleep(0.5)
+
+    sup_states = get_supervisor_states(args.runtime_dir)
+    print("enabled servers: " + ", ".join(s.key for s in active))
+    failed = [p for p in ("proxy", "caddy", "ghostunnel") if sup_states.get(p) != "RUNNING"]
+    for prog in ("proxy", "caddy", "ghostunnel"):
+        print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
+    print(f"filtered MCP:  http://{proxy['listen_host']}:{int(proxy['filtered_port'])}/mcp")
+    print(f"ghostunnel:    {listen}")
+    if failed:
+        print(f"\nwarning: {failed} did not reach RUNNING; check logs under {paths['logs']}", file=sys.stderr)
+        return 1
+    return 0
+
+
+def cmd_stop(args: argparse.Namespace) -> int:
+    if not is_supervisor_running(args.runtime_dir):
+        print("supervisord is not running")
+        return 0
+    result = supervisorctl("shutdown", runtime_dir=args.runtime_dir)
+    print(result.stdout.strip() or "supervisord shutdown initiated")
+    return 0
+
+
+def cmd_logs(args: argparse.Namespace) -> int:
+    """Tail logs for a supervised process (or supervisord itself)."""
+    paths = runtime_paths(args.runtime_dir)
+    log_map = {
+        "proxy": paths["logs"] / "proxy.log",
+        "caddy": paths["logs"] / "caddy.log",
+        "ghostunnel": paths["logs"] / "ghostunnel.log",
+        "supervisord": paths["logs"] / "supervisord.log",
+    }
+    target = args.process
+    log_file = log_map[target]
+    if not log_file.exists():
+        print(f"no log file yet for {target!r}: {log_file}", file=sys.stderr)
+        return 1
+    try:
+        subprocess.run(["tail", f"-n{args.lines}", "-f", str(log_file)])
+    except KeyboardInterrupt:
+        pass
+    return 0
+
+
 def cmd_auth_status(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    servers = {s.key: s for s in iter_servers(config)}
-    selected = [servers[args.server]] if args.server else list(servers.values())
+    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    all_servers = {s.key: s for s in iter_servers(config, state)}
+    selected = [all_servers[args.server]] if getattr(args, "server", None) else list(all_servers.values())
     for server in selected:
         if server.mode != "remote-oauth":
-            print(f"{server.key}: local-stdio")
+            print(f"{server.key}: {server.mode}")
             continue
-        state, files = auth_state(server, args.auth_dir)
-        print(f"{server.key}: {state}")
+        st, files = auth_state(server, args.auth_dir)
+        print(f"{server.key}: {st}")
         if server.url:
             print(f"  url: {server.url}")
             print(f"  mcp-remote hash: {mcp_remote_hash(server.url)}")
@@ -430,41 +892,31 @@ def cmd_auth_status(args: argparse.Namespace) -> int:
     return 0
 
 
-def process_matches() -> list[str]:
-    try:
-        proc = subprocess.run(["pgrep", "-af", "mcp-remote|node .*build/sse\\.js"], check=False, capture_output=True, text=True)
-    except FileNotFoundError:
-        return []
-    lines = []
-    for line in proc.stdout.splitlines():
-        if str(os.getpid()) in line:
-            continue
-        if "pgrep -af" in line or "vicegerent_mcp.py" in line or "scripts/host/vicegerent-mcp" in line:
-            continue
-        if "mcp-remote" in line or "node build/sse.js" in line or "node " in line and "build/sse.js" in line:
-            lines.append(line)
-    return lines
-
-
 def cmd_auth_reset(args: argparse.Namespace) -> int:
     config = load_config(args.config)
-    servers = {s.key: s for s in iter_servers(config)}
-    server = servers[args.server]
+    state = load_state(runtime_paths(args.runtime_dir)["state"])
+    all_servers = {s.key: s for s in iter_servers(config, state)}
+    if args.server not in all_servers:
+        raise SystemExit(f"unknown server: {args.server!r}")
+    server = all_servers[args.server]
     if server.mode != "remote-oauth" or not server.url:
-        raise SystemExit(f"{server.key} is not a remote-oauth server")
-    matches = process_matches()
-    if matches and not args.force:
-        print("Refusing to delete OAuth cache while MCP processes may be alive:", file=sys.stderr)
-        for line in matches:
-            print(f"  {line}", file=sys.stderr)
-        print("Stop proxy/backend first, or pass --force if you know these are unrelated.", file=sys.stderr)
+        raise SystemExit(f"{server.key!r} is not a remote-oauth server")
+
+    # Guard: refuse if supervisord is running (mcp-remote may be active).
+    if is_supervisor_running(args.runtime_dir) and not args.force:
+        print(
+            "Refusing to delete OAuth cache while the stack is running.\n"
+            "Stop it first ('stop'), or pass --force.",
+            file=sys.stderr,
+        )
         return 2
+
     files = auth_files(mcp_remote_hash(server.url), args.auth_dir)
     if not files:
-        print(f"no auth files found for {server.key}")
+        print(f"no auth files found for {server.key!r}")
         return 0
     if not args.yes:
-        print(f"would delete {len(files)} auth file(s) for {server.key}:")
+        print(f"would delete {len(files)} auth file(s) for {server.key!r}:")
         for path in files:
             print(f"  {path}")
         print("rerun with --yes to delete")
@@ -479,150 +931,112 @@ def cmd_doctor(args: argparse.Namespace) -> int:
     config = load_config(args.config)
     proxy = proxy_settings(config)
     print("host MCP doctor")
-    for binary in ("node", "npx", "caddy", "ghostunnel", "op"):
+
+    binaries = ["node", "npx", "caddy", "ghostunnel", "op", "supervisord", "supervisorctl"]
+    for binary in binaries:
         found = shutil.which(binary)
-        print(f"{binary}: {found or 'MISSING'}")
-    # k8s-mcp-server lives in-repo; check the built binary
-    repo_root = Path(__file__).resolve().parents[2]
-    k8s_bin = repo_root / "host" / "k8s-mcp-server" / "k8s-mcp-server"
+        print(f"  {binary}: {found or 'MISSING'}")
+
+    # k8s-mcp-server lives in-repo; must be compiled.
+    k8s_bin = REPO_ROOT / "host" / "k8s-mcp-server" / "k8s-mcp-server"
     if k8s_bin.exists():
-        print(f"k8s-mcp-server: {k8s_bin}")
+        print(f"  k8s-mcp-server: {k8s_bin}")
     else:
-        print(f"k8s-mcp-server: MISSING (run: make -C host/k8s-mcp-server)")
+        print(f"  k8s-mcp-server: MISSING (run: make -C host/k8s-mcp-server)")
+
     print(f"proxy port:    {proxy['proxy_port']}")
     print(f"filtered port: {proxy['filtered_port']}")
     print(f"auth dir:      {args.auth_dir}")
     print()
-    ns = argparse.Namespace(config=args.config, auth_dir=args.auth_dir, server=None)
-    return cmd_auth_status(ns)
+    return cmd_auth_status(
+        argparse.Namespace(config=args.config, auth_dir=args.auth_dir, runtime_dir=args.runtime_dir, server=None)
+    )
 
 
-def cmd_start(args: argparse.Namespace) -> int:
-    config = load_config(args.config)
-    active = enabled_servers(config)
-    if not active:
-        print("no enabled MCP servers; not starting proxy/tunnel")
-        return 0
-    runtime_dir: Path = args.runtime_dir
-    proxy_dir: Path = args.proxy_dir
-    if not (proxy_dir / "build" / "sse.js").exists():
-        raise SystemExit(f"mcp-proxy-server build not found: {proxy_dir / 'build' / 'sse.js'}")
-    paths = render_runtime(config, runtime_dir)
-    copy_proxy_config(runtime_dir, proxy_dir)
-    proxy = proxy_settings(config)
-    ensure_proxy_binds_loopback(proxy_dir, str(proxy["listen_host"]))
-
-    base_env = os.environ.copy()
-    base_env.update(parse_env_file(paths["env"]))
-    base_env.setdefault("ADMIN_USERNAME", "admin")
-    base_env.setdefault("ADMIN_PASSWORD", get_or_create_admin_password(paths["admin_password"]))
-    base_env.setdefault("SESSION_SECRET", secrets.token_hex(32))
-    # Deliberately leave ALLOWED_KEYS unset by default. The cluster path is gated by
-    # ghostunnel mTLS and Caddy exposes only POST /mcp.
-    base_env.pop("ALLOWED_KEYS", None)
-
-    started: list[str] = []
-    try:
-        if start_process("proxy", ["node", "build/sse.js"], proxy_dir, base_env, runtime_dir):
-            started.append("proxy")
-        if start_process("caddy", ["caddy", "run", "--config", str(paths["caddyfile"])], None, base_env, runtime_dir):
-            started.append("caddy")
-
-        tunnel_env = base_env.copy()
-        # Never inherit TARGET/LISTEN from the user's shell: those are the security boundary.
-        tunnel_env["TARGET"] = f"{proxy['listen_host']}:{int(proxy['filtered_port'])}"
-        tunnel_env["LISTEN"] = args.listen or default_tunnel_listen()
-        if args.allow_cn:
-            tunnel_env["ALLOW_CN"] = args.allow_cn
-        if args.ghostshell:
-            ghostshell = args.ghostshell
-        else:
-            ghostshell = DEFAULT_GHOSTSHELL
-        if start_process("ghostunnel", [str(ghostshell)], REPO_ROOT, tunnel_env, runtime_dir):
-            started.append("ghostunnel")
-    except BaseException:
-        for name in reversed(started):
-            stop_process(name, runtime_dir)
-        raise
-
-    print("enabled servers: " + ", ".join(server.key for server in active))
-    print(f"raw proxy admin: http://{proxy['listen_host']}:{int(proxy['proxy_port'])}/admin")
-    print(f"filtered MCP endpoint: http://{proxy['listen_host']}:{int(proxy['filtered_port'])}/mcp")
-    print(f"ghostunnel listen: {tunnel_env['LISTEN']}")
-    print(f"ghostunnel target: {tunnel_env['TARGET']}")
-    return 0
-
-
-def cmd_stop(args: argparse.Namespace) -> int:
-    # Stop in reverse dependency order: tunnel -> filter -> proxy.
-    for name in ("ghostunnel", "caddy", "proxy"):
-        stop_process(name, args.runtime_dir)
-    return 0
-
-
-def cmd_status(args: argparse.Namespace) -> int:
-    paths = runtime_paths(args.runtime_dir)
-    for name in ("proxy", "caddy", "ghostunnel"):
-        pidfile = paths["pids"] / f"{name}.pid"
-        pid = read_pid(pidfile)
-        if pid and pid_alive(pid):
-            print(f"{name}: running pid {pid}")
-        elif pid:
-            print(f"{name}: stale pid {pid}")
-        else:
-            print(f"{name}: stopped")
-    print()
-    return cmd_auth_status(argparse.Namespace(config=args.config, auth_dir=args.auth_dir, server=None))
+# ---------------------------------------------------------------------------
+# Parser
+# ---------------------------------------------------------------------------
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="vicegerent host MCP helper")
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG)
-    parser.add_argument("--auth-dir", type=Path, default=DEFAULT_AUTH_DIR)
+    # Global args available to all subcommands.
+    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, metavar="PATH")
+    parser.add_argument("--auth-dir", type=Path, default=DEFAULT_AUTH_DIR, metavar="PATH")
+    parser.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR, metavar="PATH")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    render = sub.add_parser("render", help="render mcp-proxy-server and Caddy config")
-    render.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR)
-    render.set_defaults(func=cmd_render)
+    # list — no stack required
+    sub.add_parser("list", help="show all configured MCP servers and their state").set_defaults(func=cmd_list)
 
-    start = sub.add_parser("start", help="render config and start proxy, Caddy, and ghostunnel")
-    start.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR)
+    # status — rich table with process state
+    sub.add_parser("status", help="show server auth state and infrastructure process state").set_defaults(func=cmd_status)
+
+    # enable / disable
+    for verb, fn, help_str in [
+        ("enable", cmd_enable, "enable a server and hot-reload the proxy"),
+        ("disable", cmd_disable, "disable a server and hot-reload the proxy"),
+    ]:
+        p = sub.add_parser(verb, help=help_str)
+        p.add_argument("server", metavar="KEY")
+        p.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
+        p.set_defaults(func=fn)
+
+    # reload
+    rl = sub.add_parser("reload", help="re-render proxy config from current state and hot-reload")
+    rl.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
+    rl.set_defaults(func=cmd_reload)
+
+    # start
+    start = sub.add_parser("start", help="start proxy, Caddy, and ghostunnel via supervisord")
     start.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
-    start.add_argument("--ghostshell", type=Path, default=DEFAULT_GHOSTSHELL)
-    start.add_argument("--listen", default=None, help=f"ghostunnel listen address (default: $HOST_ONLY_IP:{DEFAULT_HOST_MCP_TUNNEL_PORT}, HOST_ONLY_IP defaults to {DEFAULT_HOST_ONLY_IP})")
-    start.add_argument("--allow-cn", default=None, help="ghostunnel client certificate CN (default: ghostshell.sh default)")
+    start.add_argument("--ghostshell", type=Path, default=None)
+    start.add_argument(
+        "--listen",
+        default=None,
+        help=f"ghostunnel listen address (default: $HOST_ONLY_IP:{DEFAULT_HOST_MCP_TUNNEL_PORT})",
+    )
+    start.add_argument("--allow-cn", default=None, help="ghostunnel client certificate CN")
     start.set_defaults(func=cmd_start)
 
-    stop = sub.add_parser("stop", help="stop ghostunnel, Caddy, and proxy started by this helper")
-    stop.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR)
-    stop.set_defaults(func=cmd_stop)
+    # stop
+    sub.add_parser("stop", help="shut down supervisord and all managed processes").set_defaults(func=cmd_stop)
 
-    proc_status = sub.add_parser("status", help="show process and auth state")
-    proc_status.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR)
-    proc_status.set_defaults(func=cmd_status)
+    # logs
+    logs = sub.add_parser("logs", help="tail logs for a supervised process (Ctrl-C to exit)")
+    logs.add_argument(
+        "process",
+        choices=["proxy", "caddy", "ghostunnel", "supervisord"],
+        help="which process log to tail",
+    )
+    logs.add_argument("-n", "--lines", type=int, default=50, metavar="N", help="initial lines to show (default: 50)")
+    logs.set_defaults(func=cmd_logs)
 
-    status = sub.add_parser("auth-status", help="show mcp-remote OAuth cache state")
-    status.add_argument("server", nargs="?")
-    status.set_defaults(func=cmd_auth_status)
+    # auth-status
+    ast = sub.add_parser("auth-status", help="show mcp-remote OAuth cache state per server")
+    ast.add_argument("server", nargs="?", metavar="KEY")
+    ast.set_defaults(func=cmd_auth_status)
 
-    reset = sub.add_parser("auth-reset", help="delete OAuth cache for a server after stopping proxy/backend")
-    reset.add_argument("server")
-    reset.add_argument("--yes", action="store_true")
-    reset.add_argument("--force", action="store_true", help="delete even if matching MCP processes are running")
+    # auth-reset
+    reset = sub.add_parser("auth-reset", help="delete OAuth cache for a server (stop stack first)")
+    reset.add_argument("server", metavar="KEY")
+    reset.add_argument("--yes", action="store_true", help="confirm deletion")
+    reset.add_argument("--force", action="store_true", help="delete even if the stack is running")
     reset.set_defaults(func=cmd_auth_reset)
 
-    doctor = sub.add_parser("doctor", help="show host prerequisites and auth state")
-    doctor.set_defaults(func=cmd_doctor)
+    # doctor
+    sub.add_parser("doctor", help="check host prerequisites and auth state").set_defaults(func=cmd_doctor)
+
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
-    if args.command == "auth-status" and args.server:
+    if args.command == "auth-status" and getattr(args, "server", None):
         servers = {s.key: s for s in iter_servers(load_config(args.config))}
         if args.server not in servers:
-            raise SystemExit(f"unknown server: {args.server}")
+            raise SystemExit(f"unknown server: {args.server!r}")
     return args.func(args)
 
 

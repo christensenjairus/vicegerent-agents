@@ -1,153 +1,133 @@
 # Host MCP control plane
 
-This directory contains the host-side MCP scaffold for vicegerent. It is for MCPs that belong in the human's macOS GUI session: browser OAuth, keychain/cache state, kubeconfig, AWS SSO, VPN, and other laptop-local context.
+This directory manages MCP servers that belong in the human's macOS GUI session: browser OAuth, kubeconfig, AWS SSO, and other laptop-local context.
 
-The validated v1 shape is:
+Stack shape:
 
 ```text
 Hermes sandbox
   -> agentgateway
-  -> ghostunnel
-  -> Caddy filtered endpoint on the host
-  -> mcp-proxy-server /mcp
-  -> stdio mcp-remote
-  -> hosted Notion MCP
+  -> ghostunnel (mTLS, port 8453)
+  -> Caddy filtered endpoint (POST /mcp only, port 3777)
+  -> mcp-proxy-server (aggregate stdio MCP, port 3663)
+  -> stdio MCP servers (Notion, Linear, Kubernetes ...)
 ```
 
-`mcp-proxy-server` is treated as the transport engine, not the user-facing product UI. Its admin UI is localhost-only/debug-only. The ghostunnel target must be the filtered Caddy port, not the raw proxy port, because the proxy admin UI includes a host terminal.
+Each infrastructure process (proxy, Caddy, ghostunnel) runs under supervisord with `autorestart=true` — a crash in one does not take down the others.
 
 ## Files
 
-- `servers.json` - repo-owned host MCP registry. It currently includes Notion, Linear, and two fixed-context Kubernetes entries (`uw1-prod1`, `uc1-prod1`).
-- `vicegerent_mcp.py` - no-dependency helper that renders runtime config and manages auth cache state.
-- `scripts/host/vicegerent-mcp` - executable wrapper.
+- `servers.json` — repo-owned registry (what servers exist and their defaults)
+- `vicegerent_mcp.py` — control helper: supervisord, hot-reload, OAuth state
+- `requirements-host.txt` — Python dependencies (`rich`)
+- `scripts/host/vicegerent-mcp` — thin bash wrapper
 
 ## Prerequisites
 
 ```bash
-brew install caddy ghostunnel node op
-# build the in-repo k8s-mcp-server (requires Go)
+brew install caddy ghostunnel node op supervisor
+pip install -r host/mcp/requirements-host.txt
+# build the in-repo Kubernetes MCP server (requires Go):
 make -C host/k8s-mcp-server
 ```
 
-Clone and build the proxy engine outside this repo:
+Clone and build mcp-proxy-server outside this repo:
 
 ```bash
 git clone https://github.com/ptbsare/mcp-proxy-server.git ~/HomeLab/mcp-proxy-server
-cd ~/HomeLab/mcp-proxy-server
-npm ci
-npm run build
+cd ~/HomeLab/mcp-proxy-server && npm ci && npm run build
 ```
 
-## Render runtime config
+## Subcommands
 
-From this repo:
-
-```bash
-./scripts/host/vicegerent-mcp render
+```
+list          show all configured servers and their state (no stack required)
+status        show server auth state + infrastructure process state (rich tables)
+enable KEY    enable a server and hot-reload the proxy
+disable KEY   disable a server and hot-reload the proxy
+reload        re-render proxy config and hot-reload (use after git pull)
+start         start proxy, Caddy, and ghostunnel via supervisord
+stop          shut down supervisord and all managed processes
+logs PROCESS  tail logs for proxy|caddy|ghostunnel|supervisord (Ctrl-C to exit)
+auth-status   show mcp-remote OAuth cache state
+auth-reset    delete OAuth cache for a server (stop stack first)
+doctor        check host prerequisites and auth state
 ```
 
-This writes runtime files under `~/.vicegerent/mcp`:
-
-```text
-~/.vicegerent/mcp/mcp-proxy-server/config/mcp_server.json
-~/.vicegerent/mcp/mcp-proxy-server/config/tool_config.json
-~/.vicegerent/mcp/caddy/Caddyfile
-~/.vicegerent/mcp/proxy.env
-```
-
-Copy the rendered proxy config into the proxy checkout:
-
-```bash
-mkdir -p ~/HomeLab/mcp-proxy-server/config
-cp -R ~/.vicegerent/mcp/mcp-proxy-server/config/. ~/HomeLab/mcp-proxy-server/config/
-```
-
-## Start the host MCP stack
-
-The helper starts all three host processes when at least one MCP server is enabled:
-
-```text
-mcp-proxy-server :3663  (raw admin + local aggregate MCP)
-Caddy            :3777  (filtered POST /mcp only)
-ghostunnel       :8453  (mTLS tunnel to Caddy :3777)
-```
-
-Run:
+## Start the stack
 
 ```bash
 ./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
 ```
 
-The helper renders runtime config, copies proxy config into the proxy checkout, patches and verifies the proxy listener binds `127.0.0.1` instead of all interfaces, generates a local admin password under `~/.vicegerent/mcp/admin_password`, starts Caddy with the HTTP-only filter, and starts `scripts/ghostunnel/ghostshell.sh` with `TARGET=127.0.0.1:3777` and `LISTEN=$HOST_ONLY_IP:8453`.
+`start` applies two idempotent patches to mcp-proxy-server, renders runtime config, and launches supervisord. After updating mcp-proxy-server (`git pull && npm run build`), run `start` again to re-apply patches.
 
-The host MCP tunnel intentionally uses `8453`, not `8443`; `8443` is the default tunnel for the existing host-side Kubernetes MCP. Override only when you also update the cluster-side backend:
+## Enable / disable servers
 
-```bash
-./scripts/host/vicegerent-mcp start \
-  --proxy-dir ~/HomeLab/mcp-proxy-server \
-  --listen 192.168.64.1:8453
-```
-
-This MR is the host-side control plane. Cluster-side `apps/vicegerent/mcps/*` backend/route wiring is required before agents can call these host tools through agentgateway.
-
-Check status:
+Runtime enable/disable — does not touch `servers.json`:
 
 ```bash
-./scripts/host/vicegerent-mcp status
+./scripts/host/vicegerent-mcp disable notion
+./scripts/host/vicegerent-mcp enable notion
 ```
 
-Stop everything it started:
+State lives in `~/.vicegerent/mcp/state.json` (not committed). When the stack is running, each command hot-reloads the proxy and triggers `notifications/tools/list_changed` so Hermes auto-refreshes its tool list — no `/reload-mcp` needed.
+
+After `git pull` adds new servers to `servers.json`:
 
 ```bash
-./scripts/host/vicegerent-mcp stop
+./scripts/host/vicegerent-mcp reload --proxy-dir ~/HomeLab/mcp-proxy-server
 ```
 
-The raw proxy listens on `127.0.0.1:3663`. Use its admin UI only from the host:
+## Status and logs
+
+```bash
+./scripts/host/vicegerent-mcp status          # rich tables
+./scripts/host/vicegerent-mcp list            # no stack required
+./scripts/host/vicegerent-mcp logs proxy      # tail proxy log (Ctrl-C to exit)
+./scripts/host/vicegerent-mcp logs caddy
+./scripts/host/vicegerent-mcp logs ghostunnel
+./scripts/host/vicegerent-mcp logs supervisord
+./scripts/host/vicegerent-mcp logs proxy -n 100  # show last 100 lines then follow
+```
+
+## Runtime state files
 
 ```text
-http://127.0.0.1:3663/admin
+~/.vicegerent/mcp/state.json              # runtime enable/disable overrides
+~/.vicegerent/mcp/admin_password          # proxy admin password (chmod 600)
+~/.vicegerent/mcp/session_secret          # proxy session secret (chmod 600)
+~/.vicegerent/mcp/supervisord.conf        # generated supervisord config
+~/.vicegerent/mcp/supervisor.sock         # supervisord control socket
+~/.vicegerent/mcp/logs/                   # per-process logs
+~/.vicegerent/mcp/mcp-proxy-server/config/ # rendered proxy config
+~/.vicegerent/mcp/caddy/Caddyfile         # rendered Caddy config
 ```
-
-For OAuth-backed stdio backends, `proxy.env` disables stdio tool-call retries. Retrying at the proxy layer causes repeated browser OAuth attempts and can wedge PKCE flows.
 
 ## Test the filtered endpoint
 
-The filtered endpoint listens on `127.0.0.1:3777` and permits only `POST /mcp`. Everything else is `404`.
-
-Negative checks:
+Only `POST /mcp` is forwarded. Everything else returns `404`.
 
 ```bash
+# All should 404:
 curl -i http://127.0.0.1:3777/admin
-curl -i http://127.0.0.1:3777/admin/terminal
 curl -i http://127.0.0.1:3777/sse
-curl -i http://127.0.0.1:3777/message
-curl -i http://127.0.0.1:3777/mcp
+curl -i http://127.0.0.1:3777/mcp          # GET — 404
 ```
-
-All should return `404`. The last one is a GET and should not be forwarded.
-
-Positive checks should use MCP StreamableHTTP `POST /mcp` against `127.0.0.1:3777`. By default the helper leaves the proxy MCP endpoint without `ALLOWED_KEYS`; host access is gated by ghostunnel mTLS plus the Caddy path filter.
 
 ## Kubernetes
 
-The `kubernetes` server uses `~/.kube/config` and exposes every kubeconfig context via a required `context` tool argument. Pass any valid context name in a tool call:
+The `kubernetes` server uses `~/.kube/config` and exposes every kubeconfig context via a `context` tool argument:
 
 ```json
 {"context": "uw1-prod1", "kind": "Pod", "namespace": "default"}
 ```
 
-All 22 clusters in the kubeconfig are available — no per-cluster config needed.
+The binary is built from source in this repo: `make -C host/k8s-mcp-server`.
 
 ## Auth state
 
-Notion is configured via:
-
-```text
-npx -y mcp-remote https://mcp.notion.com/mcp
-```
-
-`mcp-remote` stores OAuth state in `~/.mcp-auth/mcp-remote-<version>/`. The helper computes the same server URL hash as `mcp-remote` and reports targeted state:
+`mcp-remote` stores OAuth tokens in `~/.mcp-auth/mcp-remote-<version>/`. Check state:
 
 ```bash
 ./scripts/host/vicegerent-mcp auth-status notion
@@ -155,36 +135,21 @@ npx -y mcp-remote https://mcp.notion.com/mcp
 ./scripts/host/vicegerent-mcp doctor
 ```
 
-States:
-
-- `authenticated` - `tokens.json` has access and refresh tokens.
-- `auth-in-progress` - a live lock file is coordinating browser OAuth.
-- `auth-incomplete` - client/verifier files exist but tokens are missing.
-- `auth-needed` - token file exists but is not usable.
-- `unknown` - no cache files found.
+States: `authenticated` · `auth-in-progress` · `auth-incomplete` · `auth-needed` · `unknown`
 
 ## Auth reset
 
-Do not delete `~/.mcp-auth` while `mcp-remote` or `mcp-proxy-server` is running. That leaves tools listed in memory but real calls can enter browser/Unauthorized redirect loops.
-
-The safe reset sequence is:
+Stop the stack before deleting OAuth cache to avoid wedged PKCE flows:
 
 ```bash
-# stop the stack first
 ./scripts/host/vicegerent-mcp stop
 ./scripts/host/vicegerent-mcp auth-reset notion --yes
-# start again and complete browser OAuth
 ./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
-./scripts/host/vicegerent-mcp auth-status notion
 ```
 
-`auth-reset` refuses to delete cache files if matching MCP processes appear to be alive unless `--force` is supplied.
+## mcp-proxy-server patches (applied at start)
 
-## Validated behavior
+1. **Loopback bind** — binds to `127.0.0.1` instead of all interfaces so the admin terminal UI is never reachable remotely.
+2. **list_changed notification** — after `POST /admin/server/reload`, sends `notifications/tools/list_changed` to all connected SSE and StreamableHTTP sessions so Hermes auto-refreshes.
 
-- Notion OAuth opens a browser through `mcp-remote`.
-- Notion tools are visible through the local proxy's StreamableHTTP `/mcp` endpoint.
-- Toggling `active` in the proxy config and calling `/admin/server/reload` makes tools disappear/reappear.
-- Restarting the proxy reuses `mcp-remote` tokens without opening a browser.
-- Corrupting only `access_token` causes `mcp-remote` to refresh via `refresh_token` and repair `tokens.json`.
-- Corrupting both access and refresh tokens enters a browser/Unauthorized loop; treat that as `auth-needed` and perform the safe reset sequence.
+Both patches are idempotent and re-applied on `start` if a fresh `npm run build` overwrote them.
