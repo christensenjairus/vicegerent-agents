@@ -43,6 +43,7 @@ cd ~/HomeLab/mcp-proxy-server && npm ci && npm run build
 ```
 list          show all configured servers and their state (no stack required)
 status        show server auth state + infrastructure process state (rich tables)
+tui           launch interactive TUI dashboard
 enable KEY    enable a server and hot-reload the proxy
 disable KEY   disable a server and hot-reload the proxy
 reload        re-render proxy config and hot-reload (use after git pull)
@@ -153,3 +154,58 @@ Stop the stack before deleting OAuth cache to avoid wedged PKCE flows:
 2. **list_changed notification** — after `POST /admin/server/reload`, sends `notifications/tools/list_changed` to all connected SSE and StreamableHTTP sessions so Hermes auto-refreshes.
 
 Both patches are idempotent and re-applied on `start` if a fresh `npm run build` overwrote them.
+
+## TUI
+
+Launch an interactive dashboard with live server state, infrastructure status, and log tailing:
+
+```bash
+./scripts/host/vicegerent-mcp tui --proxy-dir ~/HomeLab/mcp-proxy-server
+```
+
+Keybindings follow k9s conventions — mutating actions use `ctrl+` prefix, navigation is vim-style.
+
+### Navigation
+
+| Key | Action |
+|-----|--------|
+| `j` / `↓` | Move down |
+| `k` / `↑` | Move up |
+| `g` | Jump to top |
+| `G` | Jump to bottom |
+
+### Server actions
+
+| Key | Action |
+|-----|--------|
+| `Enter` | Toggle enable/disable on selected server |
+| `ctrl+e` | Enable selected server |
+| `ctrl+d` | Disable selected server |
+| `l` | Switch to logs tab for selected server |
+| `d` | Describe selected server (config detail modal) |
+
+### Stack control
+
+| Key | Action |
+|-----|--------|
+| `ctrl+s` | Start the stack |
+| `ctrl+k` | Stop (kill) the stack |
+| `ctrl+r` | Reload config from disk |
+
+### Log tabs
+
+| Key | Tab |
+|-----|-----|
+| `1` | proxy |
+| `2` | caddy |
+| `3` | ghostunnel |
+| `4` | supervisord |
+
+### General
+
+| Key | Action |
+|-----|--------|
+| `?` | Toggle help overlay |
+| `q` / `Esc` | Quit |
+
+The TUI auto-refreshes every 2 seconds and tails all log files in real time.
