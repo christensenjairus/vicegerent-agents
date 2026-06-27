@@ -12,7 +12,7 @@
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #   - a Graphiti FalkorDB password (item "GraphitiFalkorDB", field "password")
 #     synced into the cluster
-#   - Langfuse bootstrap secrets (item "Langfuse") synced into the cluster
+#   - Langfuse bootstrap user/org/project/API keys (item "Langfuse") synced into the cluster
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -513,10 +513,9 @@ fi
 
 
 # --- Langfuse bootstrap secrets --------------------------------------------
-# App/session/datastore credentials for the self-hosted Langfuse stack. These
-# are generated once and reused because changing them can break app sessions or
-# make stateful dependencies unusable. otel-basic-auth is populated later from
-# Langfuse project keys: base64 of "public-key:secret-key".
+# App/session/datastore credentials plus headless init user/org/project/API
+# keys for the self-hosted Langfuse stack. These are generated once and reused
+# because changing them can break app sessions, datastore auth, or API clients.
 step "Langfuse bootstrap secrets"
 ensure_item "$LANGFUSE_ITEM"
 langfuse_generated=0
@@ -542,25 +541,28 @@ langfuse_field "redis-password" "$(openssl rand -hex 24)"
 langfuse_field "clickhouse-password" "$(openssl rand -hex 24)"
 langfuse_field "minio-root-user" "langfuse" text
 langfuse_field "minio-root-password" "$(openssl rand -hex 24)"
+langfuse_field "init-user-password" "$(openssl rand -base64 24)"
+langfuse_field "init-project-public-key" "pk-lf-$(openssl rand -hex 16)" text
+langfuse_field "init-project-secret-key" "sk-lf-$(openssl rand -hex 24)"
 
+LF_PUBLIC_KEY="$(op read "op://$VAULT/$LANGFUSE_ITEM/init-project-public-key")"
+LF_SECRET_KEY="$(op read "op://$VAULT/$LANGFUSE_ITEM/init-project-secret-key")"
+OTEL_AUTH_WANT="$(printf '%s:%s' "$LF_PUBLIC_KEY" "$LF_SECRET_KEY" | openssl base64 -A)"
 if op_field_exists "$LANGFUSE_ITEM" "otel-basic-auth"; then
-  info "Langfuse OTEL auth already set in '$LANGFUSE_ITEM' (otel-basic-auth); reusing."
-else
-  OTEL_AUTH="${LANGFUSE_OTEL_BASIC_AUTH:-}"
-  if [[ -z "$OTEL_AUTH" && "$ASSUME_YES" != "1" ]]; then
-    echo
-    echo "${Y}CHANGE:${N} Optionally store Langfuse OTEL Basic auth in '$LANGFUSE_ITEM' (otel-basic-auth)."
-    echo "  Value is base64 of pk-lf-...:sk-lf-... after the Langfuse project exists; empty to skip."
-    read -r -s -p "  Langfuse OTEL Basic auth (empty to skip): " OTEL_AUTH; echo
-  fi
-  if [[ -n "$OTEL_AUTH" ]]; then
-    set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH" concealed
-    unset OTEL_AUTH
-    info "Stored Langfuse OTEL auth in '$LANGFUSE_ITEM'."
+  OTEL_AUTH_HAVE="$(op read "op://$VAULT/$LANGFUSE_ITEM/otel-basic-auth")"
+  if [[ "$OTEL_AUTH_HAVE" == "$OTEL_AUTH_WANT" ]]; then
+    info "Langfuse OTEL auth already matches project keys in '$LANGFUSE_ITEM'; reusing."
   else
-    warn "Langfuse otel-basic-auth left unset — collector exports will fail until project keys are added."
+    confirm "Replace stale Langfuse otel-basic-auth in '$LANGFUSE_ITEM' so it matches init project keys." \
+      || die "Langfuse OTEL auth must match the configured project keys."
+    set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH_WANT" concealed
+    info "Updated Langfuse OTEL auth in '$LANGFUSE_ITEM'."
   fi
+else
+  set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH_WANT" concealed
+  info "Set Langfuse OTEL auth in '$LANGFUSE_ITEM' from generated project keys."
 fi
+unset LF_PUBLIC_KEY LF_SECRET_KEY OTEL_AUTH_WANT OTEL_AUTH_HAVE
 
 # --- verify ----------------------------------------------------------------
 step "Verify"
@@ -593,6 +595,10 @@ check "$LANGFUSE_ITEM" "redis-password"
 check "$LANGFUSE_ITEM" "clickhouse-password"
 check "$LANGFUSE_ITEM" "minio-root-user"
 check "$LANGFUSE_ITEM" "minio-root-password"
+check "$LANGFUSE_ITEM" "init-user-password"
+check "$LANGFUSE_ITEM" "init-project-public-key"
+check "$LANGFUSE_ITEM" "init-project-secret-key"
+check "$LANGFUSE_ITEM" "otel-basic-auth"
 
 echo
 if [[ $missing -eq 0 ]]; then

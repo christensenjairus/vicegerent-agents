@@ -7,6 +7,34 @@ langfuse:
     requests:
       cpu: 50m
       memory: 256Mi
+  additionalEnv:
+    - name: LANGFUSE_INIT_ORG_ID
+      value: vicegerent
+    - name: LANGFUSE_INIT_ORG_NAME
+      value: Vicegerent
+    - name: LANGFUSE_INIT_PROJECT_ID
+      value: vicegerent
+    - name: LANGFUSE_INIT_PROJECT_NAME
+      value: Vicegerent
+    - name: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: init-project-public-key
+    - name: LANGFUSE_INIT_PROJECT_SECRET_KEY
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: init-project-secret-key
+    - name: LANGFUSE_INIT_USER_EMAIL
+      value: admin@vicegerent.local
+    - name: LANGFUSE_INIT_USER_NAME
+      value: Vicegerent Admin
+    - name: LANGFUSE_INIT_USER_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: langfuse-secrets
+          key: init-user-password
   nextauth:
     url: http://localhost:3000
     secret:
