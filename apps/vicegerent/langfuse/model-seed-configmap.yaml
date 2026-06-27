@@ -69,10 +69,10 @@ data:
             urllib.request.urlopen(req, timeout=30)
             print(f"  -> created", flush=True)
         except urllib.error.HTTPError as e:
-            if e.code == 409:
+            body = e.read().decode()
+            # Langfuse returns 400 (not 409) when the model name already exists.
+            if e.code in (400, 409) and "already exists" in body:
                 print(f"  -> already exists", flush=True)
             else:
-                raise RuntimeError(
-                    f"{m['name']}: {e.code} {e.read().decode()!r}"
-                )
+                raise RuntimeError(f"{m['name']}: {e.code} {body!r}")
     print("done", flush=True)
