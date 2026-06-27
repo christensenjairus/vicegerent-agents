@@ -163,3 +163,11 @@ s = open('/opt/hermes/plugins/observability/langfuse/__init__.py').read(); \
 assert '_build_trace_tags' in s, 'langfuse tags patch marker missing after apply'; \
 print('langfuse tags patch verified in /opt/hermes/plugins/observability/langfuse/__init__.py')"
 RUN rm -f /tmp/0002-langfuse-source-tags.py
+
+COPY patches/0003-mcp-keep-retrying-after-initial-failure.py /tmp/0003-mcp-keep-retrying-after-initial-failure.py
+RUN /opt/hermes/.venv/bin/python /tmp/0003-mcp-keep-retrying-after-initial-failure.py \
+    && /opt/hermes/.venv/bin/python -c "\
+s = open('/usr/local/lib/hermes-agent/tools/mcp_tool.py').read(); \
+assert 'will keep retrying in background' in s, 'mcp-keep-retrying patch marker missing after apply'; \
+print('mcp-keep-retrying patch verified in tools/mcp_tool.py')"
+RUN rm -f /tmp/0003-mcp-keep-retrying-after-initial-failure.py
