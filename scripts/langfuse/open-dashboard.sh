@@ -33,7 +33,14 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" port-forward "svc/${SERVICE}" "127.0.0.1:${BACKEND_PORT}:3000" >"$tmpdir/port-forward.log" 2>&1 &
+# Use --address flag rather than the address:localport:remoteport three-part
+# argument syntax — the latter is not supported by all kubectl versions and
+# causes "does not have a named port '127.0.0.1'" on older clients.
+kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" port-forward \
+  --address 127.0.0.1 \
+  "svc/${SERVICE}" \
+  "${BACKEND_PORT}:3000" \
+  >"$tmpdir/port-forward.log" 2>&1 &
 pf_pid=$!
 
 for _ in $(seq 1 80); do
