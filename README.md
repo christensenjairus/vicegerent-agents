@@ -138,6 +138,17 @@ GHOSTUNNEL=ghostunnel
 
 `--listen` must bind the host-only IP, not `0.0.0.0`. The `--allow-cn` value must match the client certificate CN. For vfkit the host-only IP is normally `192.168.64.1`; confirm with `ifconfig bridge100 | grep 'inet '`.
 
+## Host-side MCP control plane
+
+OAuth-backed or laptop-context MCPs run in the macOS GUI session and are exposed to the cluster through ghostunnel. The v1 host scaffold lives in [`host/mcp`](host/mcp): it renders `mcp-proxy-server` config, starts `mcp-proxy-server` + Caddy + a second ghostunnel, filters the host endpoint to `POST /mcp`, and includes helper commands for `mcp-remote` OAuth cache status/reset.
+
+```bash
+./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
+./scripts/host/vicegerent-mcp status
+```
+
+The host-MCP tunnel defaults to `192.168.64.1:8453` so it can run beside the existing Kubernetes MCP tunnel on `:8443`. This scaffold is host-side only; add cluster-side MCP backend/route wiring before agents can call the new SaaS tools.
+
 ## Development
 
 Install and run the repo hooks before committing:

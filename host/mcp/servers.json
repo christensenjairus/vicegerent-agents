@@ -1,0 +1,34 @@
+{
+  "proxy": {
+    "listen_host": "127.0.0.1",
+    "proxy_port": 3663,
+    "filtered_port": 3777,
+    "disable_stdio_retries": true
+  },
+  "servers": {
+    "notion": {
+      "enabled": true,
+      "mode": "remote-oauth",
+      "name": "Notion",
+      "url": "https://mcp.notion.com/mcp",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]
+    },
+    "linear": {
+      "enabled": true,
+      "mode": "remote-oauth",
+      "name": "Linear",
+      "url": "https://mcp.linear.app/mcp",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+    },
+    "jira": {
+      "enabled": true,
+      "mode": "remote-oauth",
+      "name": "Jira",
+      "url": "https://mcp.atlassian.com/v1/mcp/authv2",
+      "command": "npx",
+      "args": ["-y", "mcp-remote", "https://mcp.atlassian.com/v1/mcp/authv2"]
+    }
+  }
+}
