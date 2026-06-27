@@ -31,21 +31,34 @@ PASS=0; FAIL=0; WARN=0
 INIT='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}'
 LIST='{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
 
-curl_post() {
-  local url="$1" payload="$2"
-  curl -sf --max-time 15 \
-    -H "Authorization: Bearer ${API_KEY}" \
+# Send an MCP request, optionally threading a session ID.
+# Prints response body. Sets global SESSION_ID from Mcp-Session-Id response header.
+SESSION_ID=""
+mcp_post() {
+  local url="$1" payload="$2" session="${3:-}"
+  local hdr; hdr=$(mktemp)
+  local extra=(); [[ -n "$session" ]] && extra=(-H "Mcp-Session-Id: $session")
+  local body
+  body=$(curl -sf --max-time 15 \
+    -D "$hdr" \
+    -H "Authorization: Bearer *** \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
-    -X POST "$url" -d "$payload" 2>/dev/null
+    "${extra[@]+"${extra[@]}"}" \
+    -X POST "$url" -d "$payload" 2>/dev/null) || true
+  SESSION_ID=$(grep -i '^mcp-session-id:' "$hdr" | awk '{print $2}' | tr -d '\r' || true)
+  rm -f "$hdr"
+  printf '%s' "$body"
 }
 
 http_code() {
-  local url="$1" payload="$2"
+  local url="$1" payload="$2" session="${3:-}"
+  local extra=(); [[ -n "$session" ]] && extra=(-H "Mcp-Session-Id: $session")
   curl -o /dev/null -s --max-time 10 -w "%{http_code}" \
-    -H "Authorization: Bearer ${API_KEY}" \
+    -H "Authorization: Bearer *** \
     -H "Content-Type: application/json" \
     -H "Accept: application/json, text/event-stream" \
+    "${extra[@]+"${extra[@]}"}" \
     -X POST "$url" -d "$payload" 2>/dev/null || echo "000"
 }
 
@@ -76,6 +89,7 @@ for entry in "${MCPS[@]}"; do
   url="${GATEWAY_URL}${path}"
   echo -e "${CYAN}--- ${name} (${path}) ---${NC}"
 
+  SESSION_ID=""
   code=$(http_code "$url" "$INIT")
 
   case "$code" in
@@ -86,14 +100,21 @@ for entry in "${MCPS[@]}"; do
     421) echo -e "  ${RED}x 421 Misdirected Request${NC} — Python MCP SDK host-allowlist lock"
          echo    "    kubectl -n <mcp-ns> logs <pod> | grep -i 'Invalid Host'"
          ((FAIL++)); continue ;;
-    [45]*) raw=$(curl_post "$url" "$INIT" || true)
+    [45]*) raw=$(mcp_post "$url" "$INIT" || true)
            echo -e "  ${RED}x HTTP ${code}${NC}: ${raw:0:300}"
            ((FAIL++)); continue ;;
   esac
 
+  # Successful initialize — capture session ID from response headers
+  mcp_post "$url" "$INIT" > /dev/null
   echo -e "  ${GREEN}+ reachable (HTTP ${code})${NC}"
 
-  resp=$(curl_post "$url" "$LIST" 2>&1 || true)
+  if [[ -z "$SESSION_ID" ]]; then
+    echo -e "  ${YELLOW}? no Mcp-Session-Id in response — cannot send tools/list${NC}"
+    ((WARN++)); continue
+  fi
+
+  resp=$(mcp_post "$url" "$LIST" "$SESSION_ID" 2>&1 || true)
   if [[ -z "$resp" ]]; then
     echo -e "  ${YELLOW}? tools/list returned empty${NC}"
     ((WARN++)); continue
