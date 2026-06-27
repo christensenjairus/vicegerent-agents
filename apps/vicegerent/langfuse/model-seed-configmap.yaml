@@ -1,0 +1,53 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: langfuse-model-seed
+  namespace: langfuse
+data:
+  seed.py: |-
+    import base64, json, time, urllib.request, urllib.error, os
+    pk = os.environ['LANGFUSE_PUBLIC_KEY']
+    sk = os.environ['LANGFUSE_SECRET_KEY']
+    base_url = os.environ.get('LANGFUSE_URL', 'http://langfuse-web.langfuse.svc.cluster.local:3000')
+    auth = base64.b64encode(f'{pk}:{sk}'.encode()).decode()
+    headers = {'Authorization': f'Basic {auth}', 'Content-Type': 'application/json'}
+    for _ in range(120):
+        try:
+            urllib.request.urlopen(base_url + '/api/public/health', timeout=3)
+            break
+        except Exception:
+            time.sleep(5)
+    else:
+        raise SystemExit('Langfuse did not become ready')
+
+    # Prices are USD per token (not per million).
+    # Sources: platform.anthropic.com/docs/en/about-claude/models#model-names
+    #          openai.com/api/pricing
+    MODELS = [
+        dict(modelName='claude-opus-4-8',   matchPattern=r'(?i)^claude-opus-4[-_.]8',
+             unit='TOKENS', inputPrice=0.000005,    outputPrice=0.000025),
+        dict(modelName='claude-sonnet-4-6', matchPattern=r'(?i)^claude-sonnet-4[-_.]6',
+             unit='TOKENS', inputPrice=0.000003,    outputPrice=0.000015),
+        dict(modelName='claude-haiku-4-5',  matchPattern=r'(?i)^claude-haiku-4[-_.]5',
+             unit='TOKENS', inputPrice=0.000001,    outputPrice=0.000005),
+        dict(modelName='gpt-4.1',           matchPattern=r'(?i)^gpt-4\.1$',
+             unit='TOKENS', inputPrice=0.000002,    outputPrice=0.000008),
+        dict(modelName='gpt-4o-mini',       matchPattern=r'(?i)^gpt-4o-mini',
+             unit='TOKENS', inputPrice=0.00000015,  outputPrice=0.0000006),
+        dict(modelName='gpt-5.5',           matchPattern=r'(?i)^gpt-5\.5',
+             unit='TOKENS', inputPrice=0.000005,    outputPrice=0.00003),
+    ]
+    for m in MODELS:
+        body = json.dumps(m).encode()
+        req = urllib.request.Request(base_url + '/api/public/models',
+                                     data=body, headers=headers, method='POST')
+        try:
+            urllib.request.urlopen(req, timeout=30)
+            print(f"created {m['modelName']}")
+        except urllib.error.HTTPError as e:
+            if e.code == 409:
+                print(f"exists  {m['modelName']}")
+            else:
+                raise RuntimeError(f"{m['modelName']}: {e.code} {e.read().decode()!r}")
+    print('done')
