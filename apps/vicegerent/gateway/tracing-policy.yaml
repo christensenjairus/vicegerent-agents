@@ -31,3 +31,7 @@ spec:
             expression: llm.outputTokens
           - name: gen_ai.usage.prompt_tokens
             expression: llm.inputTokens
+          - name: gen_ai.usage.cache_read_input_tokens
+            expression: llm.cachedInputTokens
+          - name: gen_ai.usage.cache_creation_input_tokens
+            expression: llm.cacheCreationInputTokens
