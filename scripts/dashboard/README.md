@@ -72,6 +72,14 @@ another's credentials. The username is the sandbox name. Retrieve an agent's
 credentials on the host:
 
 ```sh
+./scripts/dashboard/open-dashboard.sh hermes
+```
+
+The helper reads `Dashboard Auth - hermes` from 1Password, discovers the
+agent's NodePort Service, starts a local authenticated proxy, and opens the
+browser. If you only need to copy credentials manually:
+
+```sh
 ./scripts/dashboard/dashboard-basic-cred.sh hermes
 # username: hermes
 # password: <random>
