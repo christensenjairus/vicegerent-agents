@@ -44,7 +44,8 @@ TAVILY_ITEM="Tavily"
 FIRECRAWL_ITEM="Firecrawl"
 GRAPHITI_FALKORDB_ITEM="GraphitiFalkorDB"
 LANGFUSE_ITEM="Langfuse"
-TOKEN_ITEM="Connect Token"
+SLACK_ITEM="Hermes Bot Secrets"
+TOKEN_ITEM=*** Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
 SERVER_CN="${SERVER_CN:-host.minikube.internal}"
@@ -564,6 +565,129 @@ else
 fi
 unset LF_PUBLIC_KEY LF_SECRET_KEY OTEL_AUTH_WANT OTEL_AUTH_HAVE
 
+# --- Slack bot credentials (optional) -------------------------------------
+# SLACK_BOT_TOKEN   — xoxb-... Bot User OAuth Token (installed to workspace)
+# SLACK_APP_TOKEN   — xapp-... App-Level Token (Socket Mode, connections:write scope)
+# SLACK_ALLOWED_USERS — space-separated Slack user IDs allowed to talk to the bot
+# SLACK_HOME_CHANNEL  — Slack channel ID for proactive messages (cron output etc.)
+#
+# Stored in 1Password item "Hermes Bot Secrets" with field names matching the
+# env var names. The secret is mounted via envFrom into the hermes pod with
+# optional: true, so the pod starts without it and Slack activates once the
+# item is populated and Connect syncs the secret.
+#
+# Create the Slack app with:
+#   hermes slack manifest --name "<BotName>" | pbcopy
+# Paste the manifest at api.slack.com → Your Apps → Create New App → From manifest,
+# then install it to your workspace. Socket Mode must be enabled (Settings → Socket Mode).
+step "Slack bot credentials (optional — skip to configure later)"
+ensure_item "$SLACK_ITEM"
+slack_any_missing=0
+op_field_exists "$SLACK_ITEM" "SLACK_BOT_TOKEN"    || slack_any_missing=1
+op_field_exists "$SLACK_ITEM" "SLACK_APP_TOKEN"    || slack_any_missing=1
+op_field_exists "$SLACK_ITEM" "SLACK_ALLOWED_USERS" || slack_any_missing=1
+op_field_exists "$SLACK_ITEM" "SLACK_HOME_CHANNEL"  || slack_any_missing=1
+
+if [[ $slack_any_missing -eq 0 ]]; then
+  info "Slack credentials already set in '$SLACK_ITEM'; nothing to do."
+else
+  echo
+  echo "  Create your Slack app with the generated manifest:"
+  echo "    hermes slack manifest --name \"<BotName>\" | pbcopy"
+  echo "  then go to api.slack.com → Your Apps → Create New App → From manifest."
+  echo "  Enable Socket Mode (Settings → Socket Mode) and install to your workspace."
+  echo "  The hermes pod starts without these — Slack activates once the item is populated."
+  echo
+
+  if ! op_field_exists "$SLACK_ITEM" "SLACK_BOT_TOKEN"; then
+    KEY="${SLACK_BOT_TOKEN:-}"
+    if [[ -z "$KEY" ]]; then
+      if [[ "$ASSUME_YES" == "1" ]]; then
+        warn "No SLACK_BOT_TOKEN in environment and --yes is set; leaving unset (optional)."
+      else
+        echo "${Y}CHANGE:${N} Store the Slack Bot User OAuth Token in '$SLACK_ITEM' (SLACK_BOT_TOKEN)."
+        read -r -s -p "  Bot token (xoxb-..., empty to skip): " KEY; echo
+      fi
+    fi
+    if [[ -n "$KEY" ]]; then
+      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_BOT_TOKEN[concealed]=$KEY" >/dev/null
+      unset KEY
+      info "Stored SLACK_BOT_TOKEN in '$SLACK_ITEM'."
+    else
+      warn "SLACK_BOT_TOKEN left unset — Slack gateway inactive until set."
+    fi
+  else
+    info "SLACK_BOT_TOKEN already set in '$SLACK_ITEM'; reusing."
+  fi
+
+  if ! op_field_exists "$SLACK_ITEM" "SLACK_APP_TOKEN"; then
+    KEY="${SLACK_APP_TOKEN:-}"
+    if [[ -z "$KEY" ]]; then
+      if [[ "$ASSUME_YES" == "1" ]]; then
+        warn "No SLACK_APP_TOKEN in environment and --yes is set; leaving unset (optional)."
+      else
+        echo "${Y}CHANGE:${N} Store the Slack App-Level Token in '$SLACK_ITEM' (SLACK_APP_TOKEN)."
+        echo "  (Settings → Basic Information → App-Level Tokens → connections:write scope)"
+        read -r -s -p "  App token (xapp-..., empty to skip): " KEY; echo
+      fi
+    fi
+    if [[ -n "$KEY" ]]; then
+      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_APP_TOKEN[concealed]=$KEY" >/dev/null
+      unset KEY
+      info "Stored SLACK_APP_TOKEN in '$SLACK_ITEM'."
+    else
+      warn "SLACK_APP_TOKEN left unset — Socket Mode inactive until set."
+    fi
+  else
+    info "SLACK_APP_TOKEN already set in '$SLACK_ITEM'; reusing."
+  fi
+
+  if ! op_field_exists "$SLACK_ITEM" "SLACK_ALLOWED_USERS"; then
+    VAL="${SLACK_ALLOWED_USERS:-}"
+    if [[ -z "$VAL" ]]; then
+      if [[ "$ASSUME_YES" == "1" ]]; then
+        warn "No SLACK_ALLOWED_USERS in environment and --yes is set; leaving unset (optional)."
+      else
+        echo "${Y}CHANGE:${N} Store allowed Slack user IDs in '$SLACK_ITEM' (SLACK_ALLOWED_USERS)."
+        echo "  Space-separated Slack user IDs (e.g. U04B7TU3HL7). Find yours via api.slack.com/methods/auth.test."
+        read -r -p "  Allowed user IDs (empty to skip): " VAL; echo
+      fi
+    fi
+    if [[ -n "$VAL" ]]; then
+      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_ALLOWED_USERS[text]=$VAL" >/dev/null
+      unset VAL
+      info "Stored SLACK_ALLOWED_USERS in '$SLACK_ITEM'."
+    else
+      warn "SLACK_ALLOWED_USERS left unset — bot will reject all messages until set."
+    fi
+  else
+    info "SLACK_ALLOWED_USERS already set in '$SLACK_ITEM'; reusing."
+  fi
+
+  if ! op_field_exists "$SLACK_ITEM" "SLACK_HOME_CHANNEL"; then
+    VAL="${SLACK_HOME_CHANNEL:-}"
+    if [[ -z "$VAL" ]]; then
+      if [[ "$ASSUME_YES" == "1" ]]; then
+        warn "No SLACK_HOME_CHANNEL in environment and --yes is set; leaving unset (optional)."
+      else
+        echo "${Y}CHANGE:${N} Store the Slack home channel ID in '$SLACK_ITEM' (SLACK_HOME_CHANNEL)."
+        echo "  Channel ID where the bot delivers cron output and proactive messages (e.g. C04B7TU3HL7)."
+        echo "  Right-click a channel in Slack → View channel details → copy the ID at the bottom."
+        read -r -p "  Home channel ID (empty to skip): " VAL; echo
+      fi
+    fi
+    if [[ -n "$VAL" ]]; then
+      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_HOME_CHANNEL[text]=$VAL" >/dev/null
+      unset VAL
+      info "Stored SLACK_HOME_CHANNEL in '$SLACK_ITEM'."
+    else
+      warn "SLACK_HOME_CHANNEL left unset — cron/proactive output has no home channel until set."
+    fi
+  else
+    info "SLACK_HOME_CHANNEL already set in '$SLACK_ITEM'; reusing."
+  fi
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -599,6 +723,18 @@ check "$LANGFUSE_ITEM" "init-user-password"
 check "$LANGFUSE_ITEM" "init-project-public-key"
 check "$LANGFUSE_ITEM" "init-project-secret-key"
 check "$LANGFUSE_ITEM" "otel-basic-auth"
+# Slack is optional — warn but don't fail if absent (pod starts without it).
+check_optional() {
+  if op_field_exists "$1" "$2"; then
+    echo "  ${G}ok${N}   op://$VAULT/$1/$2"
+  else
+    echo "  ${Y}skip${N} op://$VAULT/$1/$2  (optional — set later to enable Slack)"
+  fi
+}
+check_optional "$SLACK_ITEM" "SLACK_BOT_TOKEN"
+check_optional "$SLACK_ITEM" "SLACK_APP_TOKEN"
+check_optional "$SLACK_ITEM" "SLACK_ALLOWED_USERS"
+check_optional "$SLACK_ITEM" "SLACK_HOME_CHANNEL"
 
 echo
 if [[ $missing -eq 0 ]]; then

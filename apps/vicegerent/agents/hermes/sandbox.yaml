@@ -172,9 +172,11 @@ spec:
                   key: init-project-secret-key
                   optional: false
           envFrom:
+            # Optional: bot-platform credentials (Slack tokens etc.).
+            # Populate 1Password item "Hermes Bot Secrets" to activate Slack.
             - secretRef:
-                name: vicegerent-secrets
-                optional: false
+                name: hermes-bot-secrets
+                optional: true
           ports:
             - containerPort: 8642
               name: api

@@ -122,6 +122,9 @@ data:
     lsp:
       enabled: true
       install_strategy: manual
+    slack:
+      require_mention: true
+      strict_mention: true
     plugins:
       enabled:
         - disk-cleanup
