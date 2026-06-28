@@ -11,6 +11,14 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 )
 
+// toolErr returns a tool-level error result (isError=true, HTTP 200) rather than a
+// JSON-RPC protocol error (-32603). This is the correct way to signal expected failures
+// (resource not found, invalid kind, etc.) — protocol errors cause mcp-proxy-server to
+// treat the server as broken and tear down the stdio connection.
+func toolErr(format string, args ...any) (*mcp.CallToolResult, error) {
+	return mcp.NewToolResultError(fmt.Sprintf(format, args...)), nil
+}
+
 // Helper functions for consistent parameter extraction
 func getStringArg(args map[string]interface{}, key string, defaultValue string) string {
 	if val, ok := args[key].(string); ok {
@@ -35,131 +43,116 @@ func getRequiredStringArg(args map[string]interface{}, key string) (string, erro
 }
 
 // GetAPIResources returns a handler function for the getAPIResources tool.
-// It retrieves API resources from the Kubernetes cluster based on the provided
-// context and parameters (includeNamespaceScoped, includeClusterScoped).
-// The result is serialized to JSON and returned.
 func GetAPIResources(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Extract arguments
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		includeNamespaceScoped := getBoolArg(args, "includeNamespaceScoped", true)
 		includeClusterScoped := getBoolArg(args, "includeClusterScoped", true)
 
-		// Fetch API resources
 		resources, err := client.GetAPIResources(ctx, includeNamespaceScoped, includeClusterScoped)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get API resources: %w", err)
+			return toolErr("failed to get API resources: %v", err)
 		}
 
-		// Serialize response to JSON
 		jsonResponse, err := json.Marshal(resources)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
-		// Return JSON response using NewToolResultText
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
 // ListResources returns a handler function for the listResources tool.
-// It lists resources in the Kubernetes cluster based on the provided kind,
-// namespace, and labelSelector. The result is serialized to JSON and returned.
 func ListResources(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		// Extract arguments - using capital K to match your tools definition
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		kind, err := getRequiredStringArg(args, "Kind")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
 		labelSelector := getStringArg(args, "labelSelector", "")
 		fieldSelector := getStringArg(args, "fieldSelector", "")
 
-		// Fetch resources
 		resources, err := client.ListResources(ctx, kind, namespace, labelSelector, fieldSelector)
 		if err != nil {
-			return nil, fmt.Errorf("failed to list resources for kind '%s': %w", kind, err)
+			return toolErr("failed to list resources for kind %q: %v", kind, err)
 		}
 
-		// Serialize response to JSON
 		jsonResponse, err := json.Marshal(resources)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
-		// Return JSON response using NewToolResultText
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
 // GetResources returns a handler function for the getResource tool.
-// It retrieves a specific resource from the Kubernetes cluster based on the
-// provided kind, name, and namespace. The result is serialized to JSON and returned.
 func GetResources(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		kind, err := getRequiredStringArg(args, "kind")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		name, err := getRequiredStringArg(args, "name")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
 
 		resource, err := client.GetResource(ctx, kind, name, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get resource '%s' of kind '%s': %w", name, kind, err)
+			return toolErr("failed to get resource %q of kind %q: %v", name, kind, err)
 		}
 
 		jsonResponse, err := json.Marshal(resource)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
@@ -167,131 +160,116 @@ func GetResources(factory *k8s.ClientFactory) func(ctx context.Context, request 
 }
 
 // DescribeResources returns a handler function for the describeResource tool.
-// It fetches the description (manifest) of a specific resource from the
-// Kubernetes cluster based on the provided kind, name, and namespace.
-// The result is serialized to JSON and returned.
 func DescribeResources(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
-		// Extract arguments - using capital K to match your tools definition
 		kind, err := getRequiredStringArg(args, "Kind")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		name, err := getRequiredStringArg(args, "name")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
 
-		// Fetch resource description
 		resourceDescription, err := client.DescribeResource(ctx, kind, name, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed to describe resource '%s' of kind '%s': %w", name, kind, err)
+			return toolErr("failed to describe resource %q of kind %q: %v", name, kind, err)
 		}
 
-		// Serialize response to JSON
 		jsonResponse, err := json.Marshal(resourceDescription)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
-		// Return JSON response using NewToolResultText
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
 // GetPodsLogs returns a handler function for the getPodsLogs tool.
-// It retrieves logs for a specific pod from the Kubernetes cluster based on the
-// provided name and namespace. The result is serialized to JSON and returned.
 func GetPodsLogs(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
-		// Using capital N to match your tools definition
 		name, err := getRequiredStringArg(args, "Name")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace, err := getRequiredStringArg(args, "namespace")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		containerName := getStringArg(args, "containerName", "")
 
 		logs, err := client.GetPodsLogs(ctx, namespace, containerName, name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get logs for pod '%s': %w", name, err)
+			return toolErr("failed to get logs for pod %q: %v", name, err)
 		}
 
-		// Return logs as plain text instead of JSON for better readability
 		return mcp.NewToolResultText(logs), nil
 	}
 }
 
 // GetNodeMetrics returns a handler function for the getNodeMetrics tool.
-// It retrieves resource usage metrics for a specific node from the Kubernetes
-// cluster based on the provided node name. The result is serialized to JSON
-// and returned.
 func GetNodeMetrics(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
-		// Using capital N to match your tools definition
 		name, err := getRequiredStringArg(args, "Name")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		resourceUsage, err := client.GetNodeMetrics(ctx, name)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get metrics for node '%s': %w", name, err)
+			return toolErr("failed to get metrics for node %q: %v", name, err)
 		}
 
 		jsonResponse, err := json.Marshal(resourceUsage)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
@@ -299,43 +277,40 @@ func GetNodeMetrics(factory *k8s.ClientFactory) func(ctx context.Context, reques
 }
 
 // GetPodMetrics returns a handler function for the getPodMetrics tool.
-// It retrieves CPU and Memory metrics for a specific pod from the Kubernetes
-// cluster based on the provided namespace and pod name. The result is
-// serialized to JSON and returned.
 func GetPodMetrics(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		namespace, err := getRequiredStringArg(args, "namespace")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		podName, err := getRequiredStringArg(args, "podName")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		metrics, err := client.GetPodMetrics(ctx, namespace, podName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get metrics for pod '%s' in namespace '%s': %w", podName, namespace, err)
+			return toolErr("failed to get metrics for pod %q in namespace %q: %v", podName, namespace, err)
 		}
 
 		jsonResponse, err := json.Marshal(metrics)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize metrics response: %w", err)
+			return toolErr("failed to serialize metrics response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
@@ -343,62 +318,58 @@ func GetPodMetrics(factory *k8s.ClientFactory) func(ctx context.Context, request
 }
 
 // GetEvents returns a handler function for the getEvents tool.
-// It retrieves events from the Kubernetes cluster based on the provided
-// namespace and labelSelector. The result is serialized to JSON and returned.
 func GetEvents(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
 
 		events, err := client.GetEvents(ctx, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get events: %w", err)
+			return toolErr("failed to get events: %v", err)
 		}
 
 		jsonResponse, err := json.Marshal(events)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize events response: %w", err)
+			return toolErr("failed to serialize events response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
-// CreateOrUpdateResource returns a handler function for the createOrUpdateResource tool.
-// It creates or updates a resource in the Kubernetes cluster based on the provided
-// namespace and manifest. The result is serialized to JSON and returned.
+// CreateOrUpdateResourceJSON returns a handler function for the createResource tool.
 func CreateOrUpdateResourceJSON(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		manifest, err := getRequiredStringArg(args, "manifest")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
@@ -406,41 +377,38 @@ func CreateOrUpdateResourceJSON(factory *k8s.ClientFactory) func(ctx context.Con
 
 		resource, err := client.CreateOrUpdateResourceJSON(ctx, namespace, manifest, kind)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create or update resource: %w", err)
+			return toolErr("failed to create or update resource: %v", err)
 		}
 
 		jsonResponse, err := json.Marshal(resource)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
-// CreateOrUpdateResourceYAML returns a handler function for the createOrUpdateResourceYAML tool.
-// It creates or updates a resource in the Kubernetes cluster based on the provided
-// namespace and YAML manifest. This function is specifically optimized for YAML input.
-// The result is serialized to JSON and returned.
+// CreateOrUpdateResourceYAML returns a handler function for the createResourceYAML tool.
 func CreateOrUpdateResourceYAML(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		yamlManifest, err := getRequiredStringArg(args, "yamlManifest")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
@@ -448,12 +416,12 @@ func CreateOrUpdateResourceYAML(factory *k8s.ClientFactory) func(ctx context.Con
 
 		resource, err := client.CreateOrUpdateResourceYAML(ctx, namespace, yamlManifest, kind)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create or update resource from YAML: %w", err)
+			return toolErr("failed to create or update resource from YAML: %v", err)
 		}
 
 		jsonResponse, err := json.Marshal(resource)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
@@ -461,96 +429,93 @@ func CreateOrUpdateResourceYAML(factory *k8s.ClientFactory) func(ctx context.Con
 }
 
 // DeleteResource returns a handler function for the deleteResource tool.
-// It deletes a resource in the Kubernetes cluster based on the provided
-// namespace and kind. The result is serialized to JSON and returned.
 func DeleteResource(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		kind, err := getRequiredStringArg(args, "kind")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		name, err := getRequiredStringArg(args, "name")
 		if err != nil {
-			return nil, err
+			return toolErr("%v", err)
 		}
 
 		namespace := getStringArg(args, "namespace", "")
 
-		err = client.DeleteResource(ctx, kind, name, namespace)
-		if err != nil {
-			return nil, fmt.Errorf("failed to delete resource: %w", err)
+		if err := client.DeleteResource(ctx, kind, name, namespace); err != nil {
+			return toolErr("failed to delete resource: %v", err)
 		}
 
 		return mcp.NewToolResultText("Resource deleted successfully"), nil
 	}
 }
 
-// getIngresses returns a handler function for the getIngresses tool.
-// It retrieves ingress resources from the Kubernetes cluster based on the provided
-// Host and Path. The result is serialized to JSON and returned.
+// GetIngresses returns a handler function for the getIngresses tool.
 func GetIngresses(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
-		host := getStringArg(args, "host", "")
+		host, err := getRequiredStringArg(args, "host")
+		if err != nil {
+			return toolErr("%v", err)
+		}
 
 		ingresses, err := client.GetIngresses(ctx, host)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get ingress resources: %w", err)
+			return toolErr("failed to get ingresses for host %q: %v", host, err)
 		}
 
 		jsonResponse, err := json.Marshal(ingresses)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
 
-// RolloutRestartHandler returns a handler function for the rolloutRestart tool.
-// It calls the Client.RolloutRestart method and serializes the result to JSON.
+// RolloutRestart returns a handler function for the rolloutRestart tool.
 func RolloutRestart(factory *k8s.ClientFactory) func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		args, ok := request.Params.Arguments.(map[string]interface{})
 		if !ok {
-			return nil, fmt.Errorf("invalid arguments type: expected map[string]interface{}")
+			return toolErr("invalid arguments type: expected map[string]interface{}")
 		}
 
 		contextName, err := getRequiredStringArg(args, "context")
 		if err != nil {
-			return nil, fmt.Errorf("context is required: %w", err)
+			return toolErr("context is required: %v", err)
 		}
 		client, err := factory.GetOrCreate(contextName)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get client for context %q: %w", contextName, err)
+			return toolErr("failed to get client for context %q: %v", contextName, err)
 		}
 
 		kind := getStringArg(args, "kind", "")
@@ -558,17 +523,17 @@ func RolloutRestart(factory *k8s.ClientFactory) func(ctx context.Context, reques
 		namespace := getStringArg(args, "namespace", "")
 
 		if kind == "" || name == "" || namespace == "" {
-			return nil, fmt.Errorf("kind, name, and namespace are required")
+			return toolErr("kind, name, and namespace are required")
 		}
 
 		result, err := client.RolloutRestart(ctx, kind, name, namespace)
 		if err != nil {
-			return nil, fmt.Errorf("failed to rollout restart resource: %w", err)
+			return toolErr("failed to rollout restart resource: %v", err)
 		}
 
 		jsonResponse, err := json.Marshal(result)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
@@ -581,12 +546,12 @@ func ListContexts() func(ctx context.Context, request mcp.CallToolRequest) (*mcp
 	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		result, err := k8s.ListContexts("")
 		if err != nil {
-			return nil, fmt.Errorf("failed to list contexts: %w", err)
+			return toolErr("failed to list contexts: %v", err)
 		}
 
 		jsonResponse, err := json.Marshal(result)
 		if err != nil {
-			return nil, fmt.Errorf("failed to serialize response: %w", err)
+			return toolErr("failed to serialize response: %v", err)
 		}
 
 		return mcp.NewToolResultText(string(jsonResponse)), nil
