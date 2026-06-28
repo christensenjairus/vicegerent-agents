@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/yaml"
@@ -42,6 +44,7 @@ type Client struct {
 	restConfig       *rest.Config
 	apiResourceCache map[string]*schema.GroupVersionResource
 	cacheLock        sync.RWMutex
+	gvrGroup         singleflight.Group
 }
 
 // BuildKubernetesConfig builds a Kubernetes REST config using multiple authentication methods.
@@ -454,7 +457,10 @@ func (c *Client) DeleteResource(ctx context.Context, kind, name, namespace strin
 	return nil
 }
 
-// getCachedGVR retrieves the GroupVersionResource for a given kind, using a cache for performance
+// getCachedGVR retrieves the GroupVersionResource for a given kind, using a cache for performance.
+// Concurrent cache misses for the same kind are collapsed via singleflight so only one
+// ServerPreferredResources call runs at a time — this prevents concurrent discovery goroutines
+// from racing and panicking under load.
 func (c *Client) getCachedGVR(kind string) (*schema.GroupVersionResource, error) {
 	c.cacheLock.RLock()
 	if gvr, exists := c.apiResourceCache[kind]; exists {
@@ -463,33 +469,48 @@ func (c *Client) getCachedGVR(kind string) (*schema.GroupVersionResource, error)
 	}
 	c.cacheLock.RUnlock()
 
-	// Cache miss; fetch from discovery client
-	resourceLists, err := c.discoveryClient.ServerPreferredResources()
-	if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
-		return nil, fmt.Errorf("failed to retrieve API resources: %w", err)
-	}
-
-	for _, resourceList := range resourceLists {
-		gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
-		if err != nil {
-			continue
+	// Collapse concurrent misses for the same kind into one discovery call.
+	result, err, _ := c.gvrGroup.Do(kind, func() (interface{}, error) {
+		// Re-check cache inside the singleflight call — a prior concurrent call may have
+		// already populated it while this goroutine was waiting.
+		c.cacheLock.RLock()
+		if gvr, exists := c.apiResourceCache[kind]; exists {
+			c.cacheLock.RUnlock()
+			return gvr, nil
 		}
-		for _, resource := range resourceList.APIResources {
-			if resource.Kind == kind {
-				gvr := &schema.GroupVersionResource{
-					Group:    gv.Group,
-					Version:  gv.Version,
-					Resource: resource.Name,
+		c.cacheLock.RUnlock()
+
+		resourceLists, err := c.discoveryClient.ServerPreferredResources()
+		if err != nil && !discovery.IsGroupDiscoveryFailedError(err) {
+			return nil, fmt.Errorf("failed to retrieve API resources: %w", err)
+		}
+
+		for _, resourceList := range resourceLists {
+			gv, err := schema.ParseGroupVersion(resourceList.GroupVersion)
+			if err != nil {
+				continue
+			}
+			for _, resource := range resourceList.APIResources {
+				if resource.Kind == kind {
+					gvr := &schema.GroupVersionResource{
+						Group:    gv.Group,
+						Version:  gv.Version,
+						Resource: resource.Name,
+					}
+					c.cacheLock.Lock()
+					c.apiResourceCache[kind] = gvr
+					c.cacheLock.Unlock()
+					return gvr, nil
 				}
-				c.cacheLock.Lock()
-				c.apiResourceCache[kind] = gvr
-				c.cacheLock.Unlock()
-				return gvr, nil
 			}
 		}
-	}
 
-	return nil, fmt.Errorf("resource type %s not found", kind)
+		return nil, fmt.Errorf("resource type %s not found", kind)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return result.(*schema.GroupVersionResource), nil
 }
 
 // DescribeResource retrieves detailed information about a specific resource, similar to GetResource.
