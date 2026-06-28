@@ -194,7 +194,7 @@ func (c *Client) GetAPIResources(ctx context.Context, includeNamespaceScoped, in
 		return nil, fmt.Errorf("failed to retrieve API resources: %w", err)
 	}
 
-	var resources []map[string]interface{}
+	resources := make([]map[string]interface{}, 0)
 	for _, resourceList := range resourceLists {
 		for _, resource := range resourceList.APIResources {
 			if (resource.Namespaced && !includeNamespaceScoped) || (!resource.Namespaced && !includeClusterScoped) {
@@ -263,7 +263,7 @@ func (c *Client) ListResources(ctx context.Context, kind, namespace, labelSelect
 		return nil, fmt.Errorf("failed to list resources: %w", err)
 	}
 
-	var resources []map[string]interface{}
+	resources := make([]map[string]interface{}, 0)
 	for _, item := range list.Items {
 		metadata := item.GetLabels()
 		resources = append(resources, map[string]interface{}{
