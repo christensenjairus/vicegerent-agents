@@ -61,9 +61,6 @@ spec:
             - name: claude-config
               mountPath: /reload/claude-config
               readOnly: true
-            - name: vicegerent-secrets
-              mountPath: /reload/vicegerent-secrets
-              readOnly: true
             - name: hermes-agentgateway-api-key
               mountPath: /reload/api-key
               readOnly: true
@@ -85,10 +82,6 @@ spec:
         - name: claude-config
           configMap:
             name: claude-config
-        - name: vicegerent-secrets
-          secret:
-            secretName: vicegerent-secrets
-            optional: false
         - name: hermes-agentgateway-api-key
           secret:
             secretName: hermes-agentgateway-api-key

@@ -11,7 +11,7 @@
       "mode": "local-stdio",
       "name": "Kubernetes (all contexts)",
       "command": "npx",
-      "args": ["-y", "kubernetes-mcp-server@latest", "--read-only"],
+      "args": ["-y", "kubernetes-mcp-server@0.0.63", "--read-only"],
       "env": {
         "KUBECONFIG": "~/.kube/config"
       }
@@ -22,7 +22,7 @@
       "name": "Notion",
       "url": "https://mcp.notion.com/mcp",
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.notion.com/mcp"]
+      "args": ["-y", "mcp-remote@0.1.38", "https://mcp.notion.com/mcp"]
     },
     "linear": {
       "enabled": true,
@@ -30,7 +30,7 @@
       "name": "Linear",
       "url": "https://mcp.linear.app/mcp",
       "command": "npx",
-      "args": ["-y", "mcp-remote", "https://mcp.linear.app/mcp"]
+      "args": ["-y", "mcp-remote@0.1.38", "https://mcp.linear.app/mcp"]
     }
   }
 }

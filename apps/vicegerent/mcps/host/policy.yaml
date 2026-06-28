@@ -12,7 +12,7 @@ spec:
   backend:
     tls:
       mtlsCertificateRef:
-        - name: vicegerent-secrets
+        - name: vicegerent-mcp-client
       caCertificateRefs:
         - name: ghostunnel-ca
     mcp:

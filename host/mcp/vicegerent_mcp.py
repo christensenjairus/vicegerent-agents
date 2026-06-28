@@ -35,6 +35,7 @@ DEFAULT_GHOSTSHELL = REPO_ROOT / "scripts" / "ghostunnel" / "ghostshell.sh"
 DEFAULT_AUTH_DIR = Path.home() / ".mcp-auth"
 DEFAULT_HOST_ONLY_IP = "192.168.64.1"
 DEFAULT_HOST_MCP_TUNNEL_PORT = 8453
+DEFAULT_AGENT_CLIENT_CN = "agent-client"
 AUTH_FILENAMES = ("client_info.json", "code_verifier.txt", "tokens.json", "lock.json")
 
 
@@ -168,7 +169,7 @@ def make_caddyfile(config: dict[str, Any]) -> str:
   auto_https off
 }}
 
-:{filtered_port} {{
+127.0.0.1:{filtered_port} {{
   @mcp_request {{
     method POST GET
     path /mcp
@@ -880,9 +881,8 @@ def start_stack(
     tunnel_env: dict[str, str] = {
         "TARGET": f"{proxy['listen_host']}:{int(proxy['filtered_port'])}",
         "LISTEN": effective_listen,
+        "ALLOW_CN": allow_cn or DEFAULT_AGENT_CLIENT_CN,
     }
-    if allow_cn:
-        tunnel_env["ALLOW_CN"] = allow_cn
 
     conf_text = build_supervisord_conf(paths, proxy_dir, proxy_env, effective_ghostshell, tunnel_env)
     paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
