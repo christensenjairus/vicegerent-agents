@@ -26,11 +26,13 @@ spec:
                 secretKeyRef:
                   name: langfuse-secrets
                   key: init-project-public-key
+                  optional: false
             - name: LANGFUSE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: langfuse-secrets
                   key: init-project-secret-key
+                  optional: false
           volumeMounts:
             - name: seed-script
               mountPath: /scripts

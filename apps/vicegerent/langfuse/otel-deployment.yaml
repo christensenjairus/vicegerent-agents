@@ -34,6 +34,7 @@ spec:
                 secretKeyRef:
                   name: langfuse-secrets
                   key: otel-basic-auth
+                  optional: false
           ports:
             - name: otlp-grpc
               containerPort: 4317
