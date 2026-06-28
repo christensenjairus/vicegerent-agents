@@ -12,6 +12,7 @@ spec:
     port: 3000
     env:
       HOME: /home/node
+      NODE_OPTIONS: --max-old-space-size=384
     secretRefs:
       - name: firecrawl-api-key
     serviceAccountName: firecrawl
