@@ -68,13 +68,6 @@ func main() {
 	// Create a Kubernetes client factory for per-request client lookup
 	factory := k8s.NewClientFactory()
 
-	// Create Helm client with default kubeconfig path
-	helmClient, err := helm.NewClient("")
-	if err != nil {
-		fmt.Printf("Failed to create Helm client: %v\n", err)
-		return
-	}
-
 	// Register Kubernetes tools
 	if !noK8s {
 		s.AddTool(tools.GetAPIResourcesTool(), handlers.GetAPIResources(factory))
@@ -97,8 +90,13 @@ func main() {
 		}
 	}
 
-	// Register Helm tools
+	// Register Helm tools — client init deferred until here so --no-helm avoids kubeconfig requirement
 	if !noHelm {
+		helmClient, err := helm.NewClient("")
+		if err != nil {
+			fmt.Printf("Failed to create Helm client: %v\n", err)
+			return
+		}
 		s.AddTool(tools.HelmListTool(), handlers.HelmList(helmClient))
 		s.AddTool(tools.HelmGetTool(), handlers.HelmGet(helmClient))
 		s.AddTool(tools.HelmHistoryTool(), handlers.HelmHistory(helmClient))
