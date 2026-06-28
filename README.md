@@ -35,7 +35,7 @@ minikube start \
   --cni=cilium \
   --addons gvisor,metrics-server \
   --cpus 4 \
-  --memory 12288 \
+  --memory 16384 \
   --disk-size 50g
 ```
 
@@ -55,7 +55,7 @@ If metrics are not ready immediately, wait a minute and rerun `kubectl --context
 Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Password Connect server and token, the ghostunnel CA, and the server/client certificates — storing everything in 1Password and leaving nothing on disk. It is safe to re-run: anything already in 1Password is reused, never regenerated, and it only prompts before a step that actually changes something.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # so the key can be stored non-interactively
+export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interactively
 ./scripts/install/setup-secrets.sh
 ```
 
