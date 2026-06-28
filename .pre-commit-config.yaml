@@ -6,7 +6,7 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
+        exclude: ^(host/(mcp-proxy-server|k8s-mcp-server)/|scripts/slack/hermes-manifest\.template\.yaml)
       - id: trailing-whitespace
         exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
       - id: end-of-file-fixer
@@ -23,6 +23,7 @@ repos:
             \.gitlab-ci\.yml|
             charts/.+/templates/.+\.ya?ml|
             clusters/[^/]+/flux-system/gotk-(components|sync)\.yaml|
+            scripts/slack/hermes-manifest\.template\.yaml|
             host/(mcp-proxy-server|k8s-mcp-server)/.+
           )$
   - repo: https://github.com/Yelp/detect-secrets
