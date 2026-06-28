@@ -6,6 +6,7 @@ resources:
   - ghostunnel-ca
   - models/sonnet
   - models/haiku
+  - models/haiku-oai
   - models/opus
   - models/gpt-5.5
   - models/gpt-4.1
