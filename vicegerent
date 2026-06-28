@@ -14,22 +14,19 @@ usage() {
 ${B}vicegerent${N} — operational CLI for the vicegerent infra-agent platform
 
 ${B}Usage:${N}
-  ${C}vicegerent cluster setup${N}       create the minikube cluster
-  ${C}vicegerent cluster pause${N}       pause the minikube cluster
-  ${C}vicegerent cluster resume${N}      resume the minikube cluster
-  ${C}vicegerent cluster status${N}      show minikube cluster status
-  ${C}vicegerent secrets setup${N}       run secrets setup (idempotent)
-  ${C}vicegerent bootstrap${N}           bootstrap Flux against this repo
-  ${C}vicegerent ghostunnel${N}          run the host-side ghostunnel mTLS tunnel
-  ${C}vicegerent dashboard agent${N}     open the agent dashboard
-  ${C}vicegerent dashboard creds${N}     print dashboard basic-auth credentials
-  ${C}vicegerent langfuse${N}            open the Langfuse dashboard
-  ${C}vicegerent test gateway${N}        run MCP gateway tests
-  ${C}vicegerent test policies${N}       run MCP policy tests
-  ${C}vicegerent validate${N}            validate Flux manifests
-  ${C}vicegerent validate agentgateway${N}  validate agentgateway config
-  ${C}vicegerent mcp setup${N}           set up host-side MCP prerequisites
-  ${C}vicegerent slack manifest${N}      generate a Slack app manifest for a named bot
+  ${C}vicegerent cluster setup${N}           create the minikube cluster
+  ${C}vicegerent cluster pause${N}           pause the minikube cluster
+  ${C}vicegerent cluster resume${N}          resume the minikube cluster
+  ${C}vicegerent cluster status${N}          show minikube cluster status
+  ${C}vicegerent secrets setup${N}           run secrets setup (idempotent)
+  ${C}vicegerent bootstrap${N}               bootstrap Flux against this repo
+  ${C}vicegerent agent dashboard <name>${N}  open an agent dashboard in browser
+  ${C}vicegerent agent creds <name>${N}      show agent dashboard credentials and URL
+  ${C}vicegerent langfuse${N}                open the Langfuse dashboard
+  ${C}vicegerent test gateway${N}            run MCP gateway tests
+  ${C}vicegerent test policies${N}           run MCP policy enforcement tests
+  ${C}vicegerent mcp setup${N}               set up host-side MCP prerequisites
+  ${C}vicegerent slack manifest${N}          generate a Slack app manifest for a named bot
 EOF
 }
 
@@ -68,6 +65,44 @@ cluster_setup() {
 
   echo "${B}Running:${N} ${cmd[*]} $*"
   exec "${cmd[@]}" "$@"
+}
+
+# Port-forward agentgateway, check vicegerent-mcp is running, run a test script,
+# then tear everything down. Used by `test gateway` and `test policies`.
+run_with_portforward() {
+  local script="$1"; shift
+
+  # Check vicegerent-mcp is running
+  if ! "$REPO_ROOT/vicegerent-mcp" status >/dev/null 2>&1; then
+    echo "ERROR: vicegerent-mcp is not running. Start it first: ./vicegerent-mcp start" >&2
+    exit 1
+  fi
+
+  # Port-forward agentgateway
+  local pf_pid
+  kubectl --context vicegerent -n agentgateway-system \
+    port-forward svc/agentgateway-proxy 8080:80 >/dev/null 2>&1 &
+  pf_pid=$!
+  trap 'kill "$pf_pid" 2>/dev/null || true' EXIT INT TERM
+
+  # Wait for port to open (max 15s)
+  local i=0
+  while ! python3 -c "import socket; s=socket.create_connection(('127.0.0.1',8080),0.25); s.close()" 2>/dev/null; do
+    ((i++))
+    if [[ $i -ge 60 ]]; then
+      echo "ERROR: agentgateway port-forward did not become ready after 15s" >&2
+      kill "$pf_pid" 2>/dev/null || true
+      exit 1
+    fi
+    sleep 0.25
+  done
+
+  export GATEWAY_URL="http://localhost:8080"
+  "$script" "$@"
+  local rc=$?
+  kill "$pf_pid" 2>/dev/null || true
+  trap - EXIT INT TERM
+  return $rc
 }
 
 case "${1:-}" in
@@ -132,44 +167,66 @@ case "${1:-}" in
     fi
     exec "$REPO_ROOT/scripts/install/install.sh" "$@"
     ;;
-  ghostunnel)
-    shift
-    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-      echo "vicegerent ghostunnel — run the host-side ghostunnel mTLS server"
-      echo "  Fetches certs from 1Password, runs ghostunnel in the foreground, wipes on exit."
-      echo "  Env: OP_VAULT OP_HOST_ITEM HOST_ONLY_IP LISTEN TARGET ALLOW_CN GHOSTUNNEL"
-      exit 0
-    fi
-    exec "$REPO_ROOT/scripts/ghostunnel/ghostshell.sh" "$@"
-    ;;
-  dashboard)
+  agent)
     shift
     case "${1:-}" in
-      agent)
+      dashboard)
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent dashboard agent — open a Hermes agent dashboard"
-          echo "  Usage: vicegerent dashboard agent <agent-name>"
+          echo "vicegerent agent dashboard <agent-name> — open the agent dashboard in browser"
           exit 0
+        fi
+        [[ $# -ge 1 ]] || { echo "usage: vicegerent agent dashboard <agent-name>" >&2; exit 2; }
+        AGENT="$1"
+        NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
+        CONTEXT_ARG=()
+        kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
+        PROFILE="${MINIKUBE_PROFILE:-vicegerent}"
+        SERVICE="${AGENT}-dashboard"
+        node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
+          -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
+        [[ -n "$node_port" ]] || node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
+          -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)"
+        node_ip="$(minikube -p "$PROFILE" ip 2>/dev/null || true)"
+        [[ -n "$node_ip" ]] || node_ip="$(kubectl "${CONTEXT_ARG[@]}" get nodes \
+          -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+        if [[ -n "$node_ip" && -n "$node_port" ]]; then
+          echo "Dashboard URL: http://${node_ip}:${node_port}/"
         fi
         exec "$REPO_ROOT/scripts/dashboard/open-dashboard.sh" "$@"
         ;;
       creds)
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent dashboard creds — print dashboard basic-auth credentials"
-          echo "  Usage: vicegerent dashboard creds <agent-name>"
+          echo "vicegerent agent creds <agent-name> — print credentials and dashboard URL"
           exit 0
         fi
-        exec "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$@"
+        [[ $# -ge 1 ]] || { echo "usage: vicegerent agent creds <agent-name>" >&2; exit 2; }
+        AGENT="$1"
+        NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
+        CONTEXT_ARG=()
+        kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
+        PROFILE="${MINIKUBE_PROFILE:-vicegerent}"
+        SERVICE="${AGENT}-dashboard"
+        "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$@"
+        node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
+          -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
+        [[ -n "$node_port" ]] || node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
+          -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)"
+        node_ip="$(minikube -p "$PROFILE" ip 2>/dev/null || true)"
+        [[ -n "$node_ip" ]] || node_ip="$(kubectl "${CONTEXT_ARG[@]}" get nodes \
+          -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
+        if [[ -n "$node_ip" && -n "$node_port" ]]; then
+          echo "url:      http://${node_ip}:${node_port}/"
+        fi
         ;;
       --help|-h|"")
-        echo "vicegerent dashboard agent  →  scripts/dashboard/open-dashboard.sh"
-        echo "vicegerent dashboard creds  →  scripts/dashboard/dashboard-basic-cred.sh"
+        echo "vicegerent agent dashboard <name>  →  open agent dashboard"
+        echo "vicegerent agent creds <name>      →  show credentials and URL"
         exit 0
         ;;
       *)
-        echo "unknown dashboard subcommand: $1" >&2
+        echo "unknown agent subcommand: $1" >&2
         exit 1
         ;;
     esac
@@ -189,20 +246,18 @@ case "${1:-}" in
       gateway)
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent test gateway — probe all MCP endpoints agentgateway exposes"
-          echo "  Env: GATEWAY_URL"
+          echo "vicegerent test gateway — probe MCP endpoints (auto port-forwards agentgateway, requires vicegerent-mcp running)"
           exit 0
         fi
-        exec "$REPO_ROOT/scripts/test-mcp-gateway.sh" "$@"
+        run_with_portforward "$REPO_ROOT/scripts/test-mcp-gateway.sh" "$@"
         ;;
       policies)
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent test policies — run MCP policy enforcement tests"
-          echo "  Env: GATEWAY_URL SECRET_NAME"
+          echo "vicegerent test policies — run MCP policy enforcement tests (auto port-forwards agentgateway, requires vicegerent-mcp running)"
           exit 0
         fi
-        exec "$REPO_ROOT/scripts/test-mcp-policies.sh" "$@"
+        run_with_portforward "$REPO_ROOT/scripts/test-mcp-policies.sh" "$@"
         ;;
       --help|-h|"")
         echo "vicegerent test gateway   →  scripts/test-mcp-gateway.sh"
@@ -212,27 +267,6 @@ case "${1:-}" in
       *)
         echo "unknown test subcommand: $1" >&2
         exit 1
-        ;;
-    esac
-    ;;
-  validate)
-    shift
-    case "${1:-}" in
-      agentgateway)
-        shift
-        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent validate agentgateway — validate rendered agentgateway custom resources against the pinned CRD schema"
-          exit 0
-        fi
-        exec "$REPO_ROOT/scripts/validate-agentgateway.sh" "$@"
-        ;;
-      --help|-h|"")
-        echo "vicegerent validate             →  scripts/validate.sh"
-        echo "vicegerent validate agentgateway  →  scripts/validate-agentgateway.sh"
-        exit 0
-        ;;
-      *)
-        exec "$REPO_ROOT/scripts/validate.sh" "$@"
         ;;
     esac
     ;;
