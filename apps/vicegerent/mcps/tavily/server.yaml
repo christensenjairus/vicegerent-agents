@@ -12,6 +12,7 @@ spec:
     port: 3000
     env:
       HOME: /home/node
+      NODE_OPTIONS: --max-old-space-size=192
     secretRefs:
       - name: tavily-api-key
     serviceAccountName: tavily
