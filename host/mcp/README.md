@@ -30,9 +30,9 @@ Run the setup script — it handles everything idempotently:
 ./vicegerent mcp setup
 ```
 
-This installs Homebrew packages (`caddy ghostunnel node supervisor`), Python deps, clones and builds `mcp-proxy-server`, and builds the in-repo `k8s-mcp-server` Go binary. Run with `--update` to pull and rebuild `mcp-proxy-server` after upstream changes. Pass `-y` to skip confirmation prompts.
+This installs Homebrew packages (`caddy ghostunnel node supervisor`), Python deps, and builds `mcp-proxy-server`. Run with `--rebuild` to rebuild `mcp-proxy-server` after upstream changes. Pass `-y` to skip confirmation prompts.
 
-Requires: macOS with Homebrew and Go installed.
+Requires: macOS with Homebrew and Node.js installed.
 
 <details>
 <summary>Manual steps (if you prefer)</summary>
@@ -40,8 +40,6 @@ Requires: macOS with Homebrew and Go installed.
 ```bash
 brew install caddy ghostunnel node supervisor
 pip install -r host/mcp/requirements-host.txt
-# build the in-repo Kubernetes MCP server (requires Go):
-make -C host/k8s-mcp-server
 ```
 
 Build mcp-proxy-server (vendored at `host/mcp-proxy-server/`):
@@ -133,13 +131,13 @@ curl -i http://127.0.0.1:3777/mcp          # GET — 404
 
 ## Kubernetes
 
-The `kubernetes` server uses `~/.kube/config` and exposes every kubeconfig context via a `context` tool argument:
+The `kubernetes` server uses `~/.kube/config` and exposes multi-cluster tools. Resources are fetched using `apiVersion` + `kind` arguments:
 
 ```json
-{"context": "uw1-prod1", "kind": "Pod", "namespace": "default"}
+{"apiVersion": "v1", "kind": "Pod", "namespace": "default"}
 ```
 
-The binary is built from source in this repo: `make -C host/k8s-mcp-server`.
+The kubernetes server is `kubernetes-mcp-server` (npm: `containers/kubernetes-mcp-server`), downloaded at runtime by npx.
 
 ## Auth state
 

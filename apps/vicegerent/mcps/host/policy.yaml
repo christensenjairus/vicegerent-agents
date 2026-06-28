@@ -23,7 +23,21 @@ spec:
             - >-
               mcp.tool.name.startsWith("notion__") ||
               mcp.tool.name.startsWith("linear__") ||
-              mcp.tool.name.startsWith("kubernetes__")
+              mcp.tool.name in [
+                "kubernetes__configuration_contexts_list",
+                "kubernetes__events_list",
+                "kubernetes__namespaces_list",
+                "kubernetes__nodes_log",
+                "kubernetes__nodes_stats_summary",
+                "kubernetes__nodes_top",
+                "kubernetes__pods_get",
+                "kubernetes__pods_list",
+                "kubernetes__pods_list_in_namespace",
+                "kubernetes__pods_log",
+                "kubernetes__pods_top",
+                "kubernetes__resources_get",
+                "kubernetes__resources_list"
+              ]
       guardrails:
         processors:
           - methods:

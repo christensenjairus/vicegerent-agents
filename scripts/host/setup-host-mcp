@@ -6,15 +6,14 @@
 #   1. Homebrew packages: caddy ghostunnel node supervisor
 #   2. Python deps: pip install -r host/mcp/requirements-host.txt
 #   3. mcp-proxy-server: npm ci + npm run build (vendored at host/mcp-proxy-server/)
-#   4. k8s-mcp-server: build the in-repo Go binary (host/k8s-mcp-server/k8s-mcp-server)
-#   5. Final doctor check: vicegerent-mcp doctor
+#   4. Final doctor check: vicegerent-mcp doctor
 #
 # Flags:
 #   -y, --yes      auto-approve every step (non-interactive)
 #   --rebuild      force npm ci + rebuild of mcp-proxy-server
 #   -h, --help     show this help
 #
-# Prerequisites on the host Mac: Homebrew, Go (for k8s-mcp-server)
+# Prerequisites on the host Mac: Homebrew, Node.js
 
 set -euo pipefail
 
