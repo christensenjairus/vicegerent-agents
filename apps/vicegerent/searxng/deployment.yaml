@@ -33,6 +33,7 @@ spec:
                 secretKeyRef:
                   name: searxng-secret
                   key: secret_key
+                  optional: false
           ports:
             - containerPort: 8080
               name: http

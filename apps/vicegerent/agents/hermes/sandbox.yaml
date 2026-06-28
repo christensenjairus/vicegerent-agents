@@ -110,11 +110,13 @@ spec:
                 secretKeyRef:
                   name: hermes-dashboard-auth
                   key: password
+                  optional: false
             - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
                   name: hermes-dashboard-auth
                   key: signing-secret
+                  optional: false
             - name: SANDBOX_NAME
               valueFrom:
                 fieldRef:
@@ -140,11 +142,13 @@ spec:
                 secretKeyRef:
                   name: hermes-agentgateway-api-key
                   key: api-key
+                  optional: false
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: hermes-agentgateway-api-key
                   key: api-key
+                  optional: false
             # Langfuse plugin: pod name as environment so each sandbox is
             # identifiable in Langfuse; base URL points to in-cluster Langfuse.
             - name: HERMES_LANGFUSE_ENV
@@ -160,14 +164,17 @@ spec:
                 secretKeyRef:
                   name: hermes-observability-secrets
                   key: init-project-public-key
+                  optional: false
             - name: HERMES_LANGFUSE_SECRET_KEY
               valueFrom:
                 secretKeyRef:
                   name: hermes-observability-secrets
                   key: init-project-secret-key
+                  optional: false
           envFrom:
             - secretRef:
                 name: vicegerent-secrets
+                optional: false
           ports:
             - containerPort: 8642
               name: api

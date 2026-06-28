@@ -88,8 +88,10 @@ spec:
         - name: vicegerent-secrets
           secret:
             secretName: vicegerent-secrets
+            optional: false
         - name: hermes-agentgateway-api-key
           secret:
             secretName: hermes-agentgateway-api-key
+            optional: false
         - name: tmp
           emptyDir: {}
