@@ -72,16 +72,16 @@ data:
     mcp_servers:
       tavily:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily
-        timeout: 120
-        connect_timeout: 60
+        timeout: 30
+        connect_timeout: 5
       firecrawl:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl
-        timeout: 120
-        connect_timeout: 60
+        timeout: 30
+        connect_timeout: 5
       host:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/host
-        timeout: 120
-        connect_timeout: 60
+        timeout: 30
+        connect_timeout: 5
     agent:
       max_turns: 150
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.
