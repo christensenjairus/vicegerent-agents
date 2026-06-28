@@ -160,7 +160,7 @@ open_session "$HOST_URL"
 TOOLS=$(get_tools "$HOST_URL")
 
 # Tools that MUST exist (spot check one per MCP server)
-for must_have in "kubernetes__getResource" "linear__list_issues" "notion__notion-search"; do
+for must_have in "kubernetes__resources_get" "linear__list_issues" "notion__notion-search"; do
   if echo "$TOOLS" | grep -qx "$must_have"; then
     pass "allowed tool present: ${must_have}"
   else
@@ -233,78 +233,61 @@ section "4. Cerbos guardrail — Secret reads must be denied"
 
 open_session "$HOST_URL"
 
-# 4a: getResource on a Secret — must be denied before k8s is ever contacted.
-# Args: context (required by k8s-mcp-server), kind, name, namespace.
+# 4a: resources_get on a Secret — must be denied before k8s is ever contacted.
+# Args: apiVersion + kind (kubernetes-mcp-server format). No context arg needed.
 # The secret name is random and almost certainly absent; Cerbos denies before k8s lookup.
-echo -e "  ${YELLOW}probing kubernetes__getResource(Secret/${SECRET_NAME}) ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__getResource" \
-  "{\"context\":\"uw1-prod1\",\"kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
+echo -e "  ${YELLOW}probing kubernetes__resources_get(Secret/${SECRET_NAME}) ...${NC}"
+RESP=$(call_tool "$HOST_URL" "kubernetes__resources_get" \
+  "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  pass "kubernetes__getResource(Secret) → denied by Cerbos"
+  pass "kubernetes__resources_get(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
-  fail "kubernetes__getResource(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
+  fail "kubernetes__resources_get(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
 else
-  fail "kubernetes__getResource(Secret) → unknown response"
+  fail "kubernetes__resources_get(Secret) → unknown response"
   echo "    raw: ${RESP:0:300}"
 fi
 
-# 4b: listResources of Secrets — must be denied.
-# Uses capital K 'Kind' as required by the listResources handler.
+# 4b: resources_list of Secrets — must be denied.
 # Namespace is intentionally a fake one so even if policy fails, no secrets are returned.
-echo -e "  ${YELLOW}probing kubernetes__listResources(Kind=Secret, ns=policy-test-ns) ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__listResources" \
-  "{\"context\":\"uw1-prod1\",\"Kind\":\"Secret\",\"namespace\":\"policy-test-nonexistent-ns\"}")
+echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Secret, ns=policy-test-ns) ...${NC}"
+RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
+  "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"namespace\":\"policy-test-nonexistent-ns\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  pass "kubernetes__listResources(Secret) → denied by Cerbos"
+  pass "kubernetes__resources_list(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
-  fail "kubernetes__listResources(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
+  fail "kubernetes__resources_list(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
 else
-  fail "kubernetes__listResources(Secret) → unknown response"
+  fail "kubernetes__resources_list(Secret) → unknown response"
   echo "    raw: ${RESP:0:300}"
 fi
 
-# 4c: describeResource on a Secret — must be denied.
-# Capital K 'Kind' as required by the describeResource handler.
-echo -e "  ${YELLOW}probing kubernetes__describeResource(Kind=Secret/${SECRET_NAME}) ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__describeResource" \
-  "{\"context\":\"uw1-prod1\",\"Kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
+# 4c: resources_get on a ConfigMap — must NOT be denied (Cerbos should not over-block).
+# A k8s-level 404 is fine — it means Cerbos passed it through (correct behaviour).
+echo -e "  ${YELLOW}probing kubernetes__resources_get(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
+RESP=$(call_tool "$HOST_URL" "kubernetes__resources_get" \
+  "{\"apiVersion\":\"v1\",\"kind\":\"ConfigMap\",\"name\":\"policy-test-nonexistent\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  pass "kubernetes__describeResource(Secret) → denied by Cerbos"
-elif [[ "$VERDICT" == "allowed" ]]; then
-  fail "kubernetes__describeResource(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
+  fail "kubernetes__resources_get(ConfigMap) → DENIED — Cerbos is over-blocking non-secrets!"
 else
-  fail "kubernetes__describeResource(Secret) → unknown response"
-  echo "    raw: ${RESP:0:300}"
+  pass "kubernetes__resources_get(ConfigMap) → passed Cerbos (k8s-level result is irrelevant)"
 fi
 
-# 4d: getResource on a ConfigMap — must NOT be denied (Cerbos should not over-block).
-# Uses a name that won't exist so no real data is exposed even if somehow allowed.
-# A k8s-level 404 is fine here — it means Cerbos passed it through (correct behaviour).
-echo -e "  ${YELLOW}probing kubernetes__getResource(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__getResource" \
-  "{\"context\":\"uw1-prod1\",\"kind\":\"ConfigMap\",\"name\":\"policy-test-nonexistent\",\"namespace\":\"default\"}")
+# 4d: resources_list for Pods — must NOT be denied (non-secret, non-empty kind).
+echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Pod) — expect allowed ...${NC}"
+RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
+  "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  fail "kubernetes__getResource(ConfigMap) → DENIED — Cerbos is over-blocking non-secrets!"
+  fail "kubernetes__resources_list(Pod) → DENIED — Cerbos is over-blocking non-secrets!"
 else
-  pass "kubernetes__getResource(ConfigMap) → passed Cerbos (k8s-level result is irrelevant)"
+  pass "kubernetes__resources_list(Pod) → passed Cerbos (correct)"
 fi
 
-# 4e: listResources for Pods — must NOT be denied (non-secret, non-empty kind).
-echo -e "  ${YELLOW}probing kubernetes__listResources(Kind=Pod) — expect allowed ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__listResources" \
-  "{\"context\":\"uw1-prod1\",\"Kind\":\"Pod\",\"namespace\":\"default\"}")
-VERDICT=$(is_cerbos_denied "$RESP")
-if [[ "$VERDICT" == "denied" ]]; then
-  fail "kubernetes__listResources(Pod) → DENIED — Cerbos is over-blocking non-secrets!"
-else
-  pass "kubernetes__listResources(Pod) → passed Cerbos (correct)"
-fi
-
-# 4f: Guardrail attachment check — verify the policy carries the shim attachment.
+# 4e: Guardrail attachment check — verify the policy carries the shim attachment.
 # A missing guardrail silently fails open (FailClosed only covers shim failures, not absence).
 echo -e "  ${YELLOW}verifying guardrail attached to host-mcp-tools policy ...${NC}"
 if command -v kubectl &>/dev/null; then

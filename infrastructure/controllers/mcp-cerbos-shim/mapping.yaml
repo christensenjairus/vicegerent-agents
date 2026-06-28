@@ -3,41 +3,17 @@
 # Only kind-bearing tools are mapped; unmapped tools pass (defaultAction: allow).
 # Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
 backends:
-  kubernetes:
-    defaultAction: allow
-    helpers: [canonicalK8s]
-    tools:
-      getResource:
-        resourceType: k8s_resource
-        action: getResource
-        id: get(args,'name','')
-        attrFrom: canonicalK8s(args)
-      listResources:
-        resourceType: k8s_resource
-        action: listResources
-        id: "''"
-        attrFrom: canonicalK8s(args)
-      describeResource:
-        resourceType: k8s_resource
-        action: describeResource
-        id: get(args,'name','')
-        attrFrom: canonicalK8s(args)
   host:
     defaultAction: allow
     helpers: [canonicalK8s]
     tools:
-      kubernetes__getResource:
+      kubernetes__resources_get:
         resourceType: k8s_resource
         action: getResource
         id: get(args,'name','')
         attrFrom: canonicalK8s(args)
-      kubernetes__listResources:
+      kubernetes__resources_list:
         resourceType: k8s_resource
         action: listResources
         id: "''"
-        attrFrom: canonicalK8s(args)
-      kubernetes__describeResource:
-        resourceType: k8s_resource
-        action: describeResource
-        id: get(args,'name','')
         attrFrom: canonicalK8s(args)
