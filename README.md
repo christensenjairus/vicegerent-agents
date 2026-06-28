@@ -22,7 +22,6 @@ Prerequisites:
 - `helm`
 - `op`
 - `jq`
-- `ghostunnel`
 - SSH access to `gitlab.hahomelabs.com:jchristensen/vicegerent-agents`
 
 Create the cluster:
@@ -104,31 +103,6 @@ kubectl --context vicegerent get pods -A
 ```
 
 The committed `gotk-sync.yaml` expects the bootstrap-created `flux-system` Git credential Secret.
-
-## Run the host-side ghostunnel
-
-The Kubernetes MCP backend runs on the host and is reached from agentgateway through ghostunnel mTLS. `setup-secrets.sh` already generated the certificates and stored them in 1Password; this step only runs the tunnel.
-
-Run the tunnel after the plaintext Kubernetes MCP server is listening on `127.0.0.1:8080`. `ghostshell` pulls the server certificate, key, and CA from 1Password into an ephemeral tmpdir, runs ghostunnel, and wipes them on exit — nothing is persisted to disk:
-
-```bash
-cd /path/to/vicegerent-agents
-./vicegerent ghostunnel
-```
-
-Defaults (override with environment variables):
-
-```text
-OP_VAULT=Vicegerent
-OP_HOST_ITEM=Ghostunnel Host
-HOST_ONLY_IP=192.168.64.1
-LISTEN=192.168.64.1:8443
-TARGET=127.0.0.1:8080
-ALLOW_CN=agent-client
-GHOSTUNNEL=ghostunnel
-```
-
-`--listen` must bind the host-only IP, not `0.0.0.0`. The `--allow-cn` value must match the client certificate CN. For vfkit the host-only IP is normally `192.168.64.1`; confirm with `ifconfig bridge100 | grep 'inet '`.
 
 ## Host-side MCP control plane
 
