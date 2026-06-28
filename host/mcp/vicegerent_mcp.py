@@ -1129,13 +1129,70 @@ def cmd_tui(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 
+_HELP = """\
+vicegerent-mcp — host-side MCP control plane
+
+Manages N stdio/OAuth MCP servers via mcp-proxy-server + supervisord,
+with hot-reload on enable/disable and a rich TUI dashboard.
+
+Commands:
+  list                   show all configured MCP servers and their state
+  status                 show server auth state + infrastructure process state
+  enable KEY             enable a server and hot-reload the proxy
+  disable KEY            disable a server and hot-reload the proxy
+  reload                 re-render proxy config from current state and hot-reload
+  start                  start proxy, Caddy, and ghostunnel via supervisord
+  stop                   shut down all managed processes
+  logs PROC              tail logs  (proxy | caddy | ghostunnel | supervisord)
+  auth-status [KEY]      show mcp-remote OAuth cache state (all servers or one)
+  auth-reset KEY         delete OAuth cache for a server (stop stack first)
+  doctor                 check host prerequisites and auth state
+  tui                    launch interactive TUI dashboard
+
+Global options:
+  --config PATH          server config file
+                         (default: host/mcp/servers.json in repo)
+  --auth-dir PATH        mcp-remote OAuth cache directory
+                         (default: ~/.mcp-auth)
+  --runtime-dir PATH     supervisord/runtime state directory
+                         (default: ~/.vicegerent/mcp)
+
+Run './vicegerent-mcp COMMAND --help' for per-command options.
+"""
+
+
+class _SuppressSubparsers(argparse.RawDescriptionHelpFormatter):
+    """Formatter that hides the auto-generated subcommand list.
+
+    We hand-write the command table in _HELP; the argparse duplicate is noise.
+    """
+
+    def _format_action(self, action: argparse.Action) -> str:
+        if action.nargs == argparse.PARSER:
+            return ""
+        return super()._format_action(action)
+
+
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(description="vicegerent host MCP helper")
+    parser = argparse.ArgumentParser(
+        description=_HELP,
+        formatter_class=_SuppressSubparsers,
+        add_help=True,
+    )
     # Global args available to all subcommands.
-    parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG, metavar="PATH")
-    parser.add_argument("--auth-dir", type=Path, default=DEFAULT_AUTH_DIR, metavar="PATH")
-    parser.add_argument("--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR, metavar="PATH")
-    sub = parser.add_subparsers(dest="command", required=True)
+    parser.add_argument(
+        "--config", type=Path, default=DEFAULT_CONFIG, metavar="PATH",
+        help="server config file (default: host/mcp/servers.json in repo)",
+    )
+    parser.add_argument(
+        "--auth-dir", type=Path, default=DEFAULT_AUTH_DIR, metavar="PATH",
+        help="mcp-remote OAuth cache directory (default: ~/.mcp-auth)",
+    )
+    parser.add_argument(
+        "--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR, metavar="PATH",
+        help="supervisord/runtime state directory (default: ~/.vicegerent/mcp)",
+    )
+    sub = parser.add_subparsers(dest="command", required=False)
 
     # list — no stack required
     sub.add_parser("list", help="show all configured MCP servers and their state").set_defaults(func=cmd_list)
@@ -1209,6 +1266,9 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
+    if not args.command:
+        parser.print_help()
+        return 0
     if args.command == "auth-status" and getattr(args, "server", None):
         servers = {s.key: s for s in iter_servers(load_config(args.config))}
         if args.server not in servers:
