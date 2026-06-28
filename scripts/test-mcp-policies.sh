@@ -113,29 +113,29 @@ print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':
 # Parse "is this a Cerbos-denied response?" from a tools/call SSE response.
 # Looks for the error text the shim returns.
 # is_cerbos_denied: 'denied' only when agentgateway/Cerbos blocked the call.
-# 'allowed' when the call reached k8s — even if k8s returned a 404/error.
-# Cerbos denials carry authorization/deny/cerbos keywords; k8s 404s say "not found".
+# 'allowed' when Cerbos passed the call through (even if k8s then errored).
+#
+# Cerbos denials come back as JSON-RPC error code -32001 with the message
+# "Access denied by security policy...". k8s-level errors (tool/config failures)
+# use -32603. We key on the error code — it's stable and unambiguous.
 is_cerbos_denied() {
   local resp="$1"
   echo "$resp" | python3 -c "
-import sys, json, re
+import sys, json
 raw = sys.stdin.read()
 lines = [l[5:].strip() for l in raw.split('\n') if l.startswith('data:')]
 body = lines[0] if lines else raw
-DENY_PATS = re.compile(r'authori[sz]|denied|cerbos|forbidden|policy', re.I)
 try:
     d = json.loads(body)
-    err = d.get('error')
-    if err:
-        msg = str(err.get('message', '')) + str(err.get('data', ''))
-        print('denied' if DENY_PATS.search(msg) else 'allowed')
-        sys.exit(0)
-    result = d.get('result', {})
-    if result.get('isError'):
-        content = ' '.join(str(c.get('text','')) for c in result.get('content',[]))
-        print('denied' if DENY_PATS.search(content) else 'allowed')
-        sys.exit(0)
-    print('allowed')
+    err = d.get('error', {})
+    code = err.get('code')
+    msg  = str(err.get('message', ''))
+    # -32001 is the agentgateway/Cerbos policy-denial code.
+    # Also catch the human-readable phrase as a belt-and-suspenders fallback.
+    if code == -32001 or 'Access denied by security policy' in msg:
+        print('denied')
+    else:
+        print('allowed')
 except Exception:
     print('unknown')
 " 2>/dev/null || echo "unknown"
