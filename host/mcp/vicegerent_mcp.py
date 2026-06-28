@@ -922,12 +922,24 @@ def start_stack(
 
 
 def stop_stack(runtime_dir: Path = DEFAULT_RUNTIME_DIR) -> int:
-    """Shut down supervisord and all managed processes."""
+    """Shut down supervisord and all managed processes, waiting until they exit."""
     if not is_supervisor_running(runtime_dir):
         print("supervisord is not running")
         return 0
     result = supervisorctl("shutdown", runtime_dir=runtime_dir)
     print(result.stdout.strip() or "supervisord shutdown initiated")
+
+    # Wait up to 15s for the supervisor socket to disappear (processes fully exited)
+    sock = runtime_paths(runtime_dir)["supervisord_sock"]
+    deadline = time.time() + 15
+    while time.time() < deadline:
+        if not sock.exists():
+            break
+        time.sleep(0.5)
+    else:
+        print("warning: supervisord did not exit within 15s", file=sys.stderr)
+        return 1
+
     return 0
 
 

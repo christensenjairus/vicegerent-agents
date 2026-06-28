@@ -6,14 +6,14 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: ^(host/(mcp-proxy-server|k8s-mcp-server)/|scripts/slack/hermes-manifest\.template\.yaml)
+        exclude: ^host/mcp-proxy-server/
       - id: trailing-whitespace
-        exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
+        exclude: ^host/mcp-proxy-server/
       - id: end-of-file-fixer
-        exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
+        exclude: ^host/mcp-proxy-server/
       - id: check-added-large-files
       - id: detect-private-key
-        exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
+        exclude: ^host/mcp-proxy-server/
   - repo: https://github.com/lyz-code/yamlfix/
     rev: 1.19.1
     hooks:
@@ -23,8 +23,7 @@ repos:
             \.gitlab-ci\.yml|
             charts/.+/templates/.+\.ya?ml|
             clusters/[^/]+/flux-system/gotk-(components|sync)\.yaml|
-            scripts/slack/hermes-manifest\.template\.yaml|
-            host/(mcp-proxy-server|k8s-mcp-server)/.+
+            host/mcp-proxy-server/.+
           )$
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
@@ -32,7 +31,7 @@ repos:
       - id: detect-secrets  # pragma: allowlist secret
         name: detect secrets
         args: [--baseline, .secrets.baseline]
-        exclude: ^host/(mcp-proxy-server|k8s-mcp-server)/
+        exclude: ^host/mcp-proxy-server/
   - repo: local
     hooks:
       - id: validate-flux-manifests
