@@ -68,25 +68,27 @@ func main() {
 	// Create a Kubernetes client factory for per-request client lookup
 	factory := k8s.NewClientFactory()
 
+	safe := handlers.SafeHandler
+
 	// Register Kubernetes tools
 	if !noK8s {
-		s.AddTool(tools.GetAPIResourcesTool(), handlers.GetAPIResources(factory))
-		s.AddTool(tools.ListContextsTool(), handlers.ListContexts())
-		s.AddTool(tools.ListResourcesTool(), handlers.ListResources(factory))
-		s.AddTool(tools.GetResourcesTool(), handlers.GetResources(factory))
-		s.AddTool(tools.DescribeResourcesTool(), handlers.DescribeResources(factory))
-		s.AddTool(tools.GetPodsLogsTools(), handlers.GetPodsLogs(factory))
-		s.AddTool(tools.GetNodeMetricsTools(), handlers.GetNodeMetrics(factory))
-		s.AddTool(tools.GetPodMetricsTool(), handlers.GetPodMetrics(factory))
-		s.AddTool(tools.GetEventsTool(), handlers.GetEvents(factory))
-		s.AddTool(tools.GetIngressesTool(), handlers.GetIngresses(factory))
+		s.AddTool(tools.GetAPIResourcesTool(), safe(handlers.GetAPIResources(factory)))
+		s.AddTool(tools.ListContextsTool(), safe(handlers.ListContexts()))
+		s.AddTool(tools.ListResourcesTool(), safe(handlers.ListResources(factory)))
+		s.AddTool(tools.GetResourcesTool(), safe(handlers.GetResources(factory)))
+		s.AddTool(tools.DescribeResourcesTool(), safe(handlers.DescribeResources(factory)))
+		s.AddTool(tools.GetPodsLogsTools(), safe(handlers.GetPodsLogs(factory)))
+		s.AddTool(tools.GetNodeMetricsTools(), safe(handlers.GetNodeMetrics(factory)))
+		s.AddTool(tools.GetPodMetricsTool(), safe(handlers.GetPodMetrics(factory)))
+		s.AddTool(tools.GetEventsTool(), safe(handlers.GetEvents(factory)))
+		s.AddTool(tools.GetIngressesTool(), safe(handlers.GetIngresses(factory)))
 
 		// Register write operations only if not in read-only mode
 		if !readOnly {
-			s.AddTool(tools.CreateOrUpdateResourceJSONTool(), handlers.CreateOrUpdateResourceJSON(factory))
-			s.AddTool(tools.CreateOrUpdateResourceYAMLTool(), handlers.CreateOrUpdateResourceYAML(factory))
-			s.AddTool(tools.DeleteResourceTool(), handlers.DeleteResource(factory))
-			s.AddTool(tools.RolloutRestartTool(), handlers.RolloutRestart(factory))
+			s.AddTool(tools.CreateOrUpdateResourceJSONTool(), safe(handlers.CreateOrUpdateResourceJSON(factory)))
+			s.AddTool(tools.CreateOrUpdateResourceYAMLTool(), safe(handlers.CreateOrUpdateResourceYAML(factory)))
+			s.AddTool(tools.DeleteResourceTool(), safe(handlers.DeleteResource(factory)))
+			s.AddTool(tools.RolloutRestartTool(), safe(handlers.RolloutRestart(factory)))
 		}
 	}
 
@@ -97,18 +99,18 @@ func main() {
 			fmt.Printf("Failed to create Helm client: %v\n", err)
 			return
 		}
-		s.AddTool(tools.HelmListTool(), handlers.HelmList(helmClient))
-		s.AddTool(tools.HelmGetTool(), handlers.HelmGet(helmClient))
-		s.AddTool(tools.HelmHistoryTool(), handlers.HelmHistory(helmClient))
-		s.AddTool(tools.HelmRepoListTool(), handlers.HelmRepoList(helmClient))
+		s.AddTool(tools.HelmListTool(), safe(handlers.HelmList(helmClient)))
+		s.AddTool(tools.HelmGetTool(), safe(handlers.HelmGet(helmClient)))
+		s.AddTool(tools.HelmHistoryTool(), safe(handlers.HelmHistory(helmClient)))
+		s.AddTool(tools.HelmRepoListTool(), safe(handlers.HelmRepoList(helmClient)))
 
 		// Register write operations only if not in read-only mode
 		if !readOnly {
-			s.AddTool(tools.HelmInstallTool(), handlers.HelmInstall(helmClient))
-			s.AddTool(tools.HelmUpgradeTool(), handlers.HelmUpgrade(helmClient))
-			s.AddTool(tools.HelmUninstallTool(), handlers.HelmUninstall(helmClient))
-			s.AddTool(tools.HelmRollbackTool(), handlers.HelmRollback(helmClient))
-			s.AddTool(tools.HelmRepoAddTool(), handlers.HelmRepoAdd(helmClient))
+			s.AddTool(tools.HelmInstallTool(), safe(handlers.HelmInstall(helmClient)))
+			s.AddTool(tools.HelmUpgradeTool(), safe(handlers.HelmUpgrade(helmClient)))
+			s.AddTool(tools.HelmUninstallTool(), safe(handlers.HelmUninstall(helmClient)))
+			s.AddTool(tools.HelmRollbackTool(), safe(handlers.HelmRollback(helmClient)))
+			s.AddTool(tools.HelmRepoAddTool(), safe(handlers.HelmRepoAdd(helmClient)))
 		}
 	}
 
