@@ -26,6 +26,11 @@ fi
 NAME="$1"
 OUTPUT="${2:-}"
 
+# Warn if the name is already all-lowercase — Slack display names should be title-cased.
+if [[ "${NAME}" == "$(echo "${NAME}" | tr '[:upper:]' '[:lower:]')" ]]; then
+  echo "warning: name '${NAME}' is all lowercase — Slack display names are typically title-cased (e.g. 'Hermes Infra')" >&2
+fi
+
 # Derive slash command: lowercase, spaces → hyphens
 COMMAND="$(echo "${NAME}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
 
