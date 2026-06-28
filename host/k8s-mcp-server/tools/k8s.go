@@ -217,6 +217,18 @@ func GetIngressesTool() mcp.Tool {
 	)
 }
 
+// ListContextsTool creates a tool for listing all kubeconfig contexts available to the server.
+func ListContextsTool() mcp.Tool {
+	return mcp.NewTool(
+		"listContexts",
+		mcp.WithDescription("List all Kubernetes contexts available in the kubeconfig used by this MCP server"),
+		mcp.WithToolAnnotation(mcp.ToolAnnotation{
+			Title:        "List Contexts",
+			ReadOnlyHint: mcp.ToBoolPtr(true),
+		}),
+	)
+}
+
 // RolloutRestartTool creates a tool for restarting workloads with pod templates.
 func RolloutRestartTool() mcp.Tool {
 	return mcp.NewTool(

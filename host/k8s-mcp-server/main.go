@@ -78,6 +78,7 @@ func main() {
 	// Register Kubernetes tools
 	if !noK8s {
 		s.AddTool(tools.GetAPIResourcesTool(), handlers.GetAPIResources(factory))
+		s.AddTool(tools.ListContextsTool(), handlers.ListContexts())
 		s.AddTool(tools.ListResourcesTool(), handlers.ListResources(factory))
 		s.AddTool(tools.GetResourcesTool(), handlers.GetResources(factory))
 		s.AddTool(tools.DescribeResourcesTool(), handlers.DescribeResources(factory))
