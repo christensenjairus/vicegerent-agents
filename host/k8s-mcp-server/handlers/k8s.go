@@ -574,3 +574,21 @@ func RolloutRestart(factory *k8s.ClientFactory) func(ctx context.Context, reques
 		return mcp.NewToolResultText(string(jsonResponse)), nil
 	}
 }
+
+// ListContexts returns a handler for the listContexts tool.
+// It reads the kubeconfig the server is using and returns all defined contexts.
+func ListContexts() func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	return func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		result, err := k8s.ListContexts("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to list contexts: %w", err)
+		}
+
+		jsonResponse, err := json.Marshal(result)
+		if err != nil {
+			return nil, fmt.Errorf("failed to serialize response: %w", err)
+		}
+
+		return mcp.NewToolResultText(string(jsonResponse)), nil
+	}
+}
