@@ -8,7 +8,7 @@ resources:
   - soul.yaml
   - codex-config.yaml
   - claude-config.yaml
-  - secrets.yaml
+  - bot-secrets.yaml
   - hermes-observability-secrets.yaml
   - sandbox.yaml
   - dashboard.yaml
