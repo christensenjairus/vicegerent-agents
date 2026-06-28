@@ -175,7 +175,9 @@ def make_caddyfile(config: dict[str, Any]) -> str:
   }}
 
   handle @mcp_request {{
-    reverse_proxy {host}:{proxy_port}
+    reverse_proxy {host}:{proxy_port} {{
+      flush_interval -1
+    }}
   }}
 
   respond 404
