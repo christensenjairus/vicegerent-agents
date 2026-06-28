@@ -172,5 +172,5 @@ echo "${G}${B}Host MCP setup complete.${N}"
 echo
 echo "Next steps:"
 echo "  1. Sign in to 1Password:  op signin"
-echo "  2. Start the stack:       ./scripts/host/vicegerent-mcp start --proxy-dir $PROXY_DIR"
-echo "  3. Open the TUI:          ./scripts/host/vicegerent-mcp tui"
+echo "  2. Start the stack:       ./vicegerent-mcp start --proxy-dir $PROXY_DIR"
+echo "  3. Open the TUI:          ./vicegerent-mcp tui"

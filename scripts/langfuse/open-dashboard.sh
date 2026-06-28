@@ -24,7 +24,7 @@ done
 op account get >/dev/null 2>&1 || { echo "1Password CLI is not signed in. Run: op signin" >&2; exit 1; }
 
 PASSWORD="$(op read "op://${VAULT}/${ITEM}/init-user-password")"
-[[ -n "$PASSWORD" ]] || { echo "Missing op://${VAULT}/${ITEM}/init-user-password. Run scripts/install/setup-secrets.sh." >&2; exit 1; }
+[[ -n "$PASSWORD" ]] || {   echo "Missing op://${VAULT}/${ITEM}/init-user-password. Run: ./vicegerent secrets setup." >&2; exit 1; }
 
 tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/vicegerent-langfuse.XXXXXX")"
 cleanup() {
