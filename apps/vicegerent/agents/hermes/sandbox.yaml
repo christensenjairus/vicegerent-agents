@@ -149,6 +149,19 @@ spec:
                   name: hermes-agentgateway-api-key
                   key: api-key
                   optional: false
+            # TODO: haiku is overkill for mnemosyne consolidation; replace with a cheap OpenAI model once org tokens are available.
+            - name: MNEMOSYNE_LLM_ENABLED
+              value: 'true'
+            - name: MNEMOSYNE_LLM_BASE_URL
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/haiku-oai/v1
+            - name: MNEMOSYNE_LLM_MODEL
+              value: claude-haiku-4-5
+            - name: MNEMOSYNE_LLM_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agentgateway-api-key
+                  key: api-key
+                  optional: false
             # Langfuse plugin: pod name as environment so each sandbox is
             # identifiable in Langfuse; base URL points to in-cluster Langfuse.
             - name: HERMES_LANGFUSE_ENV
