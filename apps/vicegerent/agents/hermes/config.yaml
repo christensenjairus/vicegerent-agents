@@ -103,6 +103,9 @@ data:
       threshold: 0.75
     display:
       tool_progress: verbose
+      platforms:
+        slack:
+          tool_progress: false
     approvals:
       mode: smart
     checkpoints:
@@ -125,9 +128,6 @@ data:
     slack:
       require_mention: true
       strict_mention: true
-    platforms:
-      slack:
-        tool_progress: false
     plugins:
       enabled:
         - disk-cleanup
