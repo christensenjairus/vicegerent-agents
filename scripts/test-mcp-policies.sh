@@ -112,23 +112,28 @@ print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':
 
 # Parse "is this a Cerbos-denied response?" from a tools/call SSE response.
 # Looks for the error text the shim returns.
-is_denied() {
+# is_cerbos_denied: 'denied' only when agentgateway/Cerbos blocked the call.
+# 'allowed' when the call reached k8s — even if k8s returned a 404/error.
+# Cerbos denials carry authorization/deny/cerbos keywords; k8s 404s say "not found".
+is_cerbos_denied() {
   local resp="$1"
   echo "$resp" | python3 -c "
-import sys, json
+import sys, json, re
 raw = sys.stdin.read()
-# Check for HTTP 403/error in SSE data lines
 lines = [l[5:].strip() for l in raw.split('\n') if l.startswith('data:')]
 body = lines[0] if lines else raw
+DENY_PATS = re.compile(r'authori[sz]|denied|cerbos|forbidden|policy', re.I)
 try:
     d = json.loads(body)
-    # agentgateway wraps denied calls as MCP error or isError:true content
-    if d.get('error'):
-        print('denied')
+    err = d.get('error')
+    if err:
+        msg = str(err.get('message', '')) + str(err.get('data', ''))
+        print('denied' if DENY_PATS.search(msg) else 'allowed')
         sys.exit(0)
     result = d.get('result', {})
     if result.get('isError'):
-        print('denied')
+        content = ' '.join(str(c.get('text','')) for c in result.get('content',[]))
+        print('denied' if DENY_PATS.search(content) else 'allowed')
         sys.exit(0)
     print('allowed')
 except Exception:
@@ -234,7 +239,7 @@ open_session "$HOST_URL"
 echo -e "  ${YELLOW}probing kubernetes__getResource(Secret/${SECRET_NAME}) ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__getResource" \
   "{\"context\":\"vicegerent\",\"kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
-VERDICT=$(is_denied "$RESP")
+VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
   pass "kubernetes__getResource(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
@@ -250,7 +255,7 @@ fi
 echo -e "  ${YELLOW}probing kubernetes__listResources(Kind=Secret, ns=policy-test-ns) ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__listResources" \
   "{\"context\":\"vicegerent\",\"Kind\":\"Secret\",\"namespace\":\"policy-test-nonexistent-ns\"}")
-VERDICT=$(is_denied "$RESP")
+VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
   pass "kubernetes__listResources(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
@@ -265,7 +270,7 @@ fi
 echo -e "  ${YELLOW}probing kubernetes__describeResource(Kind=Secret/${SECRET_NAME}) ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__describeResource" \
   "{\"context\":\"vicegerent\",\"Kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
-VERDICT=$(is_denied "$RESP")
+VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
   pass "kubernetes__describeResource(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
@@ -281,7 +286,7 @@ fi
 echo -e "  ${YELLOW}probing kubernetes__getResource(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__getResource" \
   "{\"context\":\"vicegerent\",\"kind\":\"ConfigMap\",\"name\":\"policy-test-nonexistent\",\"namespace\":\"default\"}")
-VERDICT=$(is_denied "$RESP")
+VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
   fail "kubernetes__getResource(ConfigMap) → DENIED — Cerbos is over-blocking non-secrets!"
 else
@@ -292,7 +297,7 @@ fi
 echo -e "  ${YELLOW}probing kubernetes__listResources(Kind=Pod) — expect allowed ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__listResources" \
   "{\"context\":\"vicegerent\",\"Kind\":\"Pod\",\"namespace\":\"default\"}")
-VERDICT=$(is_denied "$RESP")
+VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
   fail "kubernetes__listResources(Pod) → DENIED — Cerbos is over-blocking non-secrets!"
 else
