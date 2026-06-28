@@ -28,15 +28,7 @@ Prerequisites:
 Create the cluster:
 
 ```bash
-minikube start \
-  --profile vicegerent \
-  --driver vfkit \
-  --container-runtime containerd \
-  --cni=cilium \
-  --addons gvisor,metrics-server \
-  --cpus 4 \
-  --memory 16384 \
-  --disk-size 50g
+./vicegerent cluster setup
 ```
 
 Verify the cluster and addons:
@@ -56,7 +48,7 @@ Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Passwor
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interactively
-./scripts/install/setup-secrets.sh
+./vicegerent secrets setup
 ```
 
 ```text
@@ -82,7 +74,7 @@ The CA private key lives only in `Ghostunnel Host` so a re-run can re-issue a mi
 Bootstrap the local minikube cluster against this repo. The script is idempotent — it seeds 1Password Connect (recovering a stuck/failed Helm release if an earlier run was interrupted), then runs `flux bootstrap git`. Once the Connect release is deployed and adopted by Flux, re-runs skip the Helm seed so they do not fight Flux's ownership. It confirms before each change; pass `-y`/`--yes` for a non-interactive run.
 
 ```bash
-./scripts/install/install.sh
+./vicegerent bootstrap
 ```
 
 The script defaults to:
@@ -101,7 +93,7 @@ OP_CONNECT_TOKEN_VAULT=Vicegerent
 Override those with environment variables if needed:
 
 ```bash
-BRANCH=my-test-branch PRIVATE_KEY_FILE=$HOME/.ssh/id_ed25519 ./scripts/install/install.sh
+BRANCH=my-test-branch PRIVATE_KEY_FILE=$HOME/.ssh/id_ed25519 ./vicegerent bootstrap
 ```
 
 Check reconciliation:
@@ -121,7 +113,7 @@ Run the tunnel after the plaintext Kubernetes MCP server is listening on `127.0.
 
 ```bash
 cd /path/to/vicegerent-agents
-./scripts/ghostunnel/ghostshell.sh
+./vicegerent ghostunnel
 ```
 
 Defaults (override with environment variables):
@@ -143,8 +135,8 @@ GHOSTUNNEL=ghostunnel
 OAuth-backed or laptop-context MCPs run in the macOS GUI session and are exposed to the cluster through ghostunnel. The v1 host scaffold lives in [`host/mcp`](host/mcp): it renders `mcp-proxy-server` config, starts `mcp-proxy-server` + Caddy + a second ghostunnel, filters the host endpoint to `POST /mcp`, and includes helper commands for `mcp-remote` OAuth cache status/reset.
 
 ```bash
-./scripts/host/vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
-./scripts/host/vicegerent-mcp status
+./vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
+./vicegerent-mcp status
 ```
 
 The host-MCP tunnel defaults to `192.168.64.1:8453` so it can run beside the existing Kubernetes MCP tunnel on `:8443`. This scaffold is host-side only; add cluster-side MCP backend/route wiring before agents can call the new SaaS tools.

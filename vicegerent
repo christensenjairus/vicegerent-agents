@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -t 1 ]]; then
+  B=$'\033[1m'; C=$'\033[0;36m'; N=$'\033[0m'
+else
+  B=""; C=""; N=""
+fi
+
+usage() {
+  cat <<EOF
+${B}vicegerent${N} — operational CLI for the vicegerent infra-agent platform
+
+${B}Usage:${N}
+  ${C}vicegerent cluster setup${N}       create the minikube cluster
+  ${C}vicegerent cluster pause${N}       pause the minikube cluster
+  ${C}vicegerent cluster resume${N}      resume the minikube cluster
+  ${C}vicegerent cluster status${N}      show minikube cluster status
+  ${C}vicegerent secrets setup${N}       run secrets setup (idempotent)
+  ${C}vicegerent bootstrap${N}           bootstrap Flux against this repo
+  ${C}vicegerent ghostunnel${N}          run the host-side ghostunnel mTLS tunnel
+  ${C}vicegerent dashboard agent${N}     open the agent dashboard
+  ${C}vicegerent dashboard creds${N}     print dashboard basic-auth credentials
+  ${C}vicegerent langfuse${N}            open the Langfuse dashboard
+  ${C}vicegerent test gateway${N}        run MCP gateway tests
+  ${C}vicegerent test policies${N}       run MCP policy tests
+  ${C}vicegerent validate${N}            validate Flux manifests
+  ${C}vicegerent validate agentgateway${N}  validate agentgateway config
+  ${C}vicegerent mcp setup${N}           set up host-side MCP prerequisites
+EOF
+}
+
+cluster_usage() {
+  cat <<EOF
+${B}vicegerent cluster${N} — minikube cluster lifecycle
+
+  ${C}setup${N}    create the cluster (overridable env: CPUS MEMORY DISK_SIZE DRIVER CONTAINER_RUNTIME CNI ADDONS PROFILE)
+  ${C}pause${N}    minikube pause --profile vicegerent
+  ${C}resume${N}   minikube unpause --profile vicegerent
+  ${C}status${N}   minikube status --profile vicegerent
+EOF
+}
+
+cluster_setup() {
+  local cpus="${CPUS:-4}"
+  local memory="${MEMORY:-16384}"
+  local disk_size="${DISK_SIZE:-50g}"
+  local driver="${DRIVER:-vfkit}"
+  local container_runtime="${CONTAINER_RUNTIME:-containerd}"
+  local cni="${CNI:-cilium}"
+  local addons="${ADDONS:-gvisor,metrics-server}"
+  local profile="${PROFILE:-vicegerent}"
+
+  local cmd=(
+    minikube start
+    --profile "$profile"
+    --driver "$driver"
+    --container-runtime "$container_runtime"
+    --cni="$cni"
+    --addons "$addons"
+    --cpus "$cpus"
+    --memory "$memory"
+    --disk-size "$disk_size"
+  )
+
+  echo "${B}Running:${N} ${cmd[*]} $*"
+  exec "${cmd[@]}" "$@"
+}
+
+case "${1:-}" in
+  cluster)
+    shift
+    case "${1:-}" in
+      setup)
+        shift
+        [[ "${1:-}" == "--help" ]] && { cluster_usage; exit 0; }
+        cluster_setup "$@"
+        ;;
+      pause)
+        shift
+        [[ "${1:-}" == "--help" ]] && { echo "minikube pause --profile vicegerent"; exit 0; }
+        exec minikube pause --profile vicegerent "$@"
+        ;;
+      resume)
+        shift
+        [[ "${1:-}" == "--help" ]] && { echo "minikube unpause --profile vicegerent"; exit 0; }
+        exec minikube unpause --profile vicegerent "$@"
+        ;;
+      status)
+        shift
+        [[ "${1:-}" == "--help" ]] && { echo "minikube status --profile vicegerent"; exit 0; }
+        exec minikube status --profile vicegerent "$@"
+        ;;
+      --help|-h|"")
+        cluster_usage
+        exit 0
+        ;;
+      *)
+        echo "unknown cluster subcommand: $1" >&2
+        cluster_usage >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  secrets)
+    shift
+    case "${1:-}" in
+      setup)
+        shift
+        exec "$REPO_ROOT/scripts/install/setup-secrets.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent secrets setup  →  scripts/install/setup-secrets.sh"
+        exit 0
+        ;;
+      *)
+        echo "unknown secrets subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  bootstrap)
+    shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      echo "vicegerent bootstrap — bootstrap Flux against this repo"
+      echo "  Idempotent. Flags: -y/--yes, --reseed-secrets."
+      echo "  Env: KUBE_CONTEXT REPO_URL BRANCH CLUSTER_PATH PRIVATE_KEY_FILE"
+      exit 0
+    fi
+    exec "$REPO_ROOT/scripts/install/install.sh" "$@"
+    ;;
+  ghostunnel)
+    shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      echo "vicegerent ghostunnel — run the host-side ghostunnel mTLS server"
+      echo "  Fetches certs from 1Password, runs ghostunnel in the foreground, wipes on exit."
+      echo "  Env: OP_VAULT OP_HOST_ITEM HOST_ONLY_IP LISTEN TARGET ALLOW_CN GHOSTUNNEL"
+      exit 0
+    fi
+    exec "$REPO_ROOT/scripts/ghostunnel/ghostshell.sh" "$@"
+    ;;
+  dashboard)
+    shift
+    case "${1:-}" in
+      agent)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent dashboard agent — open a Hermes agent dashboard"
+          echo "  Usage: vicegerent dashboard agent <agent-name>"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/dashboard/open-dashboard.sh" "$@"
+        ;;
+      creds)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent dashboard creds — print dashboard basic-auth credentials"
+          echo "  Usage: vicegerent dashboard creds <agent-name>"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent dashboard agent  →  scripts/dashboard/open-dashboard.sh"
+        echo "vicegerent dashboard creds  →  scripts/dashboard/dashboard-basic-cred.sh"
+        exit 0
+        ;;
+      *)
+        echo "unknown dashboard subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  langfuse)
+    shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      echo "vicegerent langfuse — open the Langfuse dashboard through a local authenticated proxy"
+      echo "  Env: OP_VAULT LANGFUSE_OP_ITEM LANGFUSE_NAMESPACE LANGFUSE_SERVICE LANGFUSE_FORWARD_PORT LANGFUSE_DASHBOARD_PORT"
+      exit 0
+    fi
+    exec "$REPO_ROOT/scripts/langfuse/open-dashboard.sh" "$@"
+    ;;
+  test)
+    shift
+    case "${1:-}" in
+      gateway)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent test gateway — probe all MCP endpoints agentgateway exposes"
+          echo "  Env: GATEWAY_URL"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/test-mcp-gateway.sh" "$@"
+        ;;
+      policies)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent test policies — run MCP policy enforcement tests"
+          echo "  Env: GATEWAY_URL SECRET_NAME"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/test-mcp-policies.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent test gateway   →  scripts/test-mcp-gateway.sh"
+        echo "vicegerent test policies  →  scripts/test-mcp-policies.sh"
+        exit 0
+        ;;
+      *)
+        echo "unknown test subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  validate)
+    shift
+    case "${1:-}" in
+      agentgateway)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent validate agentgateway — validate rendered agentgateway custom resources against the pinned CRD schema"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/validate-agentgateway.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent validate             →  scripts/validate.sh"
+        echo "vicegerent validate agentgateway  →  scripts/validate-agentgateway.sh"
+        exit 0
+        ;;
+      *)
+        exec "$REPO_ROOT/scripts/validate.sh" "$@"
+        ;;
+    esac
+    ;;
+  mcp)
+    shift
+    case "${1:-}" in
+      setup)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent mcp setup — set up all host-side MCP prerequisites"
+          echo "  Installs Homebrew packages, Python venv, mcp-proxy-server, k8s-mcp-server."
+          echo "  Flags: -y/--yes, --rebuild"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/host/setup-host-mcp" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent mcp setup  →  scripts/host/setup-host-mcp"
+        exit 0
+        ;;
+      *)
+        echo "unknown mcp subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  help|--help|-h|"")
+    usage
+    exit 0
+    ;;
+  *)
+    echo "unknown command: $1" >&2
+    usage >&2
+    exit 1
+    ;;
+esac

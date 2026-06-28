@@ -20,14 +20,14 @@ Each infrastructure process (proxy, Caddy, ghostunnel) runs under supervisord wi
 - `servers.json` — repo-owned registry (what servers exist and their defaults)
 - `vicegerent_mcp.py` — control helper: supervisord, hot-reload, OAuth state
 - `requirements-host.txt` — Python dependencies (`rich`)
-- `scripts/host/vicegerent-mcp` — thin bash wrapper
+- `vicegerent-mcp` — thin bash wrapper
 
 ## Prerequisites
 
 Run the setup script — it handles everything idempotently:
 
 ```bash
-./scripts/host/setup-host-mcp
+./vicegerent mcp setup
 ```
 
 This installs Homebrew packages (`caddy ghostunnel node supervisor`), Python deps, clones and builds `mcp-proxy-server`, and builds the in-repo `k8s-mcp-server` Go binary. Run with `--update` to pull and rebuild `mcp-proxy-server` after upstream changes. Pass `-y` to skip confirmation prompts.
@@ -48,7 +48,7 @@ Build mcp-proxy-server (vendored at `host/mcp-proxy-server/`):
 
 ```bash
 npm --prefix host/mcp-proxy-server ci && npm --prefix host/mcp-proxy-server run build
-# or just run setup-host-mcp — it does this automatically
+# or just run: ./vicegerent mcp setup — it does this automatically
 ```
 
 </details>
@@ -73,7 +73,7 @@ doctor        check host prerequisites and auth state
 ## Start the stack
 
 ```bash
-./scripts/host/vicegerent-mcp start
+./vicegerent-mcp start
 ```
 
 `start` applies two idempotent patches to mcp-proxy-server (vendored at `host/mcp-proxy-server/`), renders runtime config, and launches supervisord. After rebuilding mcp-proxy-server (`npm --prefix host/mcp-proxy-server run build`), run `start` again to re-apply patches.
@@ -83,8 +83,8 @@ doctor        check host prerequisites and auth state
 Runtime enable/disable — does not touch `servers.json`:
 
 ```bash
-./scripts/host/vicegerent-mcp disable notion
-./scripts/host/vicegerent-mcp enable notion
+./vicegerent-mcp disable notion
+./vicegerent-mcp enable notion
 ```
 
 State lives in `~/.vicegerent/mcp/state.json` (not committed). When the stack is running, each command hot-reloads the proxy and triggers `notifications/tools/list_changed` so Hermes auto-refreshes its tool list — no `/reload-mcp` needed.
@@ -92,19 +92,19 @@ State lives in `~/.vicegerent/mcp/state.json` (not committed). When the stack is
 After `git pull` adds new servers to `servers.json`:
 
 ```bash
-./scripts/host/vicegerent-mcp reload
+./vicegerent-mcp reload
 ```
 
 ## Status and logs
 
 ```bash
-./scripts/host/vicegerent-mcp status          # rich tables
-./scripts/host/vicegerent-mcp list            # no stack required
-./scripts/host/vicegerent-mcp logs proxy      # tail proxy log (Ctrl-C to exit)
-./scripts/host/vicegerent-mcp logs caddy
-./scripts/host/vicegerent-mcp logs ghostunnel
-./scripts/host/vicegerent-mcp logs supervisord
-./scripts/host/vicegerent-mcp logs proxy -n 100  # show last 100 lines then follow
+./vicegerent-mcp status          # rich tables
+./vicegerent-mcp list            # no stack required
+./vicegerent-mcp logs proxy      # tail proxy log (Ctrl-C to exit)
+./vicegerent-mcp logs caddy
+./vicegerent-mcp logs ghostunnel
+./vicegerent-mcp logs supervisord
+./vicegerent-mcp logs proxy -n 100  # show last 100 lines then follow
 ```
 
 ## Runtime state files
@@ -146,9 +146,9 @@ The binary is built from source in this repo: `make -C host/k8s-mcp-server`.
 `mcp-remote` stores OAuth tokens in `~/.mcp-auth/mcp-remote-<version>/`. Check state:
 
 ```bash
-./scripts/host/vicegerent-mcp auth-status notion
-./scripts/host/vicegerent-mcp auth-status linear
-./scripts/host/vicegerent-mcp doctor
+./vicegerent-mcp auth-status notion
+./vicegerent-mcp auth-status linear
+./vicegerent-mcp doctor
 ```
 
 States: `authenticated` · `auth-in-progress` · `auth-incomplete` · `auth-needed` · `unknown`
@@ -158,9 +158,9 @@ States: `authenticated` · `auth-in-progress` · `auth-incomplete` · `auth-need
 Stop the stack before deleting OAuth cache to avoid wedged PKCE flows:
 
 ```bash
-./scripts/host/vicegerent-mcp stop
-./scripts/host/vicegerent-mcp auth-reset notion --yes
-./scripts/host/vicegerent-mcp start
+./vicegerent-mcp stop
+./vicegerent-mcp auth-reset notion --yes
+./vicegerent-mcp start
 ```
 
 ## mcp-proxy-server patches (applied at start)
@@ -175,7 +175,7 @@ Both patches are idempotent and re-applied on `start` if a fresh `npm run build`
 Launch an interactive dashboard with live server state, infrastructure status, and log tailing:
 
 ```bash
-./scripts/host/vicegerent-mcp tui
+./vicegerent-mcp tui
 ```
 
 Keybindings follow k9s conventions — mutating actions use `ctrl+` prefix, navigation is vim-style.
