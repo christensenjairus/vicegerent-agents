@@ -29,6 +29,7 @@ ${B}Usage:${N}
   ${C}vicegerent validate${N}            validate Flux manifests
   ${C}vicegerent validate agentgateway${N}  validate agentgateway config
   ${C}vicegerent mcp setup${N}           set up host-side MCP prerequisites
+  ${C}vicegerent slack manifest${N}      generate a Slack app manifest for a named bot
 EOF
 }
 
@@ -254,6 +255,29 @@ case "${1:-}" in
         ;;
       *)
         echo "unknown mcp subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  slack)
+    shift
+    case "${1:-}" in
+      manifest)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent slack manifest — generate a Hermes Slack app manifest for a named bot"
+          echo "  Usage: vicegerent slack manifest <name> [output-file]"
+          echo "  Example: vicegerent slack manifest \"Hermes Infra\" infra-manifest.yaml"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/slack/generate-manifest.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent slack manifest  →  scripts/slack/generate-manifest.sh"
+        exit 0
+        ;;
+      *)
+        echo "unknown slack subcommand: $1" >&2
         exit 1
         ;;
     esac
