@@ -13,3 +13,8 @@ spec:
           port: 8453
           path: /mcp
           protocol: StreamableHTTP
+  policies:
+    tcp:
+      connectTimeout: 5s
+    http:
+      requestTimeout: 30s

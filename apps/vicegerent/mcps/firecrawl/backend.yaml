@@ -13,3 +13,8 @@ spec:
           port: 3000
           path: /mcp
           protocol: StreamableHTTP
+  policies:
+    tcp:
+      connectTimeout: 5s
+    http:
+      requestTimeout: 30s
