@@ -139,29 +139,7 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 4. k8s-mcp-server (in-repo Go binary)
-# ---------------------------------------------------------------------------
-step "k8s-mcp-server (host/k8s-mcp-server/)"
-
-K8S_MCP_DIR="$REPO_ROOT/host/k8s-mcp-server"
-K8S_MCP_BIN="$K8S_MCP_DIR/k8s-mcp-server"
-
-[[ -d "$K8S_MCP_DIR" ]] || die "k8s-mcp-server source not found: $K8S_MCP_DIR"
-
-if ! command -v go >/dev/null 2>&1; then
-  warn "go not found — skipping k8s-mcp-server build. Install Go and run: make -C host/k8s-mcp-server"
-elif [[ -f "$K8S_MCP_BIN" ]]; then
-  info "k8s-mcp-server binary already built: $K8S_MCP_BIN"
-else
-  echo "  Building k8s-mcp-server with Go..."
-  confirm "make -C host/k8s-mcp-server?" || die "Aborted."
-  make -C "$K8S_MCP_DIR" --quiet
-  [[ -f "$K8S_MCP_BIN" ]] || die "Build failed — binary not found: $K8S_MCP_BIN"
-  info "k8s-mcp-server built: $K8S_MCP_BIN"
-fi
-
-# ---------------------------------------------------------------------------
-# 5. Doctor check
+# 4. Doctor check
 # ---------------------------------------------------------------------------
 step "Doctor check"
 echo

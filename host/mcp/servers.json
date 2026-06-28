@@ -10,8 +10,8 @@
       "enabled": true,
       "mode": "local-stdio",
       "name": "Kubernetes (all contexts)",
-      "command": "host/k8s-mcp-server/k8s-mcp-server",
-      "args": ["--mode", "stdio", "--read-only", "--no-helm"],
+      "command": "npx",
+      "args": ["-y", "kubernetes-mcp-server@latest", "--read-only"],
       "env": {
         "KUBECONFIG": "~/.kube/config"
       }

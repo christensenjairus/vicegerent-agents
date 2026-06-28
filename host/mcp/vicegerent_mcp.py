@@ -1038,13 +1038,6 @@ def doctor(
         found = shutil.which(binary)
         print(f"  {binary}: {found or 'MISSING'}")
 
-    # k8s-mcp-server lives in-repo; must be compiled.
-    k8s_bin = REPO_ROOT / "host" / "k8s-mcp-server" / "k8s-mcp-server"
-    if k8s_bin.exists():
-        print(f"  k8s-mcp-server: {k8s_bin}")
-    else:
-        print(f"  k8s-mcp-server: MISSING (run: make -C host/k8s-mcp-server)")
-
     print(f"proxy port:    {proxy['proxy_port']}")
     print(f"filtered port: {proxy['filtered_port']}")
     print(f"auth dir:      {auth_dir}")
