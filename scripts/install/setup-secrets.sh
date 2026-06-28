@@ -5,10 +5,11 @@
 #   - the vault itself
 #   - a Connect server + its credentials file (item "Connect Credentials")
 #   - a Connect operator token (item "Connect Token")
-#   - ghostunnel mTLS certificates split across three items:
-#       Runtime        tls.crt, tls.key, Authorization   (synced into the cluster)
-#       MCP CA         ca.cert                            (synced into the cluster)
-#       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only)
+#   - ghostunnel mTLS certificates split across four items:
+#       MCP Client     tls.crt, tls.key              (synced to agentgateway-system only)
+#       MCP CA         ca.cert                        (synced to agentgateway-system only)
+#       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
+#       Runtime        Authorization                  (synced to agentgateway-system only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #   - a Graphiti FalkorDB password (item "GraphitiFalkorDB", field "password")
 #     synced into the cluster
@@ -35,6 +36,7 @@ SERVER_NAME="${OP_CONNECT_SERVER:-Vicegerent}"
 TOKEN_NAME="${OP_CONNECT_TOKEN_NAME:-Vicegerent Operator}"
 
 RUNTIME_ITEM="Runtime"
+CLIENT_ITEM="MCP Client"
 CA_ITEM="MCP CA"
 HOST_ITEM="Ghostunnel Host"
 CRED_ITEM="Connect Credentials"
@@ -222,7 +224,7 @@ op_field_exists "$HOST_ITEM" "ca.key"  && have_ca_key=1
 
 # Detect an unrecoverable split: leaf certs exist but the CA key to re-sign is gone.
 leaf_present=0
-op_field_exists "$RUNTIME_ITEM" "tls.crt" && leaf_present=1
+op_field_exists "$CLIENT_ITEM" "tls.crt" && leaf_present=1
 op_field_exists "$HOST_ITEM" "server.crt" && leaf_present=1
 
 NEW_CA=0
@@ -270,8 +272,8 @@ else
   else
     need_server=1
   fi
-  if op_field_exists "$RUNTIME_ITEM" "tls.crt" && op_field_exists "$RUNTIME_ITEM" "tls.key"; then
-    if leaf_expiring_soon "$RUNTIME_ITEM" "tls.crt"; then
+  if op_field_exists "$CLIENT_ITEM" "tls.crt" && op_field_exists "$CLIENT_ITEM" "tls.key"; then
+    if leaf_expiring_soon "$CLIENT_ITEM" "tls.crt"; then
       warn "Client certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
       if confirm "Re-issue the client cert from the existing CA (resets validity to 825 days)."; then
         need_client=1
@@ -336,10 +338,10 @@ if [[ $need_server -eq 1 ]]; then
 fi
 
 if [[ $need_client -eq 1 ]]; then
-  ensure_item "$RUNTIME_ITEM"
-  set_field "$RUNTIME_ITEM" "tls.crt" "$CERTS/client.crt" text
-  set_field "$RUNTIME_ITEM" "tls.key" "$CERTS/client.key" concealed
-  info "Set '$RUNTIME_ITEM' tls.crt + tls.key (client identity, synced into the cluster)."
+  ensure_item "$CLIENT_ITEM"
+  set_field "$CLIENT_ITEM" "tls.crt" "$CERTS/client.crt" text
+  set_field "$CLIENT_ITEM" "tls.key" "$CERTS/client.key" concealed
+  info "Set '$CLIENT_ITEM' tls.crt + tls.key (client identity, synced to agentgateway-system only)."
 fi
 
 # --- Dashboard basic-auth (per-agent) --------------------------------------
@@ -702,8 +704,8 @@ check() {
 check "$CRED_ITEM" "1password-credentials.json"
 check "$TOKEN_ITEM" "token"
 check "$CA_ITEM" "ca.cert"
-check "$RUNTIME_ITEM" "tls.crt"
-check "$RUNTIME_ITEM" "tls.key"
+check "$CLIENT_ITEM" "tls.crt"
+check "$CLIENT_ITEM" "tls.key"
 check "$RUNTIME_ITEM" "Authorization"
 check "$HOST_ITEM" "server.crt"
 check "$HOST_ITEM" "server.key"

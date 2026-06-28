@@ -19,7 +19,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: sync
-          image: alpine/k8s:latest
+          image: alpine/k8s:1.33.13
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

@@ -132,6 +132,16 @@
         "args:\\s*\\[\\s*-y\\s*,\\s*'?(?<depName>[^@'\\s\\]]+)@(?<currentValue>[^'\\s\\]]+)'?\\s*\\]"
       ],
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^host/mcp/servers\\.json$/"
+      ],
+      "matchStrings": [
+        "\"-y\",\\s+\"(?<depName>[^@\"\\s]+)@(?<currentValue>[^\"\\s]+)\""
+      ],
+      "datasourceTemplate": "npm"
     }
   ]
 }

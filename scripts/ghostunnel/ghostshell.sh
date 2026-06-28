@@ -8,7 +8,7 @@ set -euo pipefail
 OP_VAULT="${OP_VAULT:-Vicegerent}"
 OP_HOST_ITEM="${OP_HOST_ITEM:-Ghostunnel Host}"
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
-LISTEN="${LISTEN:-${HOST_ONLY_IP}:8443}"
+LISTEN="${LISTEN:-${HOST_ONLY_IP}:8453}"
 TARGET="${TARGET:-127.0.0.1:8080}"
 ALLOW_CN="${ALLOW_CN:-agent-client}"
 GHOSTUNNEL="${GHOSTUNNEL:-ghostunnel}"
