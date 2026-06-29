@@ -163,3 +163,28 @@ s = open(spec.origin).read(); \
 assert 'anthropic/claude-haiku-4-5' in s, 'agentburn-custom-prices patch marker missing after apply'; \
 print('agentburn custom prices patch verified in ' + spec.origin)"
 RUN rm -f /tmp/0004-agentburn-custom-prices.py
+
+# Patch agentburn hermes adapter to honour HERMES_HOME env var so the MCP
+# server finds state.db at /opt/data/state.db instead of ~/.hermes/state.db.
+# Remove once agentburn upstreams HERMES_HOME support.
+COPY patches/0005-agentburn-hermes-home.py /tmp/0005-agentburn-hermes-home.py
+RUN /opt/hermes/.venv/bin/python /tmp/0005-agentburn-hermes-home.py \
+    && /opt/hermes/.venv/bin/python -c "\
+import importlib.util; spec = importlib.util.find_spec('agentburn.adapters.hermes'); \
+s = open(spec.origin).read(); \
+assert 'HERMES_HOME' in s, '0005 patch marker missing after apply'; \
+print('agentburn HERMES_HOME patch verified in ' + spec.origin)"
+RUN rm -f /tmp/0005-agentburn-hermes-home.py
+
+# Patch Hermes usage_pricing.py to map vicegerent agentgateway provider keys
+# (sonnet/haiku/opus/gpt-5-5/gpt-4-1/gpt-4o-mini) to their upstream billing
+# provider so estimated_cost_usd is computed and written to state.db.
+# Remove once Hermes supports a billing_provider field in the provider config.
+COPY patches/0006-usage-pricing-billing-route.py /tmp/0006-usage-pricing-billing-route.py
+RUN /opt/hermes/.venv/bin/python /tmp/0006-usage-pricing-billing-route.py \
+    && /opt/hermes/.venv/bin/python -c "\
+import importlib.util; spec = importlib.util.find_spec('agent.usage_pricing'); \
+s = open(spec.origin).read(); \
+assert '_VICEGERENT_ANTHROPIC_PROVIDERS' in s, '0006 patch marker missing after apply'; \
+print('usage_pricing billing route patch verified in ' + spec.origin)"
+RUN rm -f /tmp/0006-usage-pricing-billing-route.py

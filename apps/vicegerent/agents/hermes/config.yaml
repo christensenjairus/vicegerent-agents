@@ -73,6 +73,8 @@ data:
       agentburn:
         command: /opt/hermes/.venv/bin/agentburn
         args: [mcp]
+        env:
+          HERMES_HOME: /opt/data
       tavily:
         url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily
         timeout: 30
