@@ -31,7 +31,7 @@ for cmd in kubectl op python3; do
 done
 op account get >/dev/null 2>&1 || { echo "1Password CLI is not signed in. Run: op signin" >&2; exit 1; }
 
-ITEM="Agent: ${AGENT}"
+ITEM="Agent - ${AGENT}"
 PASSWORD="$(op read "op://${OP_VAULT}/${ITEM}/password")"
 [[ -n "$PASSWORD" ]] || {   echo "Missing op://${OP_VAULT}/${ITEM}/password. Run: ./vicegerent secrets setup (with DASHBOARD_AUTH_AGENTS including '${AGENT}')." >&2; exit 1; }
 

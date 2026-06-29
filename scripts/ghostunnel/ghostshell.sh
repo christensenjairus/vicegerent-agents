@@ -6,7 +6,7 @@
 set -euo pipefail
 
 OP_VAULT="${OP_VAULT:-Vicegerent}"
-OP_HOST_ITEM="${OP_HOST_ITEM:-Host: MCP Tunnel}"
+OP_HOST_ITEM="${OP_HOST_ITEM:-Host - MCP Tunnel}"
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
 LISTEN="${LISTEN:-${HOST_ONLY_IP}:8453}"
 TARGET="${TARGET:-127.0.0.1:8080}"
