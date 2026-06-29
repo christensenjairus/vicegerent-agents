@@ -24,6 +24,18 @@ Prerequisites:
 - `jq`
 - SSH access to `gitlab.hahomelabs.com:jchristensen/vicegerent-agents`
 
+Install `socket_vmnet` (one-time). The cluster uses `socket_vmnet` instead of
+`vmnet-shared` for reliable networking across macOS sleep/wake cycles. The
+`sudo brew services` form is required because `socket_vmnet` must run as root to
+bind the vmnet interface, and the firewall rules allow it to hand out DHCP leases:
+
+```bash
+brew install socket_vmnet
+HOMEBREW=$(which brew) && sudo ${HOMEBREW} services start socket_vmnet
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add /usr/libexec/bootpd
+sudo /usr/libexec/ApplicationFirewall/socketfilterfw --unblock /usr/libexec/bootpd
+```
+
 Create the cluster:
 
 ```bash
