@@ -96,9 +96,20 @@ proxy entirely. `git push` content is not inspectable at the HTTP layer. The SSH
 deploy key's scope (read-only vs read-write, per-repo vs org-wide) is the control here.
 
 ### Slack traffic
-`*.slack.com:443` is direct. Slack Socket Mode requires POST and WebSocket — both are
-blocked by the proxy's rules, so Slack must bypass it. Slack traffic carries no
-sandbox secrets (API keys, SSH keys) by design.
+Four specific Slack FQDNs are allowed direct (bypassing the proxy) via Cilium policy
+and `no_proxy`. Slack Socket Mode requires POST and WebSocket — both blocked by the
+proxy — so Slack must go direct.
+
+| FQDN | Purpose |
+|---|---|
+| `slack.com` | Web API (`slack.com/api/*`) — all bot API calls |
+| `wss-primary.slack.com` | Socket Mode WebSocket (primary endpoint) |
+| `wss-backup.slack.com` | Socket Mode WebSocket (failover endpoint) |
+| `files.slack.com` | File/image downloads for attachment handling |
+
+The former `*.slack.com` wildcard is removed. If Slack rotates the WSS hostname,
+Socket Mode reconnections will fail — add the new hostname to `networkpolicy.yaml`
+and `no_proxy` in `sandbox.yaml`. Slack traffic carries no sandbox secrets by design.
 
 ### Streaming responses
 SSE (`text/event-stream`) and chunked transfer responses skip response body scrubbing

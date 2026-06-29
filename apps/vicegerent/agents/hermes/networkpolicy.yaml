@@ -29,9 +29,22 @@ spec:
             - port: '8080'
               protocol: TCP
     # Slack uses Socket Mode (WSS) + POST Web API — bypass the GET-only proxy.
+    # Restricted to exactly the FQDNs slack-bolt needs; wildcard *.slack.com removed.
+    #
+    # slack.com          — Web API (slack.com/api/*): auth.test, chat.postMessage,
+    #                      apps.connections.open, reactions.*, files.*, users.info, etc.
+    # wss-primary.slack.com — Socket Mode WebSocket endpoint (primary)
+    # wss-backup.slack.com  — Socket Mode WebSocket endpoint (failover)
+    # files.slack.com    — File/image downloads when hermes reads attachments
+    #
+    # NOTE: if Slack rotates the WSS hostname (rare but possible), Socket Mode will
+    # fail to reconnect and you'll see apps.connections.open succeed but the WSS
+    # connection refused. Add the new hostname here and to no_proxy in sandbox.yaml.
     - toFQDNs:
         - matchName: slack.com
-        - matchPattern: '*.slack.com'
+        - matchName: wss-primary.slack.com
+        - matchName: wss-backup.slack.com
+        - matchName: files.slack.com
       toPorts:
         - ports:
             - port: '443'
