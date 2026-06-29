@@ -12,7 +12,7 @@ spec:
     port: 3000
     env:
       HOME: /home/node
-      NODE_OPTIONS: --max-old-space-size=384
+      NODE_OPTIONS: --max-heap-size=400 --max-semi-space-size=16
     secretRefs:
       - name: firecrawl-api-key
     serviceAccountName: firecrawl
