@@ -1,8 +1,8 @@
 diff --git a/controller/test/e2e/extmcp_test.go b/controller/test/e2e/extmcp_test.go
-index a668732..e2cf32d 100644
+index a668732..e16d6d4 100644
 --- a/controller/test/e2e/extmcp_test.go
 +++ b/controller/test/e2e/extmcp_test.go
-@@ -45,17 +45,34 @@ func testExtMcpRequestDeniesForbiddenTool(t base.Test) {
+@@ -45,17 +45,38 @@ func testExtMcpRequestDeniesForbiddenTool(t base.Test) {
  	// the retrying Send warms up the (otherwise cold) gRPC connection, mirroring the
  	// allowed/mutate cases. Without it, the first extmcp call in the suite can hang on
  	// connect until curl's timeout.
@@ -25,14 +25,18 @@ index a668732..e2cf32d 100644
  		t.Fatalf("deny response should name the forbidden tool: %s", raw)
  	}
 +	// Confirm the 200 carries a JSON-RPC error, not a success result.
++	// Guardrail rejections are plain application/json (not SSE), so fall back
++	// to parsing raw directly when SSE unwrapping finds no data frame.
 +	var rpcResp struct {
 +		Error *struct {
 +			Message string `json:"message"`
 +		} `json:"error,omitempty"`
 +	}
-+	if payload, ok := FirstSSEDataPayload(raw); ok {
-+		_ = json.Unmarshal([]byte(payload), &rpcResp)
++	payload, ok := FirstSSEDataPayload(raw)
++	if !ok {
++		payload = raw
 +	}
++	_ = json.Unmarshal([]byte(payload), &rpcResp)
 +	if rpcResp.Error == nil {
 +		t.Fatalf("expected JSON-RPC error in deny response, got: %s", raw)
 +	}
