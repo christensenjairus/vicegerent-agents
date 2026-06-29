@@ -153,57 +153,18 @@ print("toolsearch patch: offline context-length resolution OK ->", v)
 PY
 RUN rm -f /tmp/0001-toolsearch-context-length.py
 
-# Patch agentburn prices to include Anthropic models not in the 0.11.0 snapshot; remove once
-# agentburn supports a user price overlay or adds these models to its own embedded table.
-COPY patches/0004-agentburn-custom-prices.py /tmp/0004-agentburn-custom-prices.py
-RUN /opt/hermes/.venv/bin/python /tmp/0004-agentburn-custom-prices.py \
-    && /opt/hermes/.venv/bin/python -c "\
-import importlib.util; spec = importlib.util.find_spec('agentburn.prices'); \
-s = open(spec.origin).read(); \
-assert 'anthropic/claude-haiku-4-5' in s, 'agentburn-custom-prices patch marker missing after apply'; \
-print('agentburn custom prices patch verified in ' + spec.origin)"
-RUN rm -f /tmp/0004-agentburn-custom-prices.py
+# Patch agentburn: (1) HERMES_HOME support in the hermes adapter so the MCP
+# server finds state.db at $HERMES_HOME instead of ~/.hermes/state.db, and
+# (2) inject missing model prices for Anthropic/OpenAI models we run.
+# Remove once agentburn upstreams HERMES_HOME support and adds these models.
+COPY patches/0004-agentburn.py /tmp/0004-agentburn.py
+RUN /opt/hermes/.venv/bin/python /tmp/0004-agentburn.py
+RUN rm -f /tmp/0004-agentburn.py
 
-# Patch agentburn hermes adapter to honour HERMES_HOME env var so the MCP
-# server finds state.db at /opt/data/state.db instead of ~/.hermes/state.db.
-# Remove once agentburn upstreams HERMES_HOME support.
-COPY patches/0005-agentburn-hermes-home.py /tmp/0005-agentburn-hermes-home.py
-RUN /opt/hermes/.venv/bin/python /tmp/0005-agentburn-hermes-home.py \
-    && /opt/hermes/.venv/bin/python -c "\
-import importlib.util; spec = importlib.util.find_spec('agentburn.adapters.hermes'); \
-s = open(spec.origin).read(); \
-assert 'HERMES_HOME' in s, '0005 patch marker missing after apply'; \
-print('agentburn HERMES_HOME patch verified in ' + spec.origin)"
-RUN rm -f /tmp/0005-agentburn-hermes-home.py
-
-# Patch Hermes usage_pricing.py to map vicegerent agentgateway provider keys
-# (sonnet/haiku/opus/gpt-5-5/gpt-4-1/gpt-4o-mini) to their upstream billing
-# provider so estimated_cost_usd is computed and written to state.db.
+# Patch Hermes billing chain so agentgateway route-name providers (sonnet,
+# haiku, opus, gpt-4-1, etc.) resolve to real cost figures in state.db.
+# Fixes three intercept points: runtime_provider.py, auth.py, usage_pricing.py.
 # Remove once Hermes supports a billing_provider field in the provider config.
-COPY patches/0006-usage-pricing-billing-route.py /tmp/0006-usage-pricing-billing-route.py
-RUN /opt/hermes/.venv/bin/python /tmp/0006-usage-pricing-billing-route.py \
-    && /opt/hermes/.venv/bin/python -c "\
-import importlib.util; spec = importlib.util.find_spec('agent.usage_pricing'); \
-s = open(spec.origin).read(); \
-assert '_VICEGERENT_ANTHROPIC_PROVIDERS' in s, '0006 patch marker missing after apply'; \
-print('usage_pricing billing route patch verified in ' + spec.origin)"
-RUN rm -f /tmp/0006-usage-pricing-billing-route.py
-
-# Patch hermes_cli/auth.py::resolve_provider() to map vicegerent agentgateway
-# route-name provider keys to their canonical Hermes billing provider so the
-# full provider resolution chain yields real cost numbers instead of 'custom'.
-# Remove once Hermes supports a billing_provider field in the provider config.
-COPY patches/0007-provider-aliases.py /tmp/0007-provider-aliases.py
-# Verification runs inside the patch script itself; a separate Dockerfile -c
-# assert cannot safely embed double-quotes inside a double-quoted shell string.
-RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py
-RUN rm -f /tmp/0007-provider-aliases.py
-
-# Patch hermes_cli/runtime_provider.py::_resolve_named_custom_runtime to return
-# requested_provider (e.g. "sonnet") instead of hardcoded "custom" for named
-# custom providers, so agent.provider carries the route name into billing_provider
-# in state.db where patch 0007 can resolve it to the upstream billing identity.
-# Remove once Hermes supports a billing_provider field in the provider config.
-COPY patches/0008-runtime-provider-billing.py /tmp/0008-runtime-provider-billing.py
-RUN /opt/hermes/.venv/bin/python /tmp/0008-runtime-provider-billing.py
-RUN rm -f /tmp/0008-runtime-provider-billing.py
+COPY patches/0005-hermes-billing.py /tmp/0005-hermes-billing.py
+RUN /opt/hermes/.venv/bin/python /tmp/0005-hermes-billing.py
+RUN rm -f /tmp/0005-hermes-billing.py
