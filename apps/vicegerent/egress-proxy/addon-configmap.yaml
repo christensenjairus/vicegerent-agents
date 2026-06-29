@@ -39,6 +39,9 @@ data:
     from mitmproxy import http
     log = logging.getLogger("egress-proxy")
     ALLOWED_METHODS = {"GET", "HEAD"}
+    # URL length limit — blocks naive base64/hex query-string exfiltration.
+    # 2048 chars is generous for all legitimate API/search use cases.
+    MAX_URL_LENGTH = 2048
 
     # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
@@ -124,6 +127,28 @@ data:
             flow.response = http.Response.make(
                 403,
                 "[egress-proxy] WebSocket upgrade blocked — add host to no_proxy",
+                {"Content-Type": "text/plain"},
+            )
+            return
+
+        # URL length limit on external requests — caps naive query-string exfiltration.
+        # Legitimate API/search URLs are well under 2048 chars.
+        if not internal and len(url) > MAX_URL_LENGTH:
+            log.warning("BLOCKED url-too-long len=%d method=%s url=%.120s…", len(url), method, url)
+            flow.response = http.Response.make(
+                403,
+                f"[egress-proxy] URL too long ({len(url)} > {MAX_URL_LENGTH})",
+                {"Content-Type": "text/plain"},
+            )
+            return
+
+        # Block GET/HEAD request bodies on external requests — no legitimate use,
+        # potential exfiltration channel.
+        if not internal and method in ALLOWED_METHODS and flow.request.content:
+            log.warning("BLOCKED get-body method=%s url=%s", method, url)
+            flow.response = http.Response.make(
+                403,
+                "[egress-proxy] GET/HEAD request bodies are not permitted",
                 {"Content-Type": "text/plain"},
             )
             return

@@ -47,19 +47,28 @@ spec:
         - ports:
             - port: '8080'
               protocol: TCP
-    # Public internet — private/link-local/loopback excluded (Cilium + addon both enforce).
-    - toCIDRSet:
-        - cidr: 0.0.0.0/0
-          except:
-            - 10.0.0.0/8
-            - 172.16.0.0/12
-            - 192.168.0.0/16
-            - 169.254.0.0/16
-            - 127.0.0.0/8
-            - 100.64.0.0/10
+    # Public internet — minimal FQDN allowlist.
+    # Add FQDNs here (not hermes policy) when a new external service is needed.
+    - toFQDNs:
+        - matchName: pypi.org
+        - matchName: github.com
+        - matchPattern: '*.github.com'
+        - matchName: githubusercontent.com
+        - matchPattern: '*.githubusercontent.com'
       toPorts:
         - ports:
             - port: '443'
               protocol: TCP
             - port: '80'
               protocol: TCP
+  # Explicit deny for private/link-local/loopback/CGNAT — defence-in-depth.
+  # egressDeny takes precedence over egress allows, guarding against DNS rebinding
+  # and future accidental CIDR additions.
+  egressDeny:
+    - toCIDRSet:
+        - cidr: 10.0.0.0/8
+        - cidr: 172.16.0.0/12
+        - cidr: 192.168.0.0/16
+        - cidr: 169.254.0.0/16
+        - cidr: 127.0.0.0/8
+        - cidr: 100.64.0.0/10
