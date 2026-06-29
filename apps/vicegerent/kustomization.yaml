@@ -15,5 +15,6 @@ resources:
   - mcps/tavily
   - mcps/firecrawl
   - mcps/kmcp
+  - egress-proxy
   - searxng
   - agents/hermes

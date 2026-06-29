@@ -1,0 +1,87 @@
+---
+# mitmproxy allowlist addon. Only GET and HEAD are permitted for proxied HTTPS traffic.
+# All other methods (POST, PUT, PATCH, DELETE, etc.) are blocked.
+# WebSocket upgrades are blocked at the HTTP layer (request hook) and at the WS layer
+# (websocket_start hook) — belt-and-suspenders since a WS connection is an unrestricted
+# bidirectional channel that would bypass method enforcement entirely.
+# Private/link-local destinations are blocked to prevent SSRF against cloud metadata
+# endpoints (169.254.169.254) and RFC1918 hosts reachable from the node.
+# Slack traffic bypasses this proxy via no_proxy + direct Cilium FQDN egress.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: egress-proxy-addon
+  namespace: egress-proxy
+data:
+  get-only.py: |-
+    import ipaddress
+    import logging
+    from mitmproxy import http, websocket
+    log = logging.getLogger("egress-proxy")
+    ALLOWED_METHODS = {"GET", "HEAD"}
+
+    # RFC1918, link-local, loopback, and IANA special-purpose ranges.
+    # Cloud metadata endpoints (169.254.169.254) are link-local and covered by that range.
+    PRIVATE_NETWORKS = [
+        ipaddress.ip_network("10.0.0.0/8"),
+        ipaddress.ip_network("172.16.0.0/12"),
+        ipaddress.ip_network("192.168.0.0/16"),
+        ipaddress.ip_network("169.254.0.0/16"),
+        ipaddress.ip_network("127.0.0.0/8"),
+        ipaddress.ip_network("::1/128"),
+        ipaddress.ip_network("fc00::/7"),
+        ipaddress.ip_network("fe80::/10"),
+    ]
+    def _is_private(host: str) -> bool:
+        try:
+            addr = ipaddress.ip_address(host)
+            return any(addr in net for net in PRIVATE_NETWORKS)
+        except ValueError:
+            return False  # hostname — let DNS + Cilium handle it
+    def request(flow: http.HTTPFlow) -> None:
+        host = flow.request.pretty_host
+        method = flow.request.method
+        url = flow.request.pretty_url
+
+        # Block private/link-local destinations (SSRF protection).
+        if _is_private(host):
+            log.warning("BLOCKED private-dest method=%s url=%s", method, url)
+            flow.response = http.Response.make(
+                403,
+                f"[egress-proxy] destination {host} is a private address — blocked",
+                {"Content-Type": "text/plain"},
+            )
+            return
+
+        # Block WebSocket upgrade at the HTTP layer.
+        if flow.request.headers.get("upgrade", "").lower() == "websocket":
+            log.warning("BLOCKED websocket-upgrade method=%s url=%s", method, url)
+            flow.response = http.Response.make(
+                403,
+                "[egress-proxy] WebSocket upgrade blocked — add host to no_proxy to bypass",
+                {"Content-Type": "text/plain"},
+            )
+            return
+
+        # Enforce GET/HEAD allowlist.
+        if method not in ALLOWED_METHODS:
+            log.warning("BLOCKED method=%s url=%s", method, url)
+            flow.response = http.Response.make(
+                403,
+                f"[egress-proxy] {method} blocked — read-only proxy (GET/HEAD only)",
+                {"Content-Type": "text/plain"},
+            )
+            return
+        log.info("ALLOW method=%s url=%s", method, url)
+    def response(flow: http.HTTPFlow) -> None:
+        status = flow.response.status_code if flow.response else "-"
+        log.info(
+            "RESPONSE method=%s url=%s status=%s",
+            flow.request.method,
+            flow.request.pretty_url,
+            status,
+        )
+    def websocket_start(flow: websocket.WebSocketFlow) -> None:
+        # Belt-and-suspenders: kill any WS connection that made it past the request hook.
+        log.warning("BLOCKED websocket-start host=%s", flow.request.pretty_host)
+        flow.kill()

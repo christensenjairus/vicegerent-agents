@@ -1,0 +1,15 @@
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: egress-proxy
+  namespace: egress-proxy
+  labels:
+    app.kubernetes.io/name: egress-proxy
+spec:
+  selector:
+    app.kubernetes.io/name: egress-proxy
+  ports:
+    - name: proxy
+      port: 8080
+      targetPort: proxy

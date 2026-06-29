@@ -34,6 +34,22 @@ spec:
                   name: searxng-secret
                   key: secret_key
                   optional: false
+            - name: https_proxy
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: http_proxy
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: HTTPS_PROXY
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: HTTP_PROXY
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: no_proxy
+              value: .cluster.local,.svc,127.0.0.1,localhost
+            - name: NO_PROXY
+              value: .cluster.local,.svc,127.0.0.1,localhost
+            - name: SSL_CERT_FILE
+              value: /etc/egress-proxy-ca/ca.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /etc/egress-proxy-ca/ca.crt
           ports:
             - containerPort: 8080
               name: http
@@ -63,6 +79,9 @@ spec:
               mountPath: /etc/searxng/settings.yml
               subPath: settings.yml
               readOnly: true
+            - name: egress-proxy-ca-cert
+              mountPath: /etc/egress-proxy-ca
+              readOnly: true
             - name: data
               mountPath: /var/cache/searxng
             - name: tmp
@@ -71,6 +90,10 @@ spec:
         - name: settings
           configMap:
             name: searxng-settings
+        - name: egress-proxy-ca-cert
+          secret:
+            secretName: egress-proxy-ca-cert  # pragma: allowlist secret
+            optional: false
         - name: data
           emptyDir: {}
         - name: tmp

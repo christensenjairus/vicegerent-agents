@@ -51,6 +51,9 @@ spec:
               set -euo pipefail
               dest="/opt/data/.hermes"
               mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins /opt/data/.ssh
+              # Seed egress proxy CA cert so curl, pip, git, and Python requests trust it.
+              mkdir -p /opt/data/certs
+              cp -f /reload/egress-proxy-ca/ca.crt /opt/data/certs/egress-proxy-ca.crt
               # digest-gated reseed: only re-copy when image digest changes; rm-first so stale weights don't linger.
               seed="/opt/hermes/mnemosyne-seed"
               marker="${dest}/.mnemosyne-seed.sha256"
@@ -89,6 +92,9 @@ spec:
               readOnly: true
             - name: claude-config
               mountPath: /reload/claude-config
+              readOnly: true
+            - name: egress-proxy-ca-cert
+              mountPath: /reload/egress-proxy-ca
               readOnly: true
       containers:
         - name: hermes
@@ -129,6 +135,34 @@ spec:
               value: sonnet
             - name: HERMES_SLACK_COMMAND_NAME
               value: felix
+            # Route all HTTP(S) traffic through the GET-only MITM proxy.
+            - name: http_proxy
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: https_proxy
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: HTTP_PROXY
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            - name: HTTPS_PROXY
+              value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
+            # Trust the proxy CA across all tooling that respects these env vars.
+            - name: SSL_CERT_FILE
+              value: /opt/data/certs/egress-proxy-ca.crt
+            - name: REQUESTS_CA_BUNDLE
+              value: /opt/data/certs/egress-proxy-ca.crt
+            - name: CURL_CA_BUNDLE
+              value: /opt/data/certs/egress-proxy-ca.crt
+            - name: GIT_SSL_CAINFO
+              value: /opt/data/certs/egress-proxy-ca.crt
+            - name: NODE_EXTRA_CA_CERTS
+              value: /opt/data/certs/egress-proxy-ca.crt
+            - name: PIP_CERT
+              value: /opt/data/certs/egress-proxy-ca.crt
+            # Exclude in-cluster traffic from the proxy (agentgateway, searxng, etc.).
+            # Slack is excluded too — Socket Mode + Web API require POST; bypass directly.
+            - name: no_proxy
+              value: .cluster.local,.svc,127.0.0.1,localhost,slack.com,.slack.com
+            - name: NO_PROXY
+              value: .cluster.local,.svc,127.0.0.1,localhost,slack.com,.slack.com
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
             # Config homes on PVC (seeded by seed-data) to stay writable under readOnlyRootFilesystem.
@@ -222,6 +256,11 @@ spec:
           secret:
             secretName: hermes-ssh-key  # pragma: allowlist secret
             defaultMode: 0400
+            optional: true
+        - name: egress-proxy-ca-cert
+          secret:
+            secretName: egress-proxy-ca-cert  # pragma: allowlist secret
+            optional: false
   volumeClaimTemplates:
     - metadata:
         name: data
