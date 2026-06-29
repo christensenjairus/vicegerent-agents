@@ -169,7 +169,9 @@ def make_caddyfile(config: dict[str, Any]) -> str:
   auto_https off
 }}
 
-127.0.0.1:{filtered_port} {{
+:{filtered_port} {{
+  bind {host}
+
   @mcp_request {{
     method POST GET
     path /mcp
