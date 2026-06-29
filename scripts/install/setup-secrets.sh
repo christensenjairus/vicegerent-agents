@@ -11,11 +11,10 @@
 #       Host: MCP Tunnel  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
 #       Agentgateway: Anthropic  Authorization                  (→ agentgateway-system)
 #   - one item per agent workload:
-#       Agent: hermes  password, signing-secret,
+#       Agent: hermes  password, signing-secret, private-key, public-key,
 #                      SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL
 #                      (→ agent-sandbox only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
-#   - an SSH private key (item "Hermes SSH Key") for git push/pull from inside the sandbox
 #     (auto-generated ed25519 key; never uses one of the user's existing keys)
 
 # Properties:
@@ -48,7 +47,6 @@ SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="MCP: Tavily"
 FIRECRAWL_ITEM="MCP: Firecrawl"
 HERMES_ITEM="Agent: hermes"
-SSH_KEY_ITEM="Hermes SSH Key"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -629,26 +627,28 @@ else
   fi
 fi
 
-# --- SSH key for git push/pull ------------------------------------------------
 # Generates a dedicated ed25519 key for the hermes agent (generate-once, stored
 # in 1Password). The private key is concealed; the public key is stored as a
 # text field so it is easy to find and add to GitLab/GitHub deploy keys.
 # Never asks the user to upload one of their existing keys.
-step "SSH key for git push/pull"
-ensure_item "$SSH_KEY_ITEM"
-if op_field_exists "$SSH_KEY_ITEM" "private-key"; then
-  info "SSH private key already in '$SSH_KEY_ITEM' (private-key); nothing to do."
+# --- SSH key for git operations -------------------------------------------------
+# private-key + public-key stored in Agent: hermes so the hermes pod reads the
+# key from hermes-secrets (the same secret as dashboard auth and Slack tokens).
+step "SSH key for hermes agent"
+ensure_item "$HERMES_ITEM"
+if op_field_exists "$HERMES_ITEM" "private-key"; then
+  info "SSH private key already in '$HERMES_ITEM' (private-key); nothing to do."
   echo
   echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op read "op://$VAULT/$SSH_KEY_ITEM/public-key" 2>/dev/null || true
+  op read "op://$VAULT/$HERMES_ITEM/public-key" 2>/dev/null || true
 else
-  confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$SSH_KEY_ITEM'." \
+  confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$HERMES_ITEM'." \
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
   if [[ $? -eq 0 ]]; then
     ssh-keygen -t ed25519 -C "hermes-agent@vicegerent" -N "" -f "$CERTS/hermes_agent_ed25519" >/dev/null 2>&1
-    set_field "$SSH_KEY_ITEM" "private-key" "$CERTS/hermes_agent_ed25519" concealed
-    set_field "$SSH_KEY_ITEM" "public-key"  "$CERTS/hermes_agent_ed25519.pub" text
-    info "Stored generated SSH key in '$SSH_KEY_ITEM'."
+    set_field "$HERMES_ITEM" "private-key" "$CERTS/hermes_agent_ed25519" concealed
+    set_field "$HERMES_ITEM" "public-key"  "$CERTS/hermes_agent_ed25519.pub" text
+    info "Stored generated SSH key in '$HERMES_ITEM'."
     echo
     echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab/GitHub deploy keys):"
     cat "$CERTS/hermes_agent_ed25519.pub"
@@ -689,7 +689,7 @@ check_optional "$HERMES_ITEM" "SLACK_BOT_TOKEN"
 check_optional "$HERMES_ITEM" "SLACK_APP_TOKEN"
 check_optional "$HERMES_ITEM" "SLACK_ALLOWED_USERS"
 check_optional "$HERMES_ITEM" "SLACK_HOME_CHANNEL"
-check_optional "$SSH_KEY_ITEM" "private-key"
+check_optional "$HERMES_ITEM" "private-key"
 
 echo
 if [[ $missing -eq 0 ]]; then

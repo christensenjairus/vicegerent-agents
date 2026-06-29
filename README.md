@@ -65,7 +65,7 @@ Agentgateway: OpenAI         Authorization                 (optional OpenAI key 
 Agentgateway: Host MCP       tls.crt, tls.key             (mTLS client cert → agentgateway-system)
 Agentgateway: Host MCP CA    ca.cert                       (public CA → agentgateway-system)
 Host: MCP Tunnel             server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
-Agent: hermes                password, signing-secret, Slack tokens    (→ agent-sandbox)
+Agent: hermes                password, signing-secret, private-key, public-key, Slack tokens  (→ agent-sandbox)
 ```
 
 The CA private key lives only in `Host: MCP Tunnel` so a re-run can re-issue a missing leaf certificate without rebuilding the chain. The server private key never enters Kubernetes. 1Password is the single source of truth for this material, for both the laptop and the cluster.
