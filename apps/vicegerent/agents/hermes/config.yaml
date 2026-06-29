@@ -131,6 +131,29 @@ data:
           tool_progress: false
     approvals:
       mode: smart
+    command_allowlist:
+      # General patterns (fnmatch globs) — avoids per-command approval noise.
+      # Destructive git ops
+      - "git reset --hard *"
+      - "git clean -fd*"
+      - "git clean -dfx*"
+      - "git push * --force*"
+      - "git push *-f *"
+      # Script execution via heredoc (python3 - <<'EOF' pattern used heavily)
+      - "python3 - <<*"
+      - "python3 -c *"
+      - "python3 -m *"
+      # Shell -c invocations (used by pre-commit, build tools, etc.)
+      - "bash -c *"
+      - "sh -c *"
+      # find -exec rm (used for cleanup tasks like chmod fixing)
+      - "find * -exec chmod *"
+      - "find * -exec rm *"
+      # rm in repo workspace (destructive but scoped to /workspace)
+      - "rm -rf /workspace/*"
+      - "rm -rf /tmp/*"
+      # Recursive delete of build/cache artifacts
+      - "rm -rf /opt/data/tmp/*"
     checkpoints:
       enabled: true
     timezone: America/Denver
