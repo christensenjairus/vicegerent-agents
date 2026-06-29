@@ -629,29 +629,25 @@ else
 fi
 
 # Generates a dedicated ed25519 key for the hermes agent (generate-once, stored
-# in 1Password). The private key is concealed; the public key is stored as a
-# text field so it is easy to find and add to GitLab/GitHub deploy keys.
+# as a 1Password Document so newlines are preserved exactly). The public key is
+# stored as a text field in Agent - hermes for easy retrieval.
 # Never asks the user to upload one of their existing keys.
-# --- SSH key for git operations -------------------------------------------------
-# private-key + public-key stored in Agent - hermes so the hermes pod reads the
-# key from hermes-secrets (the same secret as dashboard auth and Slack tokens).
 step "SSH key for hermes agent"
-ensure_item "$HERMES_ITEM"
-if op_field_exists "$HERMES_ITEM" "private-key"; then
-  info "SSH private key already in '$HERMES_ITEM' (private-key); nothing to do."
+if op document get "$HERMES_ITEM_SSH" --vault "$VAULT" &>/dev/null; then
+  info "SSH key document '$HERMES_ITEM_SSH' already exists; nothing to do."
   echo
   echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op read "op://$VAULT/$HERMES_ITEM/public-key" 2>/dev/null || true
+  op item get "$HERMES_ITEM" --vault "$VAULT" --fields label=public-key --reveal 2>/dev/null || true
 else
-  confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$HERMES_ITEM'." \
+  confirm "Generate a new ed25519 SSH key for the hermes agent and store it as '$HERMES_ITEM_SSH'." \
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
   if [[ $? -eq 0 ]]; then
     ssh-keygen -t ed25519 -C "hermes-agent@vicegerent" -N "" -f "$CERTS/hermes_agent_ed25519" >/dev/null 2>&1
     op document create "$CERTS/hermes_agent_ed25519" \
-      --title "Agent - hermes SSH Key" \
+      --title "$HERMES_ITEM_SSH" \
       --vault "$VAULT"
-    set_field "$HERMES_ITEM" "public-key"  "$CERTS/hermes_agent_ed25519.pub" text
-    info "Stored generated SSH key in '$HERMES_ITEM'."
+    set_field "$HERMES_ITEM" "public-key" "$CERTS/hermes_agent_ed25519.pub" text
+    info "Stored SSH key document in '$HERMES_ITEM_SSH'."
     echo
     echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab/GitHub deploy keys):"
     cat "$CERTS/hermes_agent_ed25519.pub"
