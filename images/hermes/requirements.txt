@@ -4,7 +4,6 @@
 # Pinned for reproducibility; Renovate's pip_requirements manager tracks updates.
 # Add a package = add a line. No renovate.json change needed.
 agentburn==0.11.0
-agenttrace==0.1.2
 mnemosyne-hermes[all]==0.2.0
 pygount==3.2.0
 rtk-hermes==1.2.3
