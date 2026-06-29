@@ -25,6 +25,3 @@ spec:
         name: agentgateway-crds
         namespace: agentgateway-system
       interval: 12h
-  valuesFrom:
-    - kind: ConfigMap
-      name: agentgateway-crds-values

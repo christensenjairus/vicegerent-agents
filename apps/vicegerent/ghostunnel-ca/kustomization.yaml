@@ -5,6 +5,3 @@ namespace: agentgateway-system
 resources: [source-secret.yaml, sync-rbac.yaml, sync-job.yaml]
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
-images:
-  - name: alpine/k8s:latest
-    newTag: 1.36.2

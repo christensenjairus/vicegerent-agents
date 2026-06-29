@@ -1,4 +1,5 @@
 ---
+# https://github.com/1Password/connect-helm-charts/blob/main/charts/connect/values.yaml
 .custom:
   connect:
     image:
@@ -37,4 +38,4 @@ operator:
   resources:
     requests:
       cpu: 10m
-      memory: 110M
+      memory: 110Mi
