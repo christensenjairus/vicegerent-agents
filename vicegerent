@@ -33,7 +33,7 @@ cluster_usage() {
   cat <<EOF
 ${B}vicegerent cluster${N} — minikube cluster lifecycle
 
-  ${C}setup${N}    create the cluster (overridable env: CPUS MEMORY DISK_SIZE DRIVER CONTAINER_RUNTIME CNI ADDONS PROFILE)
+  ${C}setup${N}    create the cluster (overridable env: CPUS MEMORY DISK_SIZE DRIVER NETWORK CONTAINER_RUNTIME CNI ADDONS PROFILE)
   ${C}pause${N}    minikube pause --profile vicegerent
   ${C}resume${N}   minikube unpause --profile vicegerent
   ${C}status${N}   minikube status --profile vicegerent
@@ -45,6 +45,7 @@ cluster_setup() {
   local memory="${MEMORY:-16384}"
   local disk_size="${DISK_SIZE:-50g}"
   local driver="${DRIVER:-vfkit}"
+  local network="${NETWORK:-socket_vmnet}"
   local container_runtime="${CONTAINER_RUNTIME:-containerd}"
   local cni="${CNI:-cilium}"
   local addons="${ADDONS:-gvisor,metrics-server}"
@@ -54,6 +55,7 @@ cluster_setup() {
     minikube start
     --profile "$profile"
     --driver "$driver"
+    --network "$network"
     --container-runtime "$container_runtime"
     --cni="$cni"
     --addons "$addons"
