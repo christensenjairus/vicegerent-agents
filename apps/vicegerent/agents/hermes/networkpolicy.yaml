@@ -37,6 +37,11 @@ spec:
     - toFQDNs:
         - matchName: slack.com
         - matchPattern: '*.slack.com'
+        # Added for pre-commit hooks, among other things.
+        - matchName: github.com
+        - matchName: raw.githubusercontent.com
+        - matchName: objects.githubusercontent.com
+        - matchName: pypi.org
       toPorts:
         - ports:
             - port: '443'
