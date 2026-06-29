@@ -879,6 +879,9 @@ app.post("/message", async (req, res) => {
 
 const PORT = process.env.PORT || 3663;
 
+expressServer.keepAliveTimeout = 300_000;
+expressServer.headersTimeout = 310_000;
+
 expressServer.listen(PORT, () => {
   const baseUrl = `http://localhost:${PORT}`;
   logger.log(`MCP Proxy Server is running.`);
