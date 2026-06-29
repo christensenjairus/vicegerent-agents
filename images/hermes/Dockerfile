@@ -152,3 +152,14 @@ assert v == 1000000, f"offline resolution returned {v}, expected 1000000"
 print("toolsearch patch: offline context-length resolution OK ->", v)
 PY
 RUN rm -f /tmp/0001-toolsearch-context-length.py
+
+# Patch agentburn prices to include Anthropic models not in the 0.11.0 snapshot; remove once
+# agentburn supports a user price overlay or adds these models to its own embedded table.
+COPY patches/0004-agentburn-custom-prices.py /tmp/0004-agentburn-custom-prices.py
+RUN /opt/hermes/.venv/bin/python /tmp/0004-agentburn-custom-prices.py \
+    && /opt/hermes/.venv/bin/python -c "\
+import importlib.util; spec = importlib.util.find_spec('agentburn.prices'); \
+s = open(spec.origin).read(); \
+assert 'anthropic/claude-haiku-4-5' in s, 'agentburn-custom-prices patch marker missing after apply'; \
+print('agentburn custom prices patch verified in ' + spec.origin)"
+RUN rm -f /tmp/0004-agentburn-custom-prices.py
