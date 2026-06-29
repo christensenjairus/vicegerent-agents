@@ -7,8 +7,5 @@ resources:
   - secret.yaml
   - server.yaml
   - networkpolicy.yaml
-  - backend.yaml
-  - route.yaml
-  - policy.yaml
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
