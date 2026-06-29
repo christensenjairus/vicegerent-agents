@@ -194,10 +194,7 @@ RUN rm -f /tmp/0006-usage-pricing-billing-route.py
 # full provider resolution chain yields real cost numbers instead of 'custom'.
 # Remove once Hermes supports a billing_provider field in the provider config.
 COPY patches/0007-provider-aliases.py /tmp/0007-provider-aliases.py
-RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py \
-    && /opt/hermes/.venv/bin/python -c "\
-import importlib.util; spec = importlib.util.find_spec('hermes_cli.auth'); \
-s = open(spec.origin).read(); \
-assert '"sonnet": "anthropic"' in s, '0007 patch marker missing after apply'; \
-print('provider aliases patch verified in ' + spec.origin)"
+# Verification runs inside the patch script itself; a separate Dockerfile -c
+# assert cannot safely embed double-quotes inside a double-quoted shell string.
+RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py
 RUN rm -f /tmp/0007-provider-aliases.py
