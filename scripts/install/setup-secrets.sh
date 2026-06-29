@@ -94,7 +94,14 @@ confirm() {
 }
 
 op_item_exists()  { op item get "$1" --vault "$VAULT" >/dev/null 2>&1; }
-op_field_exists() { op item get "$1" --vault "$VAULT" --fields label="$2" --reveal >/dev/null 2>&1; }
+# op_field_read <item> <field> — read a field value from a 1Password item.
+# --fields label= treats dots as section separators; escape them so field
+# names like "tls.crt" and "1password-credentials.json" match literally.
+op_field_read() {
+  local _label="${2//./\.}"
+  op item get "$1" --vault "$VAULT" --fields "label=${_label}" --reveal 2>/dev/null
+}
+op_field_exists() { op_field_read "$1" "$2" >/dev/null 2>&1; }
 
 # leaf_expiring_soon <item> <crt-field> — true (0) when the stored cert expires
 # within EXPIRY_THRESHOLD_DAYS. Returns 1 (false) when it is valid beyond the
@@ -102,7 +109,7 @@ op_field_exists() { op item get "$1" --vault "$VAULT" --fields label="$2" --reve
 leaf_expiring_soon() {
   local item="$1" field="$2" tmp
   tmp="$(mktemp "$CERTS/expiry.XXXXXX")"
-  if ! op item get "$item" --vault "$VAULT" --fields label="$field" --reveal >"$tmp" 2>/dev/null; then
+  if ! op_field_read "$item" "$field" >"$tmp" 2>/dev/null; then
     rm -f "$tmp"; return 1
   fi
   local secs=$(( EXPIRY_THRESHOLD_DAYS * 86400 ))
@@ -243,8 +250,8 @@ if [[ "$FORCE" == "1" ]]; then
   NEW_CA=1
 elif [[ $have_ca_cert -eq 1 && $have_ca_key -eq 1 ]]; then
   info "CA already in 1Password ('$HOST_ITEM' ca.cert + ca.key); reusing it."
-  op item get "$HOST_ITEM" --vault "$VAULT" --fields label=ca.cert --reveal > "$CERTS/ca.crt"
-  op item get "$HOST_ITEM" --vault "$VAULT" --fields label=ca.key  --reveal > "$CERTS/ca.key"
+  op_field_read "$HOST_ITEM" ca.cert > "$CERTS/ca.crt"
+  op_field_read "$HOST_ITEM" ca.key  > "$CERTS/ca.key"
 elif [[ $leaf_present -eq 1 ]]; then
   die "Leaf certificates exist but the CA private key is missing from op://$VAULT/$HOST_ITEM/ca.key.
 The CA cannot be reconstructed, so certs cannot be re-issued idempotently.
@@ -640,7 +647,7 @@ if op_field_exists "$HERMES_ITEM" "private-key"; then
   info "SSH private key already in '$HERMES_ITEM' (private-key); nothing to do."
   echo
   echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op item get "$HERMES_ITEM" --vault "$VAULT" --fields label=public-key --reveal 2>/dev/null || true
+  op_field_read "$HERMES_ITEM" public-key 2>/dev/null || true
 else
   confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$HERMES_ITEM'." \
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
