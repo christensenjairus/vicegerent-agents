@@ -36,7 +36,7 @@ data:
     import ipaddress
     import logging
     import re
-    from mitmproxy import http, websocket
+    from mitmproxy import http
     log = logging.getLogger("egress-proxy")
     ALLOWED_METHODS = {"GET", "HEAD"}
 
@@ -208,7 +208,7 @@ data:
                 status,
                 flow.request.pretty_url,
             )
-    def websocket_start(flow: websocket.WebSocketFlow) -> None:
+    def websocket_start(flow: http.HTTPFlow) -> None:
         # Belt-and-suspenders: kill any WS that slipped past the request hook.
         log.warning("BLOCKED websocket-start host=%s", flow.request.pretty_host)
         flow.kill()

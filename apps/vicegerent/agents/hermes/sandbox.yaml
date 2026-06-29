@@ -74,7 +74,7 @@ spec:
               cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
               # Render settings.json from template — substitutes AGENTGATEWAY_API_KEY
               # so claude-code sends the correct random bearer token to agentgateway.
-              envsubst '${AGENTGATEWAY_API_KEY}' \
+              sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
                 < /reload/claude-config/settings.json \
                 > /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
