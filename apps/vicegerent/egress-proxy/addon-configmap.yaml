@@ -7,6 +7,7 @@
 # Scrubbing (applied to every request, headers + body):
 #   - SSH private keys  — PEM PRIVATE KEY blocks (any algorithm, including ENCRYPTED)
 #   - Slack tokens      — xox[bpraesc]-... (bot, app-level, user, refresh, socket, client)
+#                         xapp-...          (app-configuration tokens)
 #   - Bearer tokens     — Authorization: Bearer <value> stripped from external requests;
 #                         internal services (agentgateway) legitimately use Bearer auth
 #                         and are not scrubbed (they are in-cluster and trusted)
@@ -55,9 +56,10 @@ data:
             r"-----END (?:RSA |EC |OPENSSH |DSA |ED25519 |ENCRYPTED )?PRIVATE KEY-----",
             re.MULTILINE,
         ),
-        # Slack tokens — all types (bot, app-level, user, refresh, socket, client).
-        # Underscore is valid in token values.
+        # Slack tokens — xox* family (bot, app-level, user, refresh, socket, client)
+        # and xapp-* (app-configuration tokens). Underscore is valid in token values.
         re.compile(r"xox[bpraesc]-[A-Za-z0-9\-_]+", re.ASCII),
+        re.compile(r"xapp-[A-Za-z0-9\-_]+", re.ASCII),
     ]
 
     # Authorization Bearer scrubbing — external destinations only.
@@ -143,7 +145,9 @@ data:
             return
 
         # Block GET/HEAD request bodies on external requests — no legitimate use,
-        # potential exfiltration channel.
+        # potential exfiltration channel. Checked before scrubbing so we avoid
+        # unnecessary work and the log ordering stays semantically correct
+        # (BLOCKED fires before any REDACTED line for the same flow).
         if not internal and method in ALLOWED_METHODS and flow.request.content:
             log.warning("BLOCKED get-body method=%s url=%s", method, url)
             flow.response = http.Response.make(
@@ -158,11 +162,10 @@ data:
         redacted = 0
         if not internal:
             auth = flow.request.headers.get("authorization", "")
-            if auth and BEARER_PATTERN.match(auth):
-                m = BEARER_PATTERN.match(auth)
-                if m:
-                    flow.request.headers["authorization"] = m.group(1) + "[REDACTED]" + m.group(2)
-                    redacted += 1
+            m = BEARER_PATTERN.match(auth) if auth else None
+            if m:
+                flow.request.headers["authorization"] = m.group(1) + "[REDACTED]" + m.group(2)
+                redacted += 1
 
         # Scrub secrets from all request headers.
         for name, value in list(flow.request.headers.items()):
