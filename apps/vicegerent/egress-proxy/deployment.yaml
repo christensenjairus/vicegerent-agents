@@ -34,6 +34,11 @@ spec:
           args:
             - |
               set -eu
+              if [ ! -s /ca-secret/ca.key ] || [ ! -s /ca-secret/ca.crt ]; then
+                echo "ERROR: ca.key or ca.crt missing from egress-proxy-ca Secret." >&2
+                echo "Run setup-secrets.sh to generate and store the egress proxy CA in 1Password." >&2
+                exit 1
+              fi
               cat /ca-secret/ca.key /ca-secret/ca.crt > /mitmproxy-ca/mitmproxy-ca.pem
               chmod 600 /mitmproxy-ca/mitmproxy-ca.pem
           securityContext:
@@ -57,7 +62,7 @@ spec:
             - --mode=regular
             - --set=confdir=/mitmproxy-ca
             - --set=verbosity=info
-            - --scripts=/addon/get-only.py
+            - --scripts=/addon/scrub.py
           ports:
             - containerPort: 8080
               name: proxy

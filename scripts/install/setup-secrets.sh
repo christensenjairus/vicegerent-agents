@@ -48,6 +48,7 @@ TAVILY_ITEM="MCP - Tavily"
 FIRECRAWL_ITEM="MCP - Firecrawl"
 HERMES_ITEM="Agent - hermes"
 HERMES_ITEM_SSH="Agent - hermes SSH Key"
+HERMES_ITEM_API_KEY="Agent - hermes agentgateway API key"  # pragma: allowlist secret
 PROXY_CA_ITEM="Egress Proxy CA"
 PROXY_CA_CERT_ITEM="Egress Proxy CA Cert"
 TOKEN_ITEM="Connect Token"
@@ -656,6 +657,18 @@ else
   fi
 fi
 
+# --- agentgateway virtual API key ------------------------------------------
+# Random bearer token hermes uses to authenticate to agentgateway (generate-once).
+step "agentgateway virtual API key"
+ensure_item "$HERMES_ITEM_API_KEY"
+if op_field_exists "$HERMES_ITEM_API_KEY" "api-key"; then  # pragma: allowlist secret
+  info "agentgateway API key already in '$HERMES_ITEM_API_KEY'; reusing."
+else
+  printf '%s' "$(openssl rand -hex 32)" > "$CERTS/agentgateway-api-key"
+  set_field "$HERMES_ITEM_API_KEY" "api-key" "$CERTS/agentgateway-api-key" concealed  # pragma: allowlist secret
+  info "Generated agentgateway API key and stored it in '$HERMES_ITEM_API_KEY'."
+fi
+
 # --- Egress proxy CA -------------------------------------------------------
 # Generates a dedicated CA for the MITM egress proxy (generate-once).
 # Two 1Password items:
@@ -709,6 +722,7 @@ check "$HOST_ITEM" "server.key"
 check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
 check "$SEARXNG_ITEM" "secret_key"
+check "$HERMES_ITEM_API_KEY" "api-key"
 check "$PROXY_CA_ITEM" "ca.crt"
 check "$PROXY_CA_ITEM" "ca.key"
 check "$PROXY_CA_CERT_ITEM" "ca.crt"

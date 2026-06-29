@@ -9,9 +9,10 @@ spec:
     matchLabels:
       gateway.networking.k8s.io/gateway-name: agentgateway-proxy
   ingress:
+    # Traffic from hermes arrives via the scrubbing egress-proxy, not directly.
     - fromEndpoints:
         - matchLabels:
-            io.kubernetes.pod.namespace: agent-sandbox
+            io.kubernetes.pod.namespace: egress-proxy
       toPorts:
         - ports:
             - port: '80'

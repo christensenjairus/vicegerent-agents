@@ -1,87 +1,214 @@
 ---
-# mitmproxy allowlist addon. Only GET and HEAD are permitted for proxied HTTPS traffic.
-# All other methods (POST, PUT, PATCH, DELETE, etc.) are blocked.
-# WebSocket upgrades are blocked at the HTTP layer (request hook) and at the WS layer
-# (websocket_start hook) — belt-and-suspenders since a WS connection is an unrestricted
-# bidirectional channel that would bypass method enforcement entirely.
-# Private/link-local destinations are blocked to prevent SSRF against cloud metadata
-# endpoints (169.254.169.254) and RFC1918 hosts reachable from the node.
-# Slack traffic bypasses this proxy via no_proxy + direct Cilium FQDN egress.
+# mitmproxy scrubbing + enforcement addon.
+#
+# ALL sandbox outbound traffic (internal cluster services + internet) flows through
+# this proxy so secrets are redacted before reaching any destination.
+#
+# Scrubbing (applied to every request, headers + body):
+#   - SSH private keys  — PEM PRIVATE KEY blocks (any algorithm, including ENCRYPTED)
+#   - Slack tokens      — xox[bpraesc]-... (bot, app-level, user, refresh, socket, client)
+#   - Bearer tokens     — Authorization: Bearer <value> stripped from external requests;
+#                         internal services (agentgateway) legitimately use Bearer auth
+#                         and are not scrubbed (they are in-cluster and trusted)
+#
+# Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
+# Internal cluster services (*.svc.cluster.local) need POST and are passed through
+# after scrubbing.
+#
+# Response scrubbing: applied to text responses to guard against echo attacks
+# (a malicious service echoing back request content including secrets).
+#
+# WebSocket upgrades are blocked everywhere. Add host to no_proxy in sandbox.yaml
+# for trusted WS endpoints (e.g. Slack, which bypasses this proxy entirely).
+#
+# Accepted risk:
+#   - Slack (*.slack.com) bypasses proxy entirely — POST + WebSocket required for
+#     Socket Mode. The agent communicates via Slack by design; this is a trusted channel.
+#   - SSH (port 22) bypasses proxy — SSH is not HTTP. Content in git pushes (commits,
+#     files) is not inspected. The agent's deploy key scope limits blast radius.
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: egress-proxy-addon
   namespace: egress-proxy
 data:
-  get-only.py: |-
+  scrub.py: |-
     import ipaddress
     import logging
+    import re
     from mitmproxy import http, websocket
     log = logging.getLogger("egress-proxy")
     ALLOWED_METHODS = {"GET", "HEAD"}
 
-    # RFC1918, link-local, loopback, and IANA special-purpose ranges.
-    # Cloud metadata endpoints (169.254.169.254) are link-local and covered by that range.
+    # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
+    INTERNAL_SUFFIXES = (".cluster.local", ".svc")
+
+    # Secrets patterns — redacted from request headers and body before forwarding.
+    REDACT_PATTERNS = [
+        # SSH private keys — all PEM formats including PKCS#8 encrypted variant.
+        re.compile(
+            r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ED25519 |ENCRYPTED )?PRIVATE KEY-----"
+            r"[\s\S]+?"
+            r"-----END (?:RSA |EC |OPENSSH |DSA |ED25519 |ENCRYPTED )?PRIVATE KEY-----",
+            re.MULTILINE,
+        ),
+        # Slack tokens — all types (bot, app-level, user, refresh, socket, client).
+        # Underscore is valid in token values.
+        re.compile(r"xox[bpraesc]-[A-Za-z0-9\-_]+", re.ASCII),
+    ]
+
+    # Authorization Bearer scrubbing — external destinations only.
+    # Internal services (agentgateway) use Bearer auth legitimately; do not scrub them.
+    # Match Bearer token permissively — strip everything after "Bearer " regardless of
+    # trailing content (avoids header variants like "Bearer token; extra=data" leaking).
+    BEARER_PATTERN = re.compile(r"(?i)^(Bearer\s+)\S+(.*)$")
+
+    # RFC1918, link-local, loopback, CGNAT, and IPv6 private ranges — SSRF protection.
     PRIVATE_NETWORKS = [
         ipaddress.ip_network("10.0.0.0/8"),
         ipaddress.ip_network("172.16.0.0/12"),
         ipaddress.ip_network("192.168.0.0/16"),
         ipaddress.ip_network("169.254.0.0/16"),
         ipaddress.ip_network("127.0.0.0/8"),
+        ipaddress.ip_network("100.64.0.0/10"),
         ipaddress.ip_network("::1/128"),
         ipaddress.ip_network("fc00::/7"),
         ipaddress.ip_network("fe80::/10"),
     ]
+
+    # Content types safe to scrub as text; skip binary (images, archives, protobuf, etc.).
+    TEXT_CONTENT_TYPES = (
+        "text/",
+        "application/json",
+        "application/xml",
+        "application/x-www-form-urlencoded",
+        "application/graphql",
+        "application/ld+json",
+    )
+    def _is_internal(host: str) -> bool:
+        return any(host.endswith(s) for s in INTERNAL_SUFFIXES)
     def _is_private(host: str) -> bool:
         try:
             addr = ipaddress.ip_address(host)
             return any(addr in net for net in PRIVATE_NETWORKS)
         except ValueError:
-            return False  # hostname — let DNS + Cilium handle it
+            return False  # hostname — Cilium enforces destination boundary
+    def _is_text(content_type: str) -> bool:
+        ct = content_type.split(";")[0].strip().lower()
+        return any(ct.startswith(t) for t in TEXT_CONTENT_TYPES)
+    def _redact(text: str) -> tuple[str, int]:
+        total = 0
+        for pat in REDACT_PATTERNS:
+            text, n = pat.subn("[REDACTED]", text)
+            total += n
+        return text, total
     def request(flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         method = flow.request.method
         url = flow.request.pretty_url
+        internal = _is_internal(host)
 
-        # Block private/link-local destinations (SSRF protection).
-        if _is_private(host):
+        # SSRF protection — external destinations only.
+        if not internal and _is_private(host):
             log.warning("BLOCKED private-dest method=%s url=%s", method, url)
             flow.response = http.Response.make(
                 403,
-                f"[egress-proxy] destination {host} is a private address — blocked",
+                f"[egress-proxy] {host} is a private address — blocked",
                 {"Content-Type": "text/plain"},
             )
             return
 
-        # Block WebSocket upgrade at the HTTP layer.
+        # Block WebSocket upgrades everywhere.
         if flow.request.headers.get("upgrade", "").lower() == "websocket":
             log.warning("BLOCKED websocket-upgrade method=%s url=%s", method, url)
             flow.response = http.Response.make(
                 403,
-                "[egress-proxy] WebSocket upgrade blocked — add host to no_proxy to bypass",
+                "[egress-proxy] WebSocket upgrade blocked — add host to no_proxy",
                 {"Content-Type": "text/plain"},
             )
             return
 
-        # Enforce GET/HEAD allowlist.
-        if method not in ALLOWED_METHODS:
+        # Scrub Bearer tokens from Authorization header on external requests.
+        # Internal services (agentgateway) legitimately use Bearer auth — skip them.
+        redacted = 0
+        if not internal:
+            auth = flow.request.headers.get("authorization", "")
+            if auth and BEARER_PATTERN.match(auth):
+                m = BEARER_PATTERN.match(auth)
+                if m:
+                    flow.request.headers["authorization"] = m.group(1) + "[REDACTED]" + m.group(2)
+                    redacted += 1
+
+        # Scrub secrets from all request headers.
+        for name, value in list(flow.request.headers.items()):
+            if name.lower() == "authorization":
+                continue  # already handled above
+            new_value, n = _redact(value)
+            if n:
+                flow.request.headers[name] = new_value
+                redacted += n
+
+        # Scrub secrets from request body (text content only; skip binary).
+        if flow.request.content:
+            ct = flow.request.headers.get("content-type", "")
+            if not ct or _is_text(ct):
+                try:
+                    body = flow.request.get_text(strict=False)
+                    new_body, n = _redact(body)
+                    if n:
+                        flow.request.set_text(new_body)
+                        redacted += n
+                except Exception:
+                    pass
+        if redacted:
+            log.warning("REDACTED count=%d method=%s url=%s", redacted, method, url)
+
+        # Method enforcement — external destinations only.
+        if not internal and method not in ALLOWED_METHODS:
             log.warning("BLOCKED method=%s url=%s", method, url)
             flow.response = http.Response.make(
                 403,
-                f"[egress-proxy] {method} blocked — read-only proxy (GET/HEAD only)",
+                f"[egress-proxy] {method} blocked — GET/HEAD only for external destinations",
                 {"Content-Type": "text/plain"},
             )
             return
-        log.info("ALLOW method=%s url=%s", method, url)
+        log.info("ALLOW internal=%s method=%s url=%s", internal, method, url)
     def response(flow: http.HTTPFlow) -> None:
         status = flow.response.status_code if flow.response else "-"
-        log.info(
-            "RESPONSE method=%s url=%s status=%s",
-            flow.request.method,
-            flow.request.pretty_url,
-            status,
-        )
+
+        # Scrub secrets from response body — guards against echo attacks.
+        # Skip streaming responses (SSE / chunked transfer) to avoid buffering issues.
+        scrubbed = 0
+        if flow.response and flow.response.content:
+            te = flow.response.headers.get("transfer-encoding", "").lower()
+            ct = flow.response.headers.get("content-type", "")
+            is_sse = "text/event-stream" in ct
+            is_chunked = "chunked" in te
+            if not is_sse and not is_chunked and _is_text(ct):
+                try:
+                    body = flow.response.get_text(strict=False)
+                    new_body, n = _redact(body)
+                    if n:
+                        flow.response.set_text(new_body)
+                        scrubbed += n
+                except Exception:
+                    pass
+        if scrubbed:
+            log.warning(
+                "RESPONSE-REDACTED count=%d method=%s status=%s url=%s",
+                scrubbed,
+                flow.request.method,
+                status,
+                flow.request.pretty_url,
+            )
+        else:
+            log.info(
+                "RESPONSE method=%s status=%s url=%s",
+                flow.request.method,
+                status,
+                flow.request.pretty_url,
+            )
     def websocket_start(flow: websocket.WebSocketFlow) -> None:
-        # Belt-and-suspenders: kill any WS connection that made it past the request hook.
+        # Belt-and-suspenders: kill any WS that slipped past the request hook.
         log.warning("BLOCKED websocket-start host=%s", flow.request.pretty_host)
         flow.kill()

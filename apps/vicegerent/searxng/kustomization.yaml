@@ -6,7 +6,6 @@ resources:
   - namespace.yaml
   - configmap.yaml
   - secret.yaml
-  - egress-proxy-ca.yaml
   - deployment.yaml
   - service.yaml
   - networkpolicy.yaml
