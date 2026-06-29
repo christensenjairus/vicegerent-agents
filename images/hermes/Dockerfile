@@ -45,7 +45,7 @@ RUN apt-get update \
 
 # Network debug tools that work without extra caps; blocked egress shows in ss SYN-SENT.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends iproute2 dnsutils netcat-openbsd \
+    && apt-get install -y --no-install-recommends iproute2 dnsutils netcat-openbsd tmux \
     && rm -rf /var/lib/apt/lists/*
 
 # Runtime Python deps for the egress-locked sandbox; Renovate tracks requirements.txt.
