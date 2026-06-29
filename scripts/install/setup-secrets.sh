@@ -12,6 +12,7 @@
 #       Runtime        Authorization                  (synced to agentgateway-system only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #   - an SSH private key (item "Hermes SSH Key") for git push/pull from inside the sandbox
+#     (auto-generated ed25519 key; never uses one of the user's existing keys)
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -137,7 +138,7 @@ connect_server_exists() {
 }
 
 # --- prerequisites ---------------------------------------------------------
-for cmd in op openssl jq; do
+for cmd in op openssl ssh-keygen jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
 op account get >/dev/null 2>&1 || die "1Password CLI is not signed in. Run: op signin"
@@ -616,85 +617,29 @@ else
   fi
 fi
 
-# --- SSH key for git push/pull (optional) ------------------------------------
-# The private key is uploaded to 1Password and mounted into the sandbox as a
-# file. The agent uses it for git operations on hosts listed in networkpolicy.
-step "SSH key for git push/pull (optional — skip to configure later)"
+# --- SSH key for git push/pull ------------------------------------------------
+# Generates a dedicated ed25519 key for the hermes agent (generate-once, stored
+# in 1Password). The private key is concealed; the public key is stored as a
+# text field so it is easy to find and add to GitLab/GitHub deploy keys.
+# Never asks the user to upload one of their existing keys.
+step "SSH key for git push/pull"
 ensure_item "$SSH_KEY_ITEM"
 if op_field_exists "$SSH_KEY_ITEM" "private-key"; then
-  info "SSH private key already set in '$SSH_KEY_ITEM' (private-key); nothing to do."
+  info "SSH private key already in '$SSH_KEY_ITEM' (private-key); nothing to do."
+  echo
+  echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
+  op read "op://$VAULT/$SSH_KEY_ITEM/public-key" 2>/dev/null || true
 else
-  # Collect candidate private keys from ~/.ssh (files without .pub extension that
-  # have a corresponding .pub, or any id_* file).
-  mapfile -t ssh_keys < <(
-    find "$HOME/.ssh" -maxdepth 1 -type f \
-      ! -name '*.pub' ! -name 'known_hosts' ! -name 'config' ! -name 'authorized_keys' \
-      -name 'id_*' -o -type f ! -name '*.pub' ! -name 'known_hosts' ! -name 'config' \
-      ! -name 'authorized_keys' -name '*_rsa' -o -type f ! -name '*.pub' \
-      ! -name 'known_hosts' ! -name 'config' ! -name 'authorized_keys' -name '*_ed25519' \
-      2>/dev/null | sort -u
-  )
-  # Filter to only files that look like private keys (have a matching .pub or contain PRIVATE KEY).
-  filtered_keys=()
-  for f in "${ssh_keys[@]}"; do
-    [[ -f "$f" ]] || continue
-    if [[ -f "${f}.pub" ]] || head -1 "$f" 2>/dev/null | grep -q 'PRIVATE KEY'; then
-      filtered_keys+=("$f")
-    fi
-  done
-
-  if [[ ${#filtered_keys[@]} -eq 0 ]]; then
-    warn "No SSH private keys found in $HOME/.ssh — skipping (add one and re-run)."
-  else
+  confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$SSH_KEY_ITEM'." \
+    || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
+  if [[ $? -eq 0 ]]; then
+    ssh-keygen -t ed25519 -C "hermes-agent@vicegerent" -N "" -f "$CERTS/hermes_agent_ed25519" >/dev/null 2>&1
+    set_field "$SSH_KEY_ITEM" "private-key" "$CERTS/hermes_agent_ed25519" concealed
+    set_field "$SSH_KEY_ITEM" "public-key"  "$CERTS/hermes_agent_ed25519.pub" text
+    info "Stored generated SSH key in '$SSH_KEY_ITEM'."
     echo
-    echo "  Found SSH private keys:"
-    for i in "${!filtered_keys[@]}"; do
-      key="${filtered_keys[$i]}"
-      comment=""
-      [[ -f "${key}.pub" ]] && comment=" ($(awk '{print $3}' "${key}.pub" 2>/dev/null))"
-      printf "    %d) %s%s\n" "$((i+1))" "$key" "$comment"
-    done
-    echo "    0) skip"
-    echo
-
-    SELECTED_KEY=""
-    if [[ "$ASSUME_YES" == "1" ]]; then
-      warn "--yes is set; skipping interactive SSH key selection (set SSH_KEY_PATH to select)."
-      SELECTED_KEY="${SSH_KEY_PATH:-}"
-    else
-      while true; do
-        read -r -p "  Select a key [1-${#filtered_keys[@]}, 0 to skip]: " choice
-        if [[ "$choice" == "0" ]]; then
-          warn "SSH key skipped — git push/pull from the sandbox will not work until set."
-          break
-        elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#filtered_keys[@]} )); then
-          SELECTED_KEY="${filtered_keys[$((choice-1))]}"
-          break
-        else
-          echo "  Invalid selection, try again."
-        fi
-      done
-    fi
-
-    if [[ -n "$SELECTED_KEY" ]]; then
-      if [[ ! -f "$SELECTED_KEY" ]]; then
-        warn "SSH key path '$SELECTED_KEY' does not exist — skipping."
-      else
-        confirm "Upload '$SELECTED_KEY' as the hermes agent SSH key (stored in '$SSH_KEY_ITEM')." \
-          || { warn "SSH key upload skipped."; }
-        if [[ $? -eq 0 ]]; then
-          set_field "$SSH_KEY_ITEM" "private-key" "$SELECTED_KEY" concealed
-          # Store the public key as a text field for reference (if it exists).
-          if [[ -f "${SELECTED_KEY}.pub" ]]; then
-            set_field "$SSH_KEY_ITEM" "public-key" "${SELECTED_KEY}.pub" text
-          fi
-          info "Stored SSH key '$SELECTED_KEY' in '$SSH_KEY_ITEM'."
-          echo
-          echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab, GitHub, etc.):"
-          [[ -f "${SELECTED_KEY}.pub" ]] && cat "${SELECTED_KEY}.pub"
-        fi
-      fi
-    fi
+    echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab/GitHub deploy keys):"
+    cat "$CERTS/hermes_agent_ed25519.pub"
   fi
 fi
 
