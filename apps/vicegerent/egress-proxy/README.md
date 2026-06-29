@@ -1,9 +1,13 @@
 # Egress Proxy — Security Model
 
-The egress proxy is an mitmproxy instance that sits between the hermes agent sandbox
+The egress proxy is an mitmproxy instance that sits between the **hermes agent sandbox**
 and all outbound HTTP(S) traffic. It provides scrubbing, method enforcement, and an
 audit log. It is **not** a complete security boundary on its own — it works alongside
 Cilium network policy and the Sandbox CRD's inherent isolation.
+
+> **Scope**: this proxy guards only sandbox containers (hermes). Platform services —
+> searxng, tavily, firecrawl, agentgateway itself — are not routed through it. Those
+> services have their own network policies and are not in scope for this scrubbing layer.
 
 ---
 
@@ -16,7 +20,8 @@ internal (agentgateway, searxng) or external (internet).
 | Pattern | What it catches |
 |---|---|
 | `-----BEGIN ... PRIVATE KEY-----` | SSH private keys — RSA, EC, Ed25519, OpenSSH, PKCS#8 encrypted |
-| `xox[bpraes]-[A-Za-z0-9\-_]+` | Slack tokens — bot, app-level, user, refresh, socket, client |
+| `xox[bpraesc]-[A-Za-z0-9\-_]+` | Slack tokens — bot, app-level, user, refresh, socket, client |
+| `xapp-[A-Za-z0-9\-_]+` | Slack app-configuration tokens |
 | `Authorization: Bearer <token>` | Bearer tokens stripped from headers on external requests |
 
 Response bodies are also scrubbed (non-streaming only) to guard against echo attacks.
@@ -116,9 +121,13 @@ possible but requires the external server to actively reflect back injected cont
   them, but encoding is a deliberate extra step requiring tool access
 
 ### Residual risks
-- **DNS rebinding** — Cilium FQDN policy caches DNS results with a TTL; within that
-  window a rebinding attack could reach a private IP via an allowed FQDN. Short window,
-  requires attacker-controlled DNS.
+- **DNS rebinding** — `_is_private()` in the addon only checks literal IP addresses;
+  hostname-based requests bypass it (intentional — Cilium enforces the destination boundary).
+  Cilium FQDN policy caches DNS results with a TTL; within that window a rebinding attack
+  (attacker-controlled FQDN, TTL 0, rebind to RFC1918) could reach a private IP via an
+  allowed FQDN. The `egressDeny` CiliumNetworkPolicy rules are the actual guard here —
+  they operate at the packet level and block the private-IP egress regardless of what DNS
+  returned. Short exploitation window; requires attacker-controlled DNS infrastructure.
 - **`no_proxy` override in subprocesses** — a subprocess could set `NO_PROXY=*`,
   causing it to attempt direct egress which Cilium then drops. Fails noisily rather
   than silently exfiltrating.
