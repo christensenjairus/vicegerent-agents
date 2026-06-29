@@ -58,15 +58,17 @@ export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interac
 This provisions, in vault `Vicegerent`:
 
 ```text
-Connect Credentials  1password-credentials.json   (Connect bootstrap)
-Connect Token        token                         (operator token)
-Runtime              Authorization, tls.crt, tls.key   (synced into the cluster)
-MCP CA               ca.cert                       (public CA, synced into the cluster)
-OpenAI               Authorization                 (optional OpenAI key, synced into the cluster)
-Ghostunnel Host      server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
+Connect Credentials          1password-credentials.json   (Connect bootstrap)
+Connect Token                token                         (operator token)
+Agentgateway: Anthropic      Authorization                 (Anthropic API key → agentgateway-system)
+Agentgateway: OpenAI         Authorization                 (optional OpenAI key → agentgateway-system)
+Agentgateway: Host MCP       tls.crt, tls.key             (mTLS client cert → agentgateway-system)
+Agentgateway: Host MCP CA    ca.cert                       (public CA → agentgateway-system)
+Host: MCP Tunnel             server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
+Agent: hermes                password, signing-secret, Slack tokens    (→ agent-sandbox)
 ```
 
-The CA private key lives only in `Ghostunnel Host` so a re-run can re-issue a missing leaf certificate without rebuilding the chain. The server private key never enters Kubernetes. 1Password is the single source of truth for this material, for both the laptop and the cluster.
+The CA private key lives only in `Host: MCP Tunnel` so a re-run can re-issue a missing leaf certificate without rebuilding the chain. The server private key never enters Kubernetes. 1Password is the single source of truth for this material, for both the laptop and the cluster.
 
 ## Bootstrap Flux
 

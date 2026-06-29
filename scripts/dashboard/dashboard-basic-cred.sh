@@ -30,7 +30,7 @@ op account get >/dev/null 2>&1 || {
   exit 1
 }
 
-item="Dashboard Auth - ${name}"
+item="Agent: ${name}"
 password="$(op read "op://${OP_VAULT}/${item}/password")"
 [ -n "$password" ] || {
   echo "No password in 1Password item '${item}'. Run: ./vicegerent secrets setup (with DASHBOARD_AUTH_AGENTS including '${name}')." >&2

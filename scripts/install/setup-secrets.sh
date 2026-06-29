@@ -6,17 +6,21 @@
 #   - a Connect server + its credentials file (item "Connect Credentials")
 #   - a Connect operator token (item "Connect Token")
 #   - ghostunnel mTLS certificates split across four items:
-#       MCP Client     tls.crt, tls.key              (synced to agentgateway-system only)
-#       MCP CA         ca.cert                        (synced to agentgateway-system only)
-#       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
-#       Runtime        Authorization                  (synced to agentgateway-system only)
+#       Agentgateway: Host MCP   tls.crt, tls.key              (→ agentgateway-system)
+#       Agentgateway: Host MCP CA  ca.cert                      (→ agentgateway-system)
+#       Host: MCP Tunnel  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
+#       Agentgateway: Anthropic  Authorization                  (→ agentgateway-system)
+#   - one item per agent workload:
+#       Agent: hermes  password, signing-secret,
+#                      SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL
+#                      (→ agent-sandbox only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
 #   - an SSH private key (item "Hermes SSH Key") for git push/pull from inside the sandbox
 #     (auto-generated ed25519 key; never uses one of the user's existing keys)
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
-#     The CA private key is kept in "Ghostunnel Host" so a missing leaf cert can be
+#     The CA private key is kept in "Host: MCP Tunnel" so a missing leaf cert can be
 #     re-issued from the existing CA without rebuilding the whole chain.
 #   - Self-cleaning: all key material is written only inside a private tmpdir that is
 #     removed on any exit (including Ctrl-C). Nothing is left on disk.
@@ -34,16 +38,16 @@ VAULT="${VAULT:-Vicegerent}"
 SERVER_NAME="${OP_CONNECT_SERVER:-Vicegerent}"
 TOKEN_NAME="${OP_CONNECT_TOKEN_NAME:-Vicegerent Operator}"
 
-RUNTIME_ITEM="Runtime"
-CLIENT_ITEM="MCP Client"
-CA_ITEM="MCP CA"
-HOST_ITEM="Ghostunnel Host"
+RUNTIME_ITEM="Agentgateway: Anthropic"
+CLIENT_ITEM="Agentgateway: Host MCP"
+CA_ITEM="Agentgateway: Host MCP CA"
+HOST_ITEM="Host: MCP Tunnel"
 CRED_ITEM="Connect Credentials"
-OPENAI_ITEM="OpenAI"
+OPENAI_ITEM="Agentgateway: OpenAI"
 SEARXNG_ITEM="SearXNG"
-TAVILY_ITEM="Tavily"
-FIRECRAWL_ITEM="Firecrawl"
-SLACK_ITEM="Hermes Bot Secrets"
+TAVILY_ITEM="MCP: Tavily"
+FIRECRAWL_ITEM="MCP: Firecrawl"
+HERMES_ITEM="Agent: hermes"
 SSH_KEY_ITEM="Hermes SSH Key"
 TOKEN_ITEM="Connect Token"
 
@@ -351,31 +355,32 @@ if [[ $need_client -eq 1 ]]; then
   info "Set '$CLIENT_ITEM' tls.crt + tls.key (client identity, synced to agentgateway-system only)."
 fi
 
-# --- Dashboard basic-auth (per-agent) --------------------------------------
-# Each agent gets its OWN 1Password item with a random dashboard login password
-# and session-signing secret. They are mounted only into that agent's pod (via
-# its own OnePasswordItem -> Secret -> secretKeyRef), so no agent can read or
-# derive another agent's credentials. Random + per-agent, never in git.
-# Add an agent by appending its sandbox name here.
-DASHBOARD_AUTH_AGENTS=(${DASHBOARD_AUTH_AGENTS:-hermes})
-step "Dashboard basic-auth (per-agent credentials)"
-for agent in "${DASHBOARD_AUTH_AGENTS[@]}"; do
-  item="Dashboard Auth - ${agent}"
-  if op_field_exists "$item" "password" && op_field_exists "$item" "signing-secret"; then
-    info "Dashboard auth for '${agent}' already set in '${item}'; reusing."
-    continue
-  fi
-  ensure_item "$item"
-  if ! op_field_exists "$item" "password"; then
+# --- Agent: hermes credentials (dashboard auth + Slack) ----------------------------
+# All credentials for the hermes agent pod in one item, synced only to agent-sandbox.
+# dashboard: password + signing-secret (random, generated once, never regenerated)
+# slack:     SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (optional)
+step "Agent: hermes credentials"
+ensure_item "$HERMES_ITEM"
+
+any_dashboard_missing=0
+op_field_exists "$HERMES_ITEM" "password"        || any_dashboard_missing=1
+op_field_exists "$HERMES_ITEM" "signing-secret"  || any_dashboard_missing=1
+if [[ $any_dashboard_missing -eq 0 ]]; then
+  info "Dashboard auth already set in '$HERMES_ITEM'; reusing."
+else
+  confirm "Generate missing dashboard auth credentials in '$HERMES_ITEM'." \
+    || die "Dashboard auth is required; aborting."
+  if ! op_field_exists "$HERMES_ITEM" "password"; then
     openssl rand -base64 24 | tr -d '\n' > "$CERTS/dash-pw"
-    set_field "$item" "password" "$CERTS/dash-pw" concealed
+    set_field "$HERMES_ITEM" "password" "$CERTS/dash-pw" concealed
+    info "Generated dashboard password in '$HERMES_ITEM'."
   fi
-  if ! op_field_exists "$item" "signing-secret"; then
+  if ! op_field_exists "$HERMES_ITEM" "signing-secret"; then
     openssl rand -base64 32 | tr -d '\n' > "$CERTS/dash-sign"
-    set_field "$item" "signing-secret" "$CERTS/dash-sign" concealed
+    set_field "$HERMES_ITEM" "signing-secret" "$CERTS/dash-sign" concealed
+    info "Generated dashboard signing-secret in '$HERMES_ITEM'."
   fi
-  info "Generated dashboard login for '${agent}' (item '${item}'; synced only into that agent's pod)."
-done
+fi
 
 # --- Anthropic API key -----------------------------------------------------
 step "Anthropic API key"
@@ -509,25 +514,23 @@ fi
 # SLACK_ALLOWED_USERS — space-separated Slack user IDs allowed to talk to the bot
 # SLACK_HOME_CHANNEL  — Slack channel ID for proactive messages (cron output etc.)
 #
-# Stored in 1Password item "Hermes Bot Secrets" with field names matching the
-# env var names. The secret is mounted via envFrom into the hermes pod with
-# optional: true, so the pod starts without it and Slack activates once the
-# item is populated and Connect syncs the secret.
+# Stored in '$HERMES_ITEM' with field names matching the env var names.
+# Slack activates once these fields are set.
 #
 # Create the Slack app with:
 #   hermes slack manifest --name "<BotName>" | pbcopy
 # Paste the manifest at api.slack.com → Your Apps → Create New App → From manifest,
 # then install it to your workspace. Socket Mode must be enabled (Settings → Socket Mode).
-step "Slack bot credentials (optional — skip to configure later)"
-ensure_item "$SLACK_ITEM"
+step "Slack bot credentials in '$HERMES_ITEM' (optional — skip to configure later)"
+ensure_item "$HERMES_ITEM"
 slack_any_missing=0
-op_field_exists "$SLACK_ITEM" "SLACK_BOT_TOKEN"    || slack_any_missing=1
-op_field_exists "$SLACK_ITEM" "SLACK_APP_TOKEN"    || slack_any_missing=1
-op_field_exists "$SLACK_ITEM" "SLACK_ALLOWED_USERS" || slack_any_missing=1
-op_field_exists "$SLACK_ITEM" "SLACK_HOME_CHANNEL"  || slack_any_missing=1
+op_field_exists "$HERMES_ITEM" "SLACK_BOT_TOKEN"    || slack_any_missing=1
+op_field_exists "$HERMES_ITEM" "SLACK_APP_TOKEN"    || slack_any_missing=1
+op_field_exists "$HERMES_ITEM" "SLACK_ALLOWED_USERS" || slack_any_missing=1
+op_field_exists "$HERMES_ITEM" "SLACK_HOME_CHANNEL"  || slack_any_missing=1
 
 if [[ $slack_any_missing -eq 0 ]]; then
-  info "Slack credentials already set in '$SLACK_ITEM'; nothing to do."
+  info "Slack credentials already set in '$HERMES_ITEM'; nothing to do."
 else
   echo
   echo "  Create your Slack app with the generated manifest:"
@@ -537,92 +540,92 @@ else
   echo "  The hermes pod starts without these — Slack activates once the item is populated."
   echo
 
-  if ! op_field_exists "$SLACK_ITEM" "SLACK_BOT_TOKEN"; then
+  if ! op_field_exists "$HERMES_ITEM" "SLACK_BOT_TOKEN"; then
     KEY="${SLACK_BOT_TOKEN:-}"
     if [[ -z "$KEY" ]]; then
       if [[ "$ASSUME_YES" == "1" ]]; then
         warn "No SLACK_BOT_TOKEN in environment and --yes is set; leaving unset (optional)."
       else
-        echo "${Y}CHANGE:${N} Store the Slack Bot User OAuth Token in '$SLACK_ITEM' (SLACK_BOT_TOKEN)."
+        echo "${Y}CHANGE:${N} Store the Slack Bot User OAuth Token in '$HERMES_ITEM' (SLACK_BOT_TOKEN)."
         read -r -s -p "  Bot token (xoxb-..., empty to skip): " KEY; echo
       fi
     fi
     if [[ -n "$KEY" ]]; then
-      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_BOT_TOKEN[concealed]=$KEY" >/dev/null
+      op item edit "$HERMES_ITEM" --vault "$VAULT" "SLACK_BOT_TOKEN[concealed]=$KEY" >/dev/null
       unset KEY
-      info "Stored SLACK_BOT_TOKEN in '$SLACK_ITEM'."
+      info "Stored SLACK_BOT_TOKEN in '$HERMES_ITEM'."
     else
       warn "SLACK_BOT_TOKEN left unset — Slack gateway inactive until set."
     fi
   else
-    info "SLACK_BOT_TOKEN already set in '$SLACK_ITEM'; reusing."
+    info "SLACK_BOT_TOKEN already set in '$HERMES_ITEM'; reusing."
   fi
 
-  if ! op_field_exists "$SLACK_ITEM" "SLACK_APP_TOKEN"; then
+  if ! op_field_exists "$HERMES_ITEM" "SLACK_APP_TOKEN"; then
     KEY="${SLACK_APP_TOKEN:-}"
     if [[ -z "$KEY" ]]; then
       if [[ "$ASSUME_YES" == "1" ]]; then
         warn "No SLACK_APP_TOKEN in environment and --yes is set; leaving unset (optional)."
       else
-        echo "${Y}CHANGE:${N} Store the Slack App-Level Token in '$SLACK_ITEM' (SLACK_APP_TOKEN)."
+        echo "${Y}CHANGE:${N} Store the Slack App-Level Token in '$HERMES_ITEM' (SLACK_APP_TOKEN)."
         echo "  (Settings → Basic Information → App-Level Tokens → connections:write scope)"
         read -r -s -p "  App token (xapp-..., empty to skip): " KEY; echo
       fi
     fi
     if [[ -n "$KEY" ]]; then
-      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_APP_TOKEN[concealed]=$KEY" >/dev/null
+      op item edit "$HERMES_ITEM" --vault "$VAULT" "SLACK_APP_TOKEN[concealed]=$KEY" >/dev/null
       unset KEY
-      info "Stored SLACK_APP_TOKEN in '$SLACK_ITEM'."
+      info "Stored SLACK_APP_TOKEN in '$HERMES_ITEM'."
     else
       warn "SLACK_APP_TOKEN left unset — Socket Mode inactive until set."
     fi
   else
-    info "SLACK_APP_TOKEN already set in '$SLACK_ITEM'; reusing."
+    info "SLACK_APP_TOKEN already set in '$HERMES_ITEM'; reusing."
   fi
 
-  if ! op_field_exists "$SLACK_ITEM" "SLACK_ALLOWED_USERS"; then
+  if ! op_field_exists "$HERMES_ITEM" "SLACK_ALLOWED_USERS"; then
     VAL="${SLACK_ALLOWED_USERS:-}"
     if [[ -z "$VAL" ]]; then
       if [[ "$ASSUME_YES" == "1" ]]; then
         warn "No SLACK_ALLOWED_USERS in environment and --yes is set; leaving unset (optional)."
       else
-        echo "${Y}CHANGE:${N} Store allowed Slack user IDs in '$SLACK_ITEM' (SLACK_ALLOWED_USERS)."
+        echo "${Y}CHANGE:${N} Store allowed Slack user IDs in '$HERMES_ITEM' (SLACK_ALLOWED_USERS)."
         echo "  Space-separated Slack user IDs (e.g. U04B7TU3HL7). Find yours via api.slack.com/methods/auth.test."
         read -r -p "  Allowed user IDs (empty to skip): " VAL; echo
       fi
     fi
     if [[ -n "$VAL" ]]; then
-      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_ALLOWED_USERS[text]=$VAL" >/dev/null
+      op item edit "$HERMES_ITEM" --vault "$VAULT" "SLACK_ALLOWED_USERS[text]=$VAL" >/dev/null
       unset VAL
-      info "Stored SLACK_ALLOWED_USERS in '$SLACK_ITEM'."
+      info "Stored SLACK_ALLOWED_USERS in '$HERMES_ITEM'."
     else
       warn "SLACK_ALLOWED_USERS left unset — bot will reject all messages until set."
     fi
   else
-    info "SLACK_ALLOWED_USERS already set in '$SLACK_ITEM'; reusing."
+    info "SLACK_ALLOWED_USERS already set in '$HERMES_ITEM'; reusing."
   fi
 
-  if ! op_field_exists "$SLACK_ITEM" "SLACK_HOME_CHANNEL"; then
+  if ! op_field_exists "$HERMES_ITEM" "SLACK_HOME_CHANNEL"; then
     VAL="${SLACK_HOME_CHANNEL:-}"
     if [[ -z "$VAL" ]]; then
       if [[ "$ASSUME_YES" == "1" ]]; then
         warn "No SLACK_HOME_CHANNEL in environment and --yes is set; leaving unset (optional)."
       else
-        echo "${Y}CHANGE:${N} Store the Slack home channel ID in '$SLACK_ITEM' (SLACK_HOME_CHANNEL)."
+        echo "${Y}CHANGE:${N} Store the Slack home channel ID in '$HERMES_ITEM' (SLACK_HOME_CHANNEL)."
         echo "  Channel ID where the bot delivers cron output and proactive messages (e.g. C04B7TU3HL7)."
         echo "  Right-click a channel in Slack → View channel details → copy the ID at the bottom."
         read -r -p "  Home channel ID (empty to skip): " VAL; echo
       fi
     fi
     if [[ -n "$VAL" ]]; then
-      op item edit "$SLACK_ITEM" --vault "$VAULT" "SLACK_HOME_CHANNEL[text]=$VAL" >/dev/null
+      op item edit "$HERMES_ITEM" --vault "$VAULT" "SLACK_HOME_CHANNEL[text]=$VAL" >/dev/null
       unset VAL
-      info "Stored SLACK_HOME_CHANNEL in '$SLACK_ITEM'."
+      info "Stored SLACK_HOME_CHANNEL in '$HERMES_ITEM'."
     else
       warn "SLACK_HOME_CHANNEL left unset — cron/proactive output has no home channel until set."
     fi
   else
-    info "SLACK_HOME_CHANNEL already set in '$SLACK_ITEM'; reusing."
+    info "SLACK_HOME_CHANNEL already set in '$HERMES_ITEM'; reusing."
   fi
 fi
 
@@ -682,10 +685,10 @@ check_optional() {
     echo "  ${Y}skip${N} op://$VAULT/$1/$2  (optional — set later to enable Slack)"
   fi
 }
-check_optional "$SLACK_ITEM" "SLACK_BOT_TOKEN"
-check_optional "$SLACK_ITEM" "SLACK_APP_TOKEN"
-check_optional "$SLACK_ITEM" "SLACK_ALLOWED_USERS"
-check_optional "$SLACK_ITEM" "SLACK_HOME_CHANNEL"
+check_optional "$HERMES_ITEM" "SLACK_BOT_TOKEN"
+check_optional "$HERMES_ITEM" "SLACK_APP_TOKEN"
+check_optional "$HERMES_ITEM" "SLACK_ALLOWED_USERS"
+check_optional "$HERMES_ITEM" "SLACK_HOME_CHANNEL"
 check_optional "$SSH_KEY_ITEM" "private-key"
 
 echo

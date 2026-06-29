@@ -31,7 +31,7 @@ for cmd in kubectl op python3; do
 done
 op account get >/dev/null 2>&1 || { echo "1Password CLI is not signed in. Run: op signin" >&2; exit 1; }
 
-ITEM="Dashboard Auth - ${AGENT}"
+ITEM="Agent: ${AGENT}"
 PASSWORD="$(op read "op://${OP_VAULT}/${ITEM}/password")"
 [[ -n "$PASSWORD" ]] || {   echo "Missing op://${OP_VAULT}/${ITEM}/password. Run: ./vicegerent secrets setup (with DASHBOARD_AUTH_AGENTS including '${AGENT}')." >&2; exit 1; }
 
@@ -60,7 +60,7 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-proxy_script="$tmpdir/hermes-dashboard-auth-proxy.py"
+proxy_script="$tmpdir/dashboard-auth-proxy.py"
 cat >"$proxy_script" <<'PY'
 #!/usr/bin/env python3
 import argparse

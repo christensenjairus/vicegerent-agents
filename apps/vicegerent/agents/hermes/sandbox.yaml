@@ -109,13 +109,13 @@ spec:
             - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: hermes-dashboard-auth
+                  name: hermes-secrets
                   key: password
                   optional: false
             - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: hermes-dashboard-auth
+                  name: hermes-secrets
                   key: signing-secret
                   optional: false
             - name: SANDBOX_NAME
@@ -138,7 +138,6 @@ spec:
               value: /tmp
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
-            # Optional SSH key for git operations; absent until "Hermes SSH Key" is populated in 1Password.
             - name: GIT_SSH_COMMAND
               value: ssh -i /opt/hermes-ssh/private-key -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
@@ -168,11 +167,10 @@ spec:
                   key: api-key
                   optional: false
           envFrom:
-            # Optional: bot-platform credentials (Slack tokens etc.).
-            # Populate 1Password item "Hermes Bot Secrets" to activate Slack.
+            # All hermes pod credentials: dashboard auth, SSH key, and optional Slack tokens.
             - secretRef:
-                name: hermes-bot-secrets
-                optional: true
+                name: hermes-secrets
+                optional: false
           ports:
             - containerPort: 8642
               name: api
@@ -220,9 +218,8 @@ spec:
             name: claude-config
         - name: hermes-ssh-key
           secret:
-            secretName: hermes-ssh-key  # pragma: allowlist secret
+            secretName: hermes-secrets  # pragma: allowlist secret
             defaultMode: 0400
-            optional: true
   volumeClaimTemplates:
     - metadata:
         name: data
