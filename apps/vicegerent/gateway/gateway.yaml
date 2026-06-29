@@ -45,3 +45,16 @@ spec:
         - name: metrics
           port: 15020
           targetPort: 15020
+  rawConfig:
+    # Override proxy backend pool defaults to prevent MCP session drops.
+    # Default poolIdleTimeout (1m30s) and keepalives.time (3m0s) cause the
+    # upstream connection to ghostunnel to be recycled every ~180s, which
+    # kills MCP sessions at exactly poolIdleTimeout + requestTimeout (210s).
+    # Hermes pings every ~60s so 10m is well beyond any expected idle period.
+    backend:
+      poolIdleTimeout: 10m
+      keepalives:
+        enabled: true
+        time: 10m
+        interval: 30s
+        retries: 9
