@@ -8,7 +8,7 @@ and falls back to provider='custom', which is then written to billing_provider
 in state.db — bypassing all pricing lookups.
 
 This patch injects our agentgateway route-name keys into auth.py's local alias
-dict so resolve_provider('sonnet') → 'anthropic' → real billing.
+dict so resolve_provider('sonnet') -> 'anthropic' -> real billing.
 
 Remove once Hermes supports a billing_provider field in the provider config.
 """
@@ -28,7 +28,11 @@ ALIASES_TO_ADD = {
 }
 
 # Anchor: end of the local _PROVIDER_ALIASES dict in resolve_provider()
-ANCHOR = '        "vllm": "custom", "llamacpp": "custom",\n        "llama.cpp": "custom", "llama-cpp": "custom",\n    }\n'
+ANCHOR = (
+    '        "vllm": "custom", "llamacpp": "custom",\n'
+    '        "llama.cpp": "custom", "llama-cpp": "custom",\n'
+    '    }\n'
+)
 
 REPLACEMENT = (
     '        "vllm": "custom", "llamacpp": "custom",\n'
@@ -38,6 +42,8 @@ REPLACEMENT = (
     + '    }\n'
 )
 
+# Marker written into the file — checked here after patching, not in the Dockerfile
+# (Dockerfile shell quoting strips embedded double-quotes from -c "..." strings).
 APPLIED_MARKER = '"sonnet": "anthropic"'
 
 
@@ -51,14 +57,14 @@ def main() -> int:
         src = f.read()
 
     if APPLIED_MARKER in src:
-        print(f"patch: already applied to {path} — no-op")
+        print(f"patch: already applied to {path} -- no-op")
         return 0
 
     count = src.count(ANCHOR)
     if count != 1:
         raise SystemExit(
             f"patch: expected exactly 1 anchor in {path}, found {count} "
-            "(Hermes upstream changed auth.py resolve_provider aliases — re-verify)"
+            "(Hermes upstream changed auth.py resolve_provider aliases -- re-verify)"
         )
 
     src = src.replace(ANCHOR, REPLACEMENT, 1)
@@ -67,6 +73,14 @@ def main() -> int:
         f.write(src)
 
     compile(src, path, "exec")
+
+    # Verify the marker is present in the written file -- do this here, not in
+    # the Dockerfile, because shell quoting inside -c "..." strips double-quotes.
+    with open(path, "r", encoding="utf-8") as f:
+        written = f.read()
+    if APPLIED_MARKER not in written:
+        raise SystemExit(f"patch: marker not found in {path} after write -- bug in patch script")
+
     print(f"patch: added {len(ALIASES_TO_ADD)} agentgateway aliases to resolve_provider() in {path}")
     return 0
 
