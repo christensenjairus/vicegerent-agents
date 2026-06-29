@@ -89,11 +89,15 @@ data:
         connect_timeout: 5
     agent:
       max_turns: 150
+      gateway_timeout: 900
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.
     toolsets:
       - kanban
     kanban:
       dispatch_in_gateway: false
+    delegation:
+      provider: haiku
+      model: claude-haiku-4-5
     auxiliary:
       vision:
         provider: haiku
@@ -104,6 +108,26 @@ data:
       approval:
         provider: haiku
         model: claude-haiku-4-5
+      compression:
+        provider: haiku
+        model: claude-haiku-4-5
+      web_extract:
+        provider: haiku
+        model: claude-haiku-4-5
+      triage_specifier:
+        provider: haiku
+        model: claude-haiku-4-5
+      kanban_decomposer:
+        provider: haiku
+        model: claude-haiku-4-5
+      curator:
+        provider: haiku
+        model: claude-haiku-4-5
+      monitor:
+        provider: haiku
+        model: claude-haiku-4-5
+    tool_loop_guardrails:
+      hard_stop_enabled: true
     display:
       tool_progress: verbose
       platforms:

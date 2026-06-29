@@ -25,6 +25,3 @@ spec:
         name: kmcp-crds
         namespace: kmcp-system
       interval: 12h
-  valuesFrom:
-    - kind: ConfigMap
-      name: kmcp-crds-values
