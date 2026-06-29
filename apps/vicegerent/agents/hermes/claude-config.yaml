@@ -14,7 +14,7 @@ data:
       "model": "claude-opus-4-8",
       "enableAllProjectMcpServers": true,
       "permissions": {
-        "allow": ["mcp__mnemosyne"]
+        "allow": ["mcp__mnemosyne", "mcp__kmcp", "mcp__host"]
       }
     }
   claude.json: |-
@@ -24,6 +24,14 @@ data:
           "type": "stdio",
           "command": "/opt/hermes/.venv/bin/mnemosyne",
           "args": ["mcp"]
+        },
+        "kmcp": {
+          "type": "http",
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kmcp"
+        },
+        "host": {
+          "type": "http",
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/host"
         }
       },
       "projects": {

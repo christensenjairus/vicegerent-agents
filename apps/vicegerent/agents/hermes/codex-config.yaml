@@ -16,6 +16,10 @@ data:
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"
     args = ["mcp"]
+    [mcp_servers.kmcp]
+    url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kmcp"
+    [mcp_servers.host]
+    url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/host"
     # Pre-trust PVC-seeded workdirs so codex never blocks on directory trust.
     [projects."/workspace"]
     trust_level = "trusted"

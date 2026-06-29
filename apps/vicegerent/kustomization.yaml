@@ -14,5 +14,6 @@ resources:
   - mcps/host
   - mcps/tavily
   - mcps/firecrawl
+  - mcps/kmcp
   - searxng
   - agents/hermes

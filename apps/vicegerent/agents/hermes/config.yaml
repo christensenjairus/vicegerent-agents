@@ -75,12 +75,8 @@ data:
         args: [mcp]
         env:
           HERMES_HOME: /opt/data
-      tavily:
-        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily
-        timeout: 30
-        connect_timeout: 5
-      firecrawl:
-        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl
+      kmcp:
+        url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kmcp
         timeout: 30
         connect_timeout: 5
       host:
