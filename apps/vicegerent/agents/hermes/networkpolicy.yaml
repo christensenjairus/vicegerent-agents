@@ -34,18 +34,23 @@ spec:
         - ports:
             - port: '8080'
               protocol: TCP
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: egress-proxy
+            app.kubernetes.io/name: egress-proxy
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+    # Slack uses Socket Mode (WSS) and POST-based Web API — bypass the GET-only proxy.
     - toFQDNs:
         - matchName: slack.com
         - matchPattern: '*.slack.com'
-        # Added for pre-commit hooks, among other things.
-        - matchName: github.com
-        - matchName: raw.githubusercontent.com
-        - matchName: objects.githubusercontent.com
-        - matchName: pypi.org
       toPorts:
         - ports:
             - port: '443'
               protocol: TCP
+    # SSH bypasses the HTTP proxy — direct egress for git push/pull over SSH.
     - toFQDNs:
         - matchName: gitlab.hahomelabs.com
         - matchName: github.com

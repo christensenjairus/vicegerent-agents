@@ -48,6 +48,8 @@ TAVILY_ITEM="MCP - Tavily"
 FIRECRAWL_ITEM="MCP - Firecrawl"
 HERMES_ITEM="Agent - hermes"
 HERMES_ITEM_SSH="Agent - hermes SSH Key"
+PROXY_CA_ITEM="Egress Proxy CA"
+PROXY_CA_CERT_ITEM="Egress Proxy CA Cert"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -654,6 +656,37 @@ else
   fi
 fi
 
+# --- Egress proxy CA -------------------------------------------------------
+# Generates a dedicated CA for the MITM egress proxy (generate-once).
+# Two 1Password items:
+#   - "Egress Proxy CA"      ca.crt + ca.key  → synced into egress-proxy ns only
+#   - "Egress Proxy CA Cert" ca.crt only       → synced into agent-sandbox + searxng
+# The CA private key never leaves the egress-proxy namespace.
+step "Egress proxy CA"
+ensure_item "$PROXY_CA_ITEM"
+ensure_item "$PROXY_CA_CERT_ITEM"
+if op_field_exists "$PROXY_CA_ITEM" "ca.key"; then
+  info "Egress proxy CA already in '$PROXY_CA_ITEM' (ca.key); reusing."
+  op read "op://$VAULT/$PROXY_CA_ITEM/ca.crt" > "$CERTS/proxy-ca.crt" 2>/dev/null || true
+else
+  confirm "Generate a new CA for the egress MITM proxy and store it in '$PROXY_CA_ITEM'." \
+    || die "Egress proxy CA is required for the sandbox to have outbound HTTPS; aborting."
+  openssl genrsa -out "$CERTS/proxy-ca.key" 4096 >/dev/null 2>&1
+  openssl req -x509 -new -nodes -key "$CERTS/proxy-ca.key" -sha256 -days 3650 \
+    -subj "/CN=vicegerent-egress-proxy-ca" -out "$CERTS/proxy-ca.crt" >/dev/null 2>&1
+  set_field "$PROXY_CA_ITEM" "ca.crt" "$CERTS/proxy-ca.crt" text
+  set_field "$PROXY_CA_ITEM" "ca.key" "$CERTS/proxy-ca.key" concealed
+  info "Generated egress proxy CA and stored it in '$PROXY_CA_ITEM'."
+fi
+# Sync the cert-only item from the cert we have on disk (idempotent overwrite is fine —
+# it's public material). This is what agent-sandbox and searxng get.
+if [[ -s "$CERTS/proxy-ca.crt" ]]; then
+  set_field "$PROXY_CA_CERT_ITEM" "ca.crt" "$CERTS/proxy-ca.crt" text
+  info "Synced ca.crt into cert-only item '$PROXY_CA_CERT_ITEM'."
+else
+  warn "Could not read proxy CA cert — '$PROXY_CA_CERT_ITEM' not updated."
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -676,6 +709,9 @@ check "$HOST_ITEM" "server.key"
 check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
 check "$SEARXNG_ITEM" "secret_key"
+check "$PROXY_CA_ITEM" "ca.crt"
+check "$PROXY_CA_ITEM" "ca.key"
+check "$PROXY_CA_CERT_ITEM" "ca.crt"
 # Slack is optional — warn but don't fail if absent (pod starts without it).
 check_optional() {
   if op_field_exists "$1" "$2"; then

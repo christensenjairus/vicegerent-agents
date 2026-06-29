@@ -28,8 +28,11 @@ spec:
           rules:
             dns:
               - matchPattern: '*'
-    - toEntities: [world]
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: egress-proxy
+            app.kubernetes.io/name: egress-proxy
       toPorts:
         - ports:
-            - port: '443'
+            - port: '8080'
               protocol: TCP
