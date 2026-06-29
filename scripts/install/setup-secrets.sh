@@ -11,6 +11,7 @@
 #       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
 #       Runtime        Authorization                  (synced to agentgateway-system only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
+#   - an SSH private key (item "Hermes SSH Key") for git push/pull from inside the sandbox
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -42,6 +43,7 @@ SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="Tavily"
 FIRECRAWL_ITEM="Firecrawl"
 SLACK_ITEM="Hermes Bot Secrets"
+SSH_KEY_ITEM="Hermes SSH Key"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -614,6 +616,88 @@ else
   fi
 fi
 
+# --- SSH key for git push/pull (optional) ------------------------------------
+# The private key is uploaded to 1Password and mounted into the sandbox as a
+# file. The agent uses it for git operations on hosts listed in networkpolicy.
+step "SSH key for git push/pull (optional — skip to configure later)"
+ensure_item "$SSH_KEY_ITEM"
+if op_field_exists "$SSH_KEY_ITEM" "private-key"; then
+  info "SSH private key already set in '$SSH_KEY_ITEM' (private-key); nothing to do."
+else
+  # Collect candidate private keys from ~/.ssh (files without .pub extension that
+  # have a corresponding .pub, or any id_* file).
+  mapfile -t ssh_keys < <(
+    find "$HOME/.ssh" -maxdepth 1 -type f \
+      ! -name '*.pub' ! -name 'known_hosts' ! -name 'config' ! -name 'authorized_keys' \
+      -name 'id_*' -o -type f ! -name '*.pub' ! -name 'known_hosts' ! -name 'config' \
+      ! -name 'authorized_keys' -name '*_rsa' -o -type f ! -name '*.pub' \
+      ! -name 'known_hosts' ! -name 'config' ! -name 'authorized_keys' -name '*_ed25519' \
+      2>/dev/null | sort -u
+  )
+  # Filter to only files that look like private keys (have a matching .pub or contain PRIVATE KEY).
+  filtered_keys=()
+  for f in "${ssh_keys[@]}"; do
+    [[ -f "$f" ]] || continue
+    if [[ -f "${f}.pub" ]] || head -1 "$f" 2>/dev/null | grep -q 'PRIVATE KEY'; then
+      filtered_keys+=("$f")
+    fi
+  done
+
+  if [[ ${#filtered_keys[@]} -eq 0 ]]; then
+    warn "No SSH private keys found in $HOME/.ssh — skipping (add one and re-run)."
+  else
+    echo
+    echo "  Found SSH private keys:"
+    for i in "${!filtered_keys[@]}"; do
+      key="${filtered_keys[$i]}"
+      comment=""
+      [[ -f "${key}.pub" ]] && comment=" ($(awk '{print $3}' "${key}.pub" 2>/dev/null))"
+      printf "    %d) %s%s\n" "$((i+1))" "$key" "$comment"
+    done
+    echo "    0) skip"
+    echo
+
+    SELECTED_KEY=""
+    if [[ "$ASSUME_YES" == "1" ]]; then
+      warn "--yes is set; skipping interactive SSH key selection (set SSH_KEY_PATH to select)."
+      SELECTED_KEY="${SSH_KEY_PATH:-}"
+    else
+      while true; do
+        read -r -p "  Select a key [1-${#filtered_keys[@]}, 0 to skip]: " choice
+        if [[ "$choice" == "0" ]]; then
+          warn "SSH key skipped — git push/pull from the sandbox will not work until set."
+          break
+        elif [[ "$choice" =~ ^[0-9]+$ ]] && (( choice >= 1 && choice <= ${#filtered_keys[@]} )); then
+          SELECTED_KEY="${filtered_keys[$((choice-1))]}"
+          break
+        else
+          echo "  Invalid selection, try again."
+        fi
+      done
+    fi
+
+    if [[ -n "$SELECTED_KEY" ]]; then
+      if [[ ! -f "$SELECTED_KEY" ]]; then
+        warn "SSH key path '$SELECTED_KEY' does not exist — skipping."
+      else
+        confirm "Upload '$SELECTED_KEY' as the hermes agent SSH key (stored in '$SSH_KEY_ITEM')." \
+          || { warn "SSH key upload skipped."; }
+        if [[ $? -eq 0 ]]; then
+          set_field "$SSH_KEY_ITEM" "private-key" "$SELECTED_KEY" concealed
+          # Store the public key as a text field for reference (if it exists).
+          if [[ -f "${SELECTED_KEY}.pub" ]]; then
+            set_field "$SSH_KEY_ITEM" "public-key" "${SELECTED_KEY}.pub" text
+          fi
+          info "Stored SSH key '$SELECTED_KEY' in '$SSH_KEY_ITEM'."
+          echo
+          echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab, GitHub, etc.):"
+          [[ -f "${SELECTED_KEY}.pub" ]] && cat "${SELECTED_KEY}.pub"
+        fi
+      fi
+    fi
+  fi
+fi
+
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
@@ -648,6 +732,7 @@ check_optional "$SLACK_ITEM" "SLACK_BOT_TOKEN"
 check_optional "$SLACK_ITEM" "SLACK_APP_TOKEN"
 check_optional "$SLACK_ITEM" "SLACK_ALLOWED_USERS"
 check_optional "$SLACK_ITEM" "SLACK_HOME_CHANNEL"
+check_optional "$SSH_KEY_ITEM" "private-key"
 
 echo
 if [[ $missing -eq 0 ]]; then

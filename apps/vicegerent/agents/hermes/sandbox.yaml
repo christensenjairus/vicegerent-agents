@@ -49,7 +49,7 @@ spec:
             - |-
               set -euo pipefail
               dest="/opt/data/.hermes"
-              mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins
+              mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins /opt/data/.ssh
               # digest-gated reseed: only re-copy when image digest changes; rm-first so stale weights don't linger.
               seed="/opt/hermes/mnemosyne-seed"
               marker="${dest}/.mnemosyne-seed.sha256"
@@ -137,6 +137,10 @@ spec:
               value: /tmp
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
+            # Optional SSH key for git operations; absent until "Hermes SSH Key" is populated in 1Password.
+            - name: GIT_SSH_COMMAND
+              value: ssh -i /opt/hermes-ssh/private-key -o StrictHostKeyChecking=accept-new
+                -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
@@ -187,6 +191,9 @@ spec:
               mountPath: /opt/data
             - name: gitrepos
               mountPath: /workspace
+            - name: hermes-ssh-key
+              mountPath: /opt/hermes-ssh
+              readOnly: true
             - name: hermes-config
               mountPath: /opt/data/config.yaml
               subPath: config.yaml
@@ -210,6 +217,11 @@ spec:
         - name: claude-config
           configMap:
             name: claude-config
+        - name: hermes-ssh-key
+          secret:
+            secretName: hermes-ssh-key  # pragma: allowlist secret
+            defaultMode: 0400
+            optional: true
   volumeClaimTemplates:
     - metadata:
         name: data

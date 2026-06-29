@@ -9,6 +9,7 @@ resources:
   - codex-config.yaml
   - claude-config.yaml
   - bot-secrets.yaml
+  - ssh-key.yaml
   - sandbox.yaml
   - dashboard.yaml
   - dashboard-ingress.yaml

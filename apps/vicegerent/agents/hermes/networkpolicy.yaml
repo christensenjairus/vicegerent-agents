@@ -45,3 +45,10 @@ spec:
         - ports:
             - port: '443'
               protocol: TCP
+    - toFQDNs:
+        - matchName: gitlab.hahomelabs.com
+        - matchName: github.com
+      toPorts:
+        - ports:
+            - port: '22'
+              protocol: TCP
