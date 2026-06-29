@@ -844,19 +844,12 @@ app.all("/mcp", async (req, res) => { // Changed to app.all to handle GET for SS
 
   logger.log(`[${clientId}] /mcp: About to call transport.handleRequest for session ${transportSessionIdToUse || httpTransport.sessionId} - Method: ${req.method}`);
 
-  // For GET (SSE stream), eagerly clean up the transport map when the client disconnects.
-  // The SDK's onclose handler only fires on orderly shutdown; req 'close' fires on any disconnect
-  // (timeout, TCP drop, etc.) so stale sessions don't accumulate in the transport map.
-  if (req.method === 'GET') {
-    const capturedTransport = httpTransport;
-    req.on('close', () => {
-      const sessionId = capturedTransport.sessionId || clientProvidedSessionId;
-      if (sessionId && streamableHttpTransports.get(sessionId) === capturedTransport) {
-        streamableHttpTransports.delete(sessionId);
-        logger.log(`[${clientId}] /mcp: Client disconnected (GET close). Session ${sessionId} removed. Active: ${streamableHttpTransports.size}`);
-      }
-    });
-  }
+  // Do NOT tear down the session when the standalone GET (server->client SSE stream)
+  // closes. The client recycles that stream roughly every sse_read_timeout (~300s);
+  // that is not session termination. The SDK frees just the stream slot on close, and
+  // the client reopens a GET on the same session — deleting the transport here makes
+  // that reopen 404 and forces a full reconnect. Teardown is handled by DELETE
+  // (-> transport.onclose, see creation above) and transport.onerror.
 
   try {
     // The SDK's StreamableHTTPServerTransport.handleRequest should:

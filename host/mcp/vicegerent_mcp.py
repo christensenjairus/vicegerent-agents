@@ -176,7 +176,7 @@ def make_caddyfile(config: dict[str, Any]) -> str:
   bind {host}
 
   @mcp_request {{
-    method POST GET
+    method POST GET DELETE
     path /mcp
   }}
 
