@@ -47,6 +47,7 @@ SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="MCP - Tavily"
 FIRECRAWL_ITEM="MCP - Firecrawl"
 HERMES_ITEM="Agent - hermes"
+HERMES_ITEM_SSH="Agent - hermes SSH Key"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -646,7 +647,9 @@ else
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
   if [[ $? -eq 0 ]]; then
     ssh-keygen -t ed25519 -C "hermes-agent@vicegerent" -N "" -f "$CERTS/hermes_agent_ed25519" >/dev/null 2>&1
-    set_field "$HERMES_ITEM" "private-key" "$CERTS/hermes_agent_ed25519" concealed
+    op document create "$CERTS/hermes_agent_ed25519" \
+      --title "Agent - hermes SSH Key" \
+      --vault "$VAULT"
     set_field "$HERMES_ITEM" "public-key"  "$CERTS/hermes_agent_ed25519.pub" text
     info "Stored generated SSH key in '$HERMES_ITEM'."
     echo
@@ -689,7 +692,8 @@ check_optional "$HERMES_ITEM" "SLACK_BOT_TOKEN"
 check_optional "$HERMES_ITEM" "SLACK_APP_TOKEN"
 check_optional "$HERMES_ITEM" "SLACK_ALLOWED_USERS"
 check_optional "$HERMES_ITEM" "SLACK_HOME_CHANNEL"
-check_optional "$HERMES_ITEM" "private-key"
+check_optional "$HERMES_ITEM" "public-key"
+check_optional "$HERMES_ITEM_SSH" "private-key"
 
 echo
 if [[ $missing -eq 0 ]]; then

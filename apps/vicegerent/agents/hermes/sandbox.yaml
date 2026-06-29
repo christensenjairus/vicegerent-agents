@@ -218,7 +218,7 @@ spec:
             name: claude-config
         - name: hermes-ssh-key
           secret:
-            secretName: hermes-secrets  # pragma: allowlist secret
+            secretName: hermes-ssh-key  # pragma: allowlist secret
             defaultMode: 0400
   volumeClaimTemplates:
     - metadata:
