@@ -167,6 +167,9 @@ def make_caddyfile(config: dict[str, Any]) -> str:
 {{
   admin off
   auto_https off
+  log {
+    level WARN
+  }
 }}
 
 :{filtered_port} {{
