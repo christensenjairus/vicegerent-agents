@@ -115,6 +115,42 @@ RUN curl -fsSL -o /usr/local/bin/jq \
     && chmod +x /usr/local/bin/yq \
     && yq --version
 
+# Bake kustomize + kubeconform + cerbos so validate.sh and pre-commit hooks
+# work offline in the egress-locked sandbox without downloading at runtime.
+# renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
+ARG KUSTOMIZE_VERSION=v5.8.1
+# renovate: datasource=github-releases depName=yannh/kubeconform
+ARG KUBECONFORM_VERSION=v0.7.0
+# renovate: datasource=github-releases depName=cerbos/cerbos
+ARG CERBOS_VERSION=v0.53.0
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        arm64) KUSTOMIZE_ARCH=arm64 ;; \
+        amd64) KUSTOMIZE_ARCH=amd64 ;; \
+        *) echo "kustomize: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/kustomize.tar.gz \
+        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_${KUSTOMIZE_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/kustomize.tar.gz kustomize \
+    && rm /tmp/kustomize.tar.gz \
+    && kustomize version \
+    && curl -fsSL -o /tmp/kubeconform.tar.gz \
+        "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${TARGETARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/kubeconform.tar.gz kubeconform \
+    && rm /tmp/kubeconform.tar.gz \
+    && kubeconform -v \
+    && CERBOS_VER="${CERBOS_VERSION#v}" \
+    && case "${TARGETARCH}" in \
+        arm64) CERBOS_ARCH=arm64 ;; \
+        amd64) CERBOS_ARCH=x86_64 ;; \
+        *) echo "cerbos: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/cerbos.tar.gz \
+        "https://github.com/cerbos/cerbos/releases/download/${CERBOS_VERSION}/cerbos_${CERBOS_VER}_Linux_${CERBOS_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/cerbos.tar.gz cerbos \
+    && rm /tmp/cerbos.tar.gz \
+    && cerbos --version
+
 # Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
 # renovate: datasource=github-releases depName=rtk-ai/rtk
 ARG RTK_VERSION=v0.43.0

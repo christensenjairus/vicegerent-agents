@@ -69,5 +69,5 @@ data:
 
     # Expectations
     - Use a fresh, updated git worktree for every session, regardless of the repo.
-    - Be thorough in your debugging. Find a smoking gun before suggesting a fix. 
+    - Be thorough in your debugging. Find a smoking gun before suggesting a fix.
     - Never guess or assume, always back up statements with data.
