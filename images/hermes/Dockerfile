@@ -198,6 +198,6 @@ RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py \
     && /opt/hermes/.venv/bin/python -c "\
 import importlib.util; spec = importlib.util.find_spec('hermes_cli.auth'); \
 s = open(spec.origin).read(); \
-assert '\"sonnet\":       \"anthropic\"' in s, '0007 patch marker missing after apply'; \
+assert '"sonnet": "anthropic"' in s, '0007 patch marker missing after apply'; \
 print('provider aliases patch verified in ' + spec.origin)"
 RUN rm -f /tmp/0007-provider-aliases.py

@@ -17,14 +17,14 @@ import sys
 
 ALIASES_TO_ADD = {
     # Anthropic-transport agentgateway routes
-    "sonnet":       "anthropic",
-    "haiku":        "anthropic",
-    "opus":         "anthropic",
-    "haiku-oai":    "anthropic",
+    "sonnet":      "anthropic",
+    "haiku":       "anthropic",
+    "opus":        "anthropic",
+    "haiku-oai":   "anthropic",
     # OpenAI-transport agentgateway routes (route names use dashes not dots)
-    "gpt-5-5":      "openai-api",
-    "gpt-4-1":      "openai-api",
-    "gpt-4o-mini":  "openai-api",
+    "gpt-5-5":     "openai-api",
+    "gpt-4-1":     "openai-api",
+    "gpt-4o-mini": "openai-api",
 }
 
 # Anchor: end of the local _PROVIDER_ALIASES dict in resolve_provider()
@@ -33,12 +33,12 @@ ANCHOR = '        "vllm": "custom", "llamacpp": "custom",\n        "llama.cpp": 
 REPLACEMENT = (
     '        "vllm": "custom", "llamacpp": "custom",\n'
     '        "llama.cpp": "custom", "llama-cpp": "custom",\n'
-    '        # vicegerent: agentgateway route-name → canonical billing provider\n'
-    + "".join(f'        {k!r}: {v!r},\n' for k, v in ALIASES_TO_ADD.items())
+    '        # vicegerent: agentgateway route-name -> canonical billing provider\n'
+    + "".join(f'        "{k}": "{v}",\n' for k, v in ALIASES_TO_ADD.items())
     + '    }\n'
 )
 
-APPLIED_MARKER = '"sonnet":       "anthropic"'
+APPLIED_MARKER = '"sonnet": "anthropic"'
 
 
 def main() -> int:
