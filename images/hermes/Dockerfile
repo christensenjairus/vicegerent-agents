@@ -211,3 +211,7 @@ RUN rm -f /tmp/0005-hermes-billing.py
 COPY patches/0006-slack-command-name.py /tmp/0006-slack-command-name.py
 RUN /opt/hermes/.venv/bin/python /tmp/0006-slack-command-name.py
 RUN rm -f /tmp/0006-slack-command-name.py
+
+# Bundled skill files are installed 444 (root-owned in the image); make them
+# 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
+RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
