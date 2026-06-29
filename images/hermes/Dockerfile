@@ -204,3 +204,10 @@ RUN rm -f /tmp/0004-agentburn.py
 COPY patches/0005-hermes-billing.py /tmp/0005-hermes-billing.py
 RUN /opt/hermes/.venv/bin/python /tmp/0005-hermes-billing.py
 RUN rm -f /tmp/0005-hermes-billing.py
+
+# Patch Hermes Slack adapter so the catch-all slash command name is configurable
+# via HERMES_SLACK_COMMAND_NAME (default: "hermes"). Set in sandbox.yaml to rename
+# the bot's slash command (e.g. /felix). Remove once upstream supports this.
+COPY patches/0006-slack-command-name.py /tmp/0006-slack-command-name.py
+RUN /opt/hermes/.venv/bin/python /tmp/0006-slack-command-name.py
+RUN rm -f /tmp/0006-slack-command-name.py
