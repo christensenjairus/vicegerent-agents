@@ -198,3 +198,12 @@ COPY patches/0007-provider-aliases.py /tmp/0007-provider-aliases.py
 # assert cannot safely embed double-quotes inside a double-quoted shell string.
 RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py
 RUN rm -f /tmp/0007-provider-aliases.py
+
+# Patch hermes_cli/runtime_provider.py::_resolve_named_custom_runtime to return
+# requested_provider (e.g. "sonnet") instead of hardcoded "custom" for named
+# custom providers, so agent.provider carries the route name into billing_provider
+# in state.db where patch 0007 can resolve it to the upstream billing identity.
+# Remove once Hermes supports a billing_provider field in the provider config.
+COPY patches/0008-runtime-provider-billing.py /tmp/0008-runtime-provider-billing.py
+RUN /opt/hermes/.venv/bin/python /tmp/0008-runtime-provider-billing.py
+RUN rm -f /tmp/0008-runtime-provider-billing.py
