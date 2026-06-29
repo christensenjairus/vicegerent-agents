@@ -20,7 +20,7 @@ import sys
 
 # Provider keys used in vicegerent config.yaml → upstream billing provider
 _VICEGERENT_ANTHROPIC_PROVIDERS = {"sonnet", "haiku", "opus"}
-_VICEGERENT_OPENAI_PROVIDERS = {"gpt-5-5", "gpt-4-1", "gpt-4o-mini"}
+_VICEGERENT_OPENAI_PROVIDERS = {"gpt-5-5", "gpt-4-1", "gpt-4o-mini", "openai-api"}
 
 ANCHOR = (
     '    if provider_name in {"custom", "local"} or (base and "localhost" in base):\n'

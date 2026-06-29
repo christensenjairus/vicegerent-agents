@@ -188,3 +188,16 @@ s = open(spec.origin).read(); \
 assert '_VICEGERENT_ANTHROPIC_PROVIDERS' in s, '0006 patch marker missing after apply'; \
 print('usage_pricing billing route patch verified in ' + spec.origin)"
 RUN rm -f /tmp/0006-usage-pricing-billing-route.py
+
+# Patch hermes_cli/auth.py::resolve_provider() to map vicegerent agentgateway
+# route-name provider keys to their canonical Hermes billing provider so the
+# full provider resolution chain yields real cost numbers instead of 'custom'.
+# Remove once Hermes supports a billing_provider field in the provider config.
+COPY patches/0007-provider-aliases.py /tmp/0007-provider-aliases.py
+RUN /opt/hermes/.venv/bin/python /tmp/0007-provider-aliases.py \
+    && /opt/hermes/.venv/bin/python -c "\
+import importlib.util; spec = importlib.util.find_spec('hermes_cli.auth'); \
+s = open(spec.origin).read(); \
+assert '\"sonnet\":       \"anthropic\"' in s, '0007 patch marker missing after apply'; \
+print('provider aliases patch verified in ' + spec.origin)"
+RUN rm -f /tmp/0007-provider-aliases.py
