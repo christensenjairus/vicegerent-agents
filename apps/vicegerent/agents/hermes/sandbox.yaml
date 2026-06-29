@@ -55,7 +55,10 @@ spec:
               mkdir -p "${dest}/mnemosyne/models" "${dest}/cache/fastembed" /opt/data/plugins /opt/data/.ssh
               # Seed egress proxy CA cert so curl, pip, git, and Python requests trust it.
               mkdir -p /opt/data/certs
-              cp -f /reload/egress-proxy-ca/ca.crt /opt/data/certs/egress-proxy-ca.crt
+              # Build combined CA bundle: system CAs + proxy CA.
+              # Using only the proxy CA would break direct-egress TLS (Slack, SSH).
+              cat /etc/ssl/certs/ca-certificates.crt /reload/egress-proxy-ca/ca.crt \
+                > /opt/data/certs/ca-bundle.crt
               # digest-gated reseed: only re-copy when image digest changes; rm-first so stale weights don't linger.
               seed="/opt/hermes/mnemosyne-seed"
               marker="${dest}/.mnemosyne-seed.sha256"
@@ -158,17 +161,17 @@ spec:
               value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
             # Trust the proxy CA across all tooling that respects these env vars.
             - name: SSL_CERT_FILE
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             - name: REQUESTS_CA_BUNDLE
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             - name: CURL_CA_BUNDLE
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             - name: GIT_SSL_CAINFO
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             - name: NODE_EXTRA_CA_CERTS
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             - name: PIP_CERT
-              value: /opt/data/certs/egress-proxy-ca.crt
+              value: /opt/data/certs/ca-bundle.crt
             # Slack bypasses the proxy — Socket Mode + Web API require POST + WebSocket.
             # Loopback stays direct. All other destinations (agentgateway, searxng, internet)
             # flow through the scrubbing proxy so secrets are redacted before forwarding.
