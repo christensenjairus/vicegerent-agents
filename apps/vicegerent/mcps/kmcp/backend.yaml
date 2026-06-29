@@ -22,10 +22,7 @@ spec:
   policies:
     tcp:
       connectTimeout: 5s
-      keepalive:
-        # Hermes pings every ~60s; keep TCP connections alive well beyond that.
-        # Default 180s causes sessions to die every ~3.5 minutes.
-        time: 10m
-        interval: 30s
     http:
-      requestTimeout: 30s
+      # Backstop above the Hermes client timeout (30s) so the gateway never
+      # severs an in-flight request the client still considers live.
+      requestTimeout: 60s

@@ -9,7 +9,7 @@ import crypto from 'crypto';
 import { exec as execCallback, spawn } from 'child_process'; // Import spawn
 import { promisify } from 'util';
 // Import the necessary functions from mcp-proxy and config
-import { createServer, updateBackendConnections, getCurrentProxyState } from "./mcp-proxy.js";
+import { createServer, createSessionServer, updateBackendConnections, getCurrentProxyState } from "./mcp-proxy.js";
 import http from 'http';
 import { fileURLToPath } from 'url';
 // Import JSONRPCMessage and JSONRPCError from types
@@ -42,8 +42,10 @@ const publicPath = path.join(__dirname, '..', 'public');
 const sseTransports = new Map<string, SSEServerTransport>();
 const streamableHttpTransports = new Map<string, StreamableHTTPServerTransport>();
 
-// createServer no longer returns connectedClients
-const { server, cleanup } = await createServer();
+// createServer brings up the shared backend MCP clients once. Each incoming
+// session gets its own Server (createSessionServer) bound to those shared clients,
+// because the MCP SDK Protocol holds a single transport per Server instance.
+const { cleanup } = await createServer();
 
 // No longer creating a single mainHttpTransport at startup for /mcp.
 // Transports for /mcp will be created dynamically per session.
@@ -266,6 +268,22 @@ if (enableAdminUI) {
 
             // Trigger the update process in mcp-proxy
             await updateBackendConnections(latestServerConfig, latestToolConfig);
+            // Notify all connected MCP clients that the tool list has changed.
+            // Hermes receives this via agentgateway and auto-refreshes without /reload-mcp.
+            const listChangedNotification = {
+              jsonrpc: '2.0' as const,
+              method: 'notifications/tools/list_changed',
+            };
+            for (const transport of sseTransports.values()) {
+              transport.send(listChangedNotification).catch((err: Error) => {
+                logger.error('Failed to send list_changed to SSE client:', err);
+              });
+            }
+            for (const transport of streamableHttpTransports.values()) {
+              transport.send(listChangedNotification).catch((err: Error) => {
+                logger.error('Failed to send list_changed to StreamableHTTP client:', err);
+              });
+            }
 
             logger.log("Configuration reload completed successfully.");
             res.json({ success: true, message: 'Server configuration reloaded successfully.' });
@@ -628,7 +646,7 @@ app.get("/sse", async (req, res) => {
     };
 
     logger.log(`[${clientId}] Attempting server.connect for new transport with session ${currentSessionId}...`);
-    await server.connect(currentTransport);
+    await createSessionServer().connect(currentTransport);
     logger.log(`[${clientId}] SSE client connected successfully via server.connect for session ${currentSessionId}.`);
 
   } catch (error: any) {
@@ -794,7 +812,7 @@ app.all("/mcp", async (req, res) => { // Changed to app.all to handle GET for SS
     };
 
     try {
-      await server.connect(currentTransportForHandlers);
+      await createSessionServer().connect(currentTransportForHandlers);
       logger.log(`[${clientId}] /mcp: New transport (temp ID: ${transportSessionIdToUse}, awaiting final SDK sessionId) connected to server.`);
     } catch (connectError: any) {
       logger.error(`[${clientId}] /mcp: Failed to connect new transport to server:`, connectError);
@@ -825,6 +843,21 @@ app.all("/mcp", async (req, res) => { // Changed to app.all to handle GET for SS
   }
 
   logger.log(`[${clientId}] /mcp: About to call transport.handleRequest for session ${transportSessionIdToUse || httpTransport.sessionId} - Method: ${req.method}`);
+
+  // For GET (SSE stream), eagerly clean up the transport map when the client disconnects.
+  // The SDK's onclose handler only fires on orderly shutdown; req 'close' fires on any disconnect
+  // (timeout, TCP drop, etc.) so stale sessions don't accumulate in the transport map.
+  if (req.method === 'GET') {
+    const capturedTransport = httpTransport;
+    req.on('close', () => {
+      const sessionId = capturedTransport.sessionId || clientProvidedSessionId;
+      if (sessionId && streamableHttpTransports.get(sessionId) === capturedTransport) {
+        streamableHttpTransports.delete(sessionId);
+        logger.log(`[${clientId}] /mcp: Client disconnected (GET close). Session ${sessionId} removed. Active: ${streamableHttpTransports.size}`);
+      }
+    });
+  }
+
   try {
     // The SDK's StreamableHTTPServerTransport.handleRequest should:
     // - For new sessions (e.g., on InitializeRequest), establish the session,
@@ -882,7 +915,7 @@ const PORT = process.env.PORT || 3663;
 expressServer.keepAliveTimeout = 300_000;
 expressServer.headersTimeout = 310_000;
 
-expressServer.listen(PORT, () => {
+expressServer.listen(Number(PORT), '127.0.0.1', () => {
   const baseUrl = `http://localhost:${PORT}`;
   logger.log(`MCP Proxy Server is running.`);
   logger.log(`SSE endpoint: ${baseUrl}/sse`);
@@ -902,9 +935,13 @@ expressServer.listen(PORT, () => {
 const shutdown = async (signal: string) => {
   logger.log(`\nReceived ${signal}. Shutting down gracefully...`);
   try {
-    logger.log("Closing MCP Server (disconnecting transports)...");
-    await server.close();
-    logger.log("MCP Server closed.");
+    logger.log("Closing active session transports...");
+    const allTransports = [...sseTransports.values(), ...streamableHttpTransports.values()];
+    await Promise.all(allTransports.map(t => t.close?.().catch((err: any) =>
+      logger.warn("Error closing transport during shutdown:", err))));
+    sseTransports.clear();
+    streamableHttpTransports.clear();
+    logger.log("Session transports closed.");
 
     logger.log("Cleaning up backend clients...");
     await cleanup();
