@@ -120,8 +120,17 @@ ensure_item() {
 # set_field <item> <field> <file> [concealed|text]
 set_field() {
   local title="$1" field="$2" file="$3" type="${4:-concealed}"
-  local esc="${field//./\\.}"
-  op item edit "$title" --vault "$VAULT" "${esc}[${type}]=$(cat "$file")" >/dev/null
+  # Use op item get + jq --rawfile to safely encode multi-line file content
+  # (e.g. PEM private keys). Shell argument interpolation with $(cat) strips
+  # trailing newlines and op may misparse embedded newlines in argument values.
+  # jq --rawfile reads bytes verbatim and JSON-encodes them; op item edit reads
+  # the full item JSON from stdin and applies the update cleanly.
+  local json_type="${type^^}"
+  op item get "$title" --vault "$VAULT" --format json \
+    | jq --arg label "$field" --arg type "$json_type" --rawfile value "$file" \
+        '.fields |= (map(select(.label != $label))
+          + [{"id": $label, "label": $label, "type": $type, "value": $value}])' \
+    | op item edit "$title" --vault "$VAULT" >/dev/null
 }
 
 set_value_field() {
