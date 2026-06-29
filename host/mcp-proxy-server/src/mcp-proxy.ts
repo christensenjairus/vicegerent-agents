@@ -372,9 +372,34 @@ export const createServer = async () => {
   // Perform initial connection and map population
   await updateBackendConnections(initialServerConfig, initialToolConfig);
 
+  // Cleanup closes the shared backend clients. Backends are brought up once here
+  // (not per session), so the cleanup belongs on this one-time setup path.
+  const cleanup = async () => {
+    logger.log(`Cleaning up ${currentConnectedClients.length} connected clients...`);
+    await Promise.all(currentConnectedClients.map(async ({ name, cleanup: clientCleanup }) => {
+        try {
+            await clientCleanup();
+             logger.log(`  Cleaned up client: ${name}`);
+        } catch(error: any) {
+             logger.error(`  Error cleaning up client ${name}: ${error.message}`);
+        }
+    }));
+    currentConnectedClients = []; // Clear the list after cleanup
+  };
+
+  return { cleanup };
+};
+
+// A fresh Server per session. The MCP SDK Protocol owns exactly one transport
+// (Protocol.connect overwrites this._transport), so a single shared Server would
+// route every session's responses and notifications to whichever transport
+// connected last — breaking ping/keepalive for all but the newest session. One
+// Server per transport keeps server->client delivery correct. The Server is a thin
+// router over the shared module-level client maps, so this is cheap.
+export const createSessionServer = (): Server => {
   const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms)); // Define sleep
 
-  // Create the main proxy server instance
+  // Create a per-session proxy server instance
   const server = new Server(
     {
       name: "mcp_proxy_server",
@@ -708,21 +733,5 @@ export const createServer = async () => {
     };
   });
 
-  // Cleanup function needs to handle the *current* list of clients
-  const cleanup = async () => {
-    logger.log(`Cleaning up ${currentConnectedClients.length} connected clients...`);
-    await Promise.all(currentConnectedClients.map(async ({ name, cleanup: clientCleanup }) => {
-        try {
-            await clientCleanup();
-             logger.log(`  Cleaned up client: ${name}`);
-        } catch(error: any) {
-             logger.error(`  Error cleaning up client ${name}: ${error.message}`);
-        }
-    }));
-    currentConnectedClients = []; // Clear the list after cleanup
-  };
-
-  // Return the server instance and the cleanup function
-  // We don't return connectedClients anymore as it's managed internally
-  return { server, cleanup };
+  return server;
 };

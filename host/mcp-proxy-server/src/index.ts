@@ -2,11 +2,12 @@
 
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { logger } from './logger.js';
-import { createServer } from "./mcp-proxy.js";
+import { createServer, createSessionServer } from "./mcp-proxy.js";
 
 async function main() {
   const transport = new StdioServerTransport();
-  const { server, cleanup } = await createServer();
+  const { cleanup } = await createServer();
+  const server = createSessionServer();
 
   await server.connect(transport);
 
