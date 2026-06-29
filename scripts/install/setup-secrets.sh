@@ -6,12 +6,12 @@
 #   - a Connect server + its credentials file (item "Connect Credentials")
 #   - a Connect operator token (item "Connect Token")
 #   - ghostunnel mTLS certificates split across four items:
-#       Agentgateway: Host MCP   tls.crt, tls.key              (→ agentgateway-system)
-#       Agentgateway: Host MCP CA  ca.cert                      (→ agentgateway-system)
-#       Host: MCP Tunnel  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
-#       Agentgateway: Anthropic  Authorization                  (→ agentgateway-system)
+#       Agentgateway - Host MCP   tls.crt, tls.key              (→ agentgateway-system)
+#       Agentgateway - Host MCP CA  ca.cert                      (→ agentgateway-system)
+#       Host - MCP Tunnel  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
+#       Agentgateway - Anthropic  Authorization                  (→ agentgateway-system)
 #   - one item per agent workload:
-#       Agent: hermes  password, signing-secret, private-key, public-key,
+#       Agent - hermes  password, signing-secret, private-key, public-key,
 #                      SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL
 #                      (→ agent-sandbox only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
@@ -19,7 +19,7 @@
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
-#     The CA private key is kept in "Host: MCP Tunnel" so a missing leaf cert can be
+#     The CA private key is kept in "Host - MCP Tunnel" so a missing leaf cert can be
 #     re-issued from the existing CA without rebuilding the whole chain.
 #   - Self-cleaning: all key material is written only inside a private tmpdir that is
 #     removed on any exit (including Ctrl-C). Nothing is left on disk.
@@ -37,16 +37,16 @@ VAULT="${VAULT:-Vicegerent}"
 SERVER_NAME="${OP_CONNECT_SERVER:-Vicegerent}"
 TOKEN_NAME="${OP_CONNECT_TOKEN_NAME:-Vicegerent Operator}"
 
-RUNTIME_ITEM="Agentgateway: Anthropic"
-CLIENT_ITEM="Agentgateway: Host MCP"
-CA_ITEM="Agentgateway: Host MCP CA"
-HOST_ITEM="Host: MCP Tunnel"
+RUNTIME_ITEM="Agentgateway - Anthropic"
+CLIENT_ITEM="Agentgateway - Host MCP"
+CA_ITEM="Agentgateway - Host MCP CA"
+HOST_ITEM="Host - MCP Tunnel"
 CRED_ITEM="Connect Credentials"
-OPENAI_ITEM="Agentgateway: OpenAI"
+OPENAI_ITEM="Agentgateway - OpenAI"
 SEARXNG_ITEM="SearXNG"
-TAVILY_ITEM="MCP: Tavily"
-FIRECRAWL_ITEM="MCP: Firecrawl"
-HERMES_ITEM="Agent: hermes"
+TAVILY_ITEM="MCP - Tavily"
+FIRECRAWL_ITEM="MCP - Firecrawl"
+HERMES_ITEM="Agent - hermes"
 TOKEN_ITEM="Connect Token"
 
 HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
@@ -94,14 +94,7 @@ confirm() {
 }
 
 op_item_exists()  { op item get "$1" --vault "$VAULT" >/dev/null 2>&1; }
-# op_field_read <item> <field> — read a field value from a 1Password item.
-# --fields label= treats dots as section separators; escape them so field
-# names like "tls.crt" and "1password-credentials.json" match literally.
-op_field_read() {
-  local _label="${2//./\.}"
-  op item get "$1" --vault "$VAULT" --fields "label=${_label}" --reveal 2>/dev/null
-}
-op_field_exists() { op_field_read "$1" "$2" >/dev/null 2>&1; }
+op_field_exists() { op read "op://$VAULT/$1/$2" >/dev/null 2>&1; }
 
 # leaf_expiring_soon <item> <crt-field> — true (0) when the stored cert expires
 # within EXPIRY_THRESHOLD_DAYS. Returns 1 (false) when it is valid beyond the
@@ -109,7 +102,7 @@ op_field_exists() { op_field_read "$1" "$2" >/dev/null 2>&1; }
 leaf_expiring_soon() {
   local item="$1" field="$2" tmp
   tmp="$(mktemp "$CERTS/expiry.XXXXXX")"
-  if ! op_field_read "$item" "$field" >"$tmp" 2>/dev/null; then
+  if ! op read "op://$VAULT/$item/$field" >"$tmp" 2>/dev/null; then
     rm -f "$tmp"; return 1
   fi
   local secs=$(( EXPIRY_THRESHOLD_DAYS * 86400 ))
@@ -250,8 +243,8 @@ if [[ "$FORCE" == "1" ]]; then
   NEW_CA=1
 elif [[ $have_ca_cert -eq 1 && $have_ca_key -eq 1 ]]; then
   info "CA already in 1Password ('$HOST_ITEM' ca.cert + ca.key); reusing it."
-  op_field_read "$HOST_ITEM" ca.cert > "$CERTS/ca.crt"
-  op_field_read "$HOST_ITEM" ca.key  > "$CERTS/ca.key"
+  op read "op://$VAULT/$HOST_ITEM/ca.cert" > "$CERTS/ca.crt"
+  op read "op://$VAULT/$HOST_ITEM/ca.key"  > "$CERTS/ca.key"
 elif [[ $leaf_present -eq 1 ]]; then
   die "Leaf certificates exist but the CA private key is missing from op://$VAULT/$HOST_ITEM/ca.key.
 The CA cannot be reconstructed, so certs cannot be re-issued idempotently.
@@ -360,11 +353,11 @@ if [[ $need_client -eq 1 ]]; then
   info "Set '$CLIENT_ITEM' tls.crt + tls.key (client identity, synced to agentgateway-system only)."
 fi
 
-# --- Agent: hermes credentials (dashboard auth + Slack) ----------------------------
+# --- Agent - hermes credentials (dashboard auth + Slack) ----------------------------
 # All credentials for the hermes agent pod in one item, synced only to agent-sandbox.
 # dashboard: password + signing-secret (random, generated once, never regenerated)
 # slack:     SLACK_BOT_TOKEN, SLACK_APP_TOKEN, SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (optional)
-step "Agent: hermes credentials"
+step "Agent - hermes credentials"
 ensure_item "$HERMES_ITEM"
 
 any_dashboard_missing=0
@@ -639,7 +632,7 @@ fi
 # text field so it is easy to find and add to GitLab/GitHub deploy keys.
 # Never asks the user to upload one of their existing keys.
 # --- SSH key for git operations -------------------------------------------------
-# private-key + public-key stored in Agent: hermes so the hermes pod reads the
+# private-key + public-key stored in Agent - hermes so the hermes pod reads the
 # key from hermes-secrets (the same secret as dashboard auth and Slack tokens).
 step "SSH key for hermes agent"
 ensure_item "$HERMES_ITEM"
@@ -647,7 +640,7 @@ if op_field_exists "$HERMES_ITEM" "private-key"; then
   info "SSH private key already in '$HERMES_ITEM' (private-key); nothing to do."
   echo
   echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op_field_read "$HERMES_ITEM" public-key 2>/dev/null || true
+  op read "op://$VAULT/$HERMES_ITEM/public-key" 2>/dev/null || true
 else
   confirm "Generate a new ed25519 SSH key for the hermes agent and store it in '$HERMES_ITEM'." \
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
