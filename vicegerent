@@ -22,7 +22,6 @@ ${B}Usage:${N}
   ${C}vicegerent bootstrap${N}               bootstrap Flux against this repo
   ${C}vicegerent agent dashboard <name>${N}  open an agent dashboard in browser
   ${C}vicegerent agent creds <name>${N}      show agent dashboard credentials and URL
-  ${C}vicegerent langfuse${N}                open the Langfuse dashboard
   ${C}vicegerent test gateway${N}            run MCP gateway tests
   ${C}vicegerent test policies${N}           run MCP policy enforcement tests
   ${C}vicegerent mcp setup${N}               set up host-side MCP prerequisites
@@ -230,15 +229,6 @@ case "${1:-}" in
         exit 1
         ;;
     esac
-    ;;
-  langfuse)
-    shift
-    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-      echo "vicegerent langfuse — open the Langfuse dashboard through a local authenticated proxy"
-      echo "  Env: OP_VAULT LANGFUSE_OP_ITEM LANGFUSE_NAMESPACE LANGFUSE_SERVICE LANGFUSE_FORWARD_PORT LANGFUSE_DASHBOARD_PORT"
-      exit 0
-    fi
-    exec "$REPO_ROOT/scripts/langfuse/open-dashboard.sh" "$@"
     ;;
   test)
     shift

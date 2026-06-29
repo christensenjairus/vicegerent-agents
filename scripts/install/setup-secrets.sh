@@ -11,7 +11,6 @@
 #       Ghostunnel Host  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
 #       Runtime        Authorization                  (synced to agentgateway-system only)
 #   - a SearXNG secret key (item "SearXNG") synced into the cluster
-#   - Langfuse bootstrap user/org/project/API keys (item "Langfuse") synced into the cluster
 
 # Properties:
 #   - Idempotent: anything already present in 1Password is reused, never regenerated.
@@ -42,7 +41,6 @@ OPENAI_ITEM="OpenAI"
 SEARXNG_ITEM="SearXNG"
 TAVILY_ITEM="Tavily"
 FIRECRAWL_ITEM="Firecrawl"
-LANGFUSE_ITEM="Langfuse"
 SLACK_ITEM="Hermes Bot Secrets"
 TOKEN_ITEM="Connect Token"
 
@@ -493,59 +491,6 @@ else
   fi
 fi
 
-
-# --- Langfuse bootstrap secrets --------------------------------------------
-# App/session/datastore credentials plus headless init user/org/project/API
-# keys for the self-hosted Langfuse stack. These are generated once and reused
-# because changing them can break app sessions, datastore auth, or API clients.
-step "Langfuse bootstrap secrets"
-ensure_item "$LANGFUSE_ITEM"
-langfuse_generated=0
-langfuse_field() {
-  local field="$1" value="$2" type="${3:-concealed}"
-  if op_field_exists "$LANGFUSE_ITEM" "$field"; then
-    info "Langfuse '$field' already set in '$LANGFUSE_ITEM'; reusing."
-    return
-  fi
-  if [[ $langfuse_generated -eq 0 ]]; then
-    confirm "Generate missing Langfuse bootstrap fields in item '$LANGFUSE_ITEM'." \
-      || die "Langfuse bootstrap secrets are required; aborting."
-    langfuse_generated=1
-  fi
-  set_value_field "$LANGFUSE_ITEM" "$field" "$value" "$type"
-  info "Set Langfuse '$field' in '$LANGFUSE_ITEM'."
-}
-langfuse_field "nextauth-secret" "$(openssl rand -base64 32)"
-langfuse_field "salt" "$(openssl rand -base64 32)"
-langfuse_field "encryption-key" "$(openssl rand -hex 32)"
-langfuse_field "postgres-password" "$(openssl rand -hex 24)"
-langfuse_field "redis-password" "$(openssl rand -hex 24)"
-langfuse_field "clickhouse-password" "$(openssl rand -hex 24)"
-langfuse_field "minio-root-user" "langfuse" text
-langfuse_field "minio-root-password" "$(openssl rand -hex 24)"
-langfuse_field "init-user-password" "$(openssl rand -base64 24)"
-langfuse_field "init-project-public-key" "pk-lf-$(openssl rand -hex 16)" text
-langfuse_field "init-project-secret-key" "sk-lf-$(openssl rand -hex 24)"
-
-LF_PUBLIC_KEY="$(op read "op://$VAULT/$LANGFUSE_ITEM/init-project-public-key")"
-LF_SECRET_KEY="$(op read "op://$VAULT/$LANGFUSE_ITEM/init-project-secret-key")"
-OTEL_AUTH_WANT="$(printf '%s:%s' "$LF_PUBLIC_KEY" "$LF_SECRET_KEY" | openssl base64 -A)"
-if op_field_exists "$LANGFUSE_ITEM" "otel-basic-auth"; then
-  OTEL_AUTH_HAVE="$(op read "op://$VAULT/$LANGFUSE_ITEM/otel-basic-auth")"
-  if [[ "$OTEL_AUTH_HAVE" == "$OTEL_AUTH_WANT" ]]; then
-    info "Langfuse OTEL auth already matches project keys in '$LANGFUSE_ITEM'; reusing."
-  else
-    confirm "Replace stale Langfuse otel-basic-auth in '$LANGFUSE_ITEM' so it matches init project keys." \
-      || die "Langfuse OTEL auth must match the configured project keys."
-    set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH_WANT" concealed
-    info "Updated Langfuse OTEL auth in '$LANGFUSE_ITEM'."
-  fi
-else
-  set_value_field "$LANGFUSE_ITEM" "otel-basic-auth" "$OTEL_AUTH_WANT" concealed
-  info "Set Langfuse OTEL auth in '$LANGFUSE_ITEM' from generated project keys."
-fi
-unset LF_PUBLIC_KEY LF_SECRET_KEY OTEL_AUTH_WANT OTEL_AUTH_HAVE
-
 # --- Slack bot credentials (optional) -------------------------------------
 # SLACK_BOT_TOKEN   — xoxb-... Bot User OAuth Token (installed to workspace)
 # SLACK_APP_TOKEN   — xapp-... App-Level Token (Socket Mode, connections:write scope)
@@ -691,18 +636,6 @@ check "$HOST_ITEM" "server.key"
 check "$HOST_ITEM" "ca.cert"
 check "$HOST_ITEM" "ca.key"
 check "$SEARXNG_ITEM" "secret_key"
-check "$LANGFUSE_ITEM" "nextauth-secret"
-check "$LANGFUSE_ITEM" "salt"
-check "$LANGFUSE_ITEM" "encryption-key"
-check "$LANGFUSE_ITEM" "postgres-password"
-check "$LANGFUSE_ITEM" "redis-password"
-check "$LANGFUSE_ITEM" "clickhouse-password"
-check "$LANGFUSE_ITEM" "minio-root-user"
-check "$LANGFUSE_ITEM" "minio-root-password"
-check "$LANGFUSE_ITEM" "init-user-password"
-check "$LANGFUSE_ITEM" "init-project-public-key"
-check "$LANGFUSE_ITEM" "init-project-secret-key"
-check "$LANGFUSE_ITEM" "otel-basic-auth"
 # Slack is optional — warn but don't fail if absent (pod starts without it).
 check_optional() {
   if op_field_exists "$1" "$2"; then

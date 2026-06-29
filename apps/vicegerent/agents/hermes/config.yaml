@@ -99,8 +99,6 @@ data:
       approval:
         provider: haiku
         model: claude-haiku-4-5
-    compression:
-      threshold: 0.75
     display:
       tool_progress: verbose
       platforms:
@@ -132,7 +130,6 @@ data:
       enabled:
         - disk-cleanup
         - rtk-rewrite
-        - observability/langfuse
       disabled:
         - raft-platform
         - web/exa

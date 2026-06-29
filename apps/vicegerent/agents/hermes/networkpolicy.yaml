@@ -34,15 +34,6 @@ spec:
         - ports:
             - port: '8080'
               protocol: TCP
-    # Langfuse SDK posts traces directly to the in-cluster Langfuse web service.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: langfuse
-            app.kubernetes.io/name: langfuse
-      toPorts:
-        - ports:
-            - port: '3000'
-              protocol: TCP
     - toFQDNs:
         - matchName: slack.com
         - matchPattern: '*.slack.com'

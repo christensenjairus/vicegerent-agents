@@ -152,23 +152,3 @@ assert v == 1000000, f"offline resolution returned {v}, expected 1000000"
 print("toolsearch patch: offline context-length resolution OK ->", v)
 PY
 RUN rm -f /tmp/0001-toolsearch-context-length.py
-
-# Patch Langfuse plugin to add source:hermes-sdk + sandbox:<podname> tags so SDK traces
-# are trivially filterable from agentgateway OTel spans in the Langfuse trace list.
-# Remove once upstream Hermes plugin ships configurable tags (HERMES_LANGFUSE_TAGS env var).
-COPY patches/0002-langfuse-source-tags.py /tmp/0002-langfuse-source-tags.py
-RUN /opt/hermes/.venv/bin/python /tmp/0002-langfuse-source-tags.py \
-    && /opt/hermes/.venv/bin/python -c "\
-s = open('/opt/hermes/plugins/observability/langfuse/__init__.py').read(); \
-assert '_build_trace_tags' in s, 'langfuse tags patch marker missing after apply'; \
-print('langfuse tags patch verified in /opt/hermes/plugins/observability/langfuse/__init__.py')"
-RUN rm -f /tmp/0002-langfuse-source-tags.py
-
-COPY patches/0003-mcp-keep-retrying-after-initial-failure.py /tmp/0003-mcp-keep-retrying-after-initial-failure.py
-RUN /opt/hermes/.venv/bin/python /tmp/0003-mcp-keep-retrying-after-initial-failure.py \
-    && /opt/hermes/.venv/bin/python -c "\
-import importlib.util; spec = importlib.util.find_spec('tools.mcp_tool'); \
-s = open(spec.origin).read(); \
-assert 'will keep retrying in background' in s, 'mcp-keep-retrying patch marker missing after apply'; \
-print('mcp-keep-retrying patch verified in ' + spec.origin)"
-RUN rm -f /tmp/0003-mcp-keep-retrying-after-initial-failure.py

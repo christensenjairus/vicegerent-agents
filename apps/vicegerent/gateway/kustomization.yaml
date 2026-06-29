@@ -7,6 +7,5 @@ resources:
   - secrets.yaml
   - openai-secrets.yaml
   - networkpolicy.yaml
-  - tracing-policy.yaml
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled

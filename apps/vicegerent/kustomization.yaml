@@ -15,5 +15,4 @@ resources:
   - mcps/tavily
   - mcps/firecrawl
   - searxng
-  - langfuse
   - agents/hermes

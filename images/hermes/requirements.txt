@@ -8,9 +8,3 @@ agenttrace==0.1.2
 mnemosyne-hermes[all]==0.2.0
 pygount==3.2.0
 rtk-hermes==1.2.3
-# langfuse v4 rewrote internals around OTel context vars; the Hermes plugin
-# stores spans across hook boundaries (different async contexts) which
-# triggers "Token was created in a different Context" in v4. Pin to v3.x
-# until the plugin is updated for v4's lifecycle model.
-# renovate: datasource=pypi depName=langfuse versioning=pep440 allowedVersions=<4
-langfuse==3.15.0

@@ -9,7 +9,6 @@ resources:
   - codex-config.yaml
   - claude-config.yaml
   - bot-secrets.yaml
-  - hermes-observability-secrets.yaml
   - sandbox.yaml
   - dashboard.yaml
   - dashboard-ingress.yaml
