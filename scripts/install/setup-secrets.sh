@@ -637,7 +637,7 @@ if op document get "$HERMES_ITEM_SSH" --vault "$VAULT" &>/dev/null; then
   info "SSH key document '$HERMES_ITEM_SSH' already exists; nothing to do."
   echo
   echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op item get "$HERMES_ITEM" --vault "$VAULT" --fields label=public-key --reveal 2>/dev/null || true
+  op item get "$HERMES_ITEM" --vault "$VAULT" --fields label=public-key --reveal 2>/dev/null | tr -d '"' || true
 else
   confirm "Generate a new ed25519 SSH key for the hermes agent and store it as '$HERMES_ITEM_SSH'." \
     || { warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."; }
