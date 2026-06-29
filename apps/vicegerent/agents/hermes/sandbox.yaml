@@ -15,6 +15,7 @@ spec:
       runtimeClassName: gvisor
       automountServiceAccountToken: false
       securityContext:
+        fsGroup: 10000
         runAsUser: 10000
         runAsGroup: 10000
         runAsNonRoot: true
