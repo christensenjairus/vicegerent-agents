@@ -18,22 +18,8 @@ spec:
           rules:
             dns:
               - matchPattern: '*'
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: agentgateway-system
-            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
-      toPorts:
-        - ports:
-            - port: '80'
-              protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: searxng
-            app.kubernetes.io/name: searxng
-      toPorts:
-        - ports:
-            - port: '8080'
-              protocol: TCP
+    # All HTTP(S) traffic — to internet, agentgateway, and searxng — routes through
+    # the scrubbing proxy. Secrets are redacted before reaching any destination.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: egress-proxy
@@ -42,7 +28,7 @@ spec:
         - ports:
             - port: '8080'
               protocol: TCP
-    # Slack uses Socket Mode (WSS) and POST-based Web API — bypass the GET-only proxy.
+    # Slack uses Socket Mode (WSS) + POST Web API — bypass the GET-only proxy.
     - toFQDNs:
         - matchName: slack.com
         - matchPattern: '*.slack.com'
@@ -50,7 +36,7 @@ spec:
         - ports:
             - port: '443'
               protocol: TCP
-    # SSH bypasses the HTTP proxy — direct egress for git push/pull over SSH.
+    # SSH bypasses the HTTP proxy — direct egress for git push/pull.
     - toFQDNs:
         - matchName: gitlab.hahomelabs.com
         - matchName: github.com

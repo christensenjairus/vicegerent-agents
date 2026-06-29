@@ -9,16 +9,10 @@ spec:
     matchLabels:
       app.kubernetes.io/name: egress-proxy
   ingress:
+    # Only the sandbox pod routes through this proxy.
     - fromEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: agent-sandbox
-      toPorts:
-        - ports:
-            - port: '8080'
-              protocol: TCP
-    - fromEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: searxng
       toPorts:
         - ports:
             - port: '8080'
@@ -35,8 +29,25 @@ spec:
           rules:
             dns:
               - matchPattern: '*'
-    # Allow outbound to public internet only — private/link-local/loopback ranges excluded.
-    # The addon enforces GET/HEAD-only; Cilium enforces the destination boundary.
+    # Forward to agentgateway (LLM + MCP calls from hermes).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: agentgateway-system
+            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
+      toPorts:
+        - ports:
+            - port: '80'
+              protocol: TCP
+    # Forward to searxng (web search from hermes).
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: searxng
+            app.kubernetes.io/name: searxng
+      toPorts:
+        - ports:
+            - port: '8080'
+              protocol: TCP
+    # Public internet — private/link-local/loopback excluded (Cilium + addon both enforce).
     - toCIDRSet:
         - cidr: 0.0.0.0/0
           except:

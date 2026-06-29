@@ -17,14 +17,8 @@ resources:
   - restart-rbac.yaml
   - restart-job.yaml
   - restart-networkpolicy.yaml
-images:
-  - name: alpine/k8s:latest
-    newTag: 1.36.2
 configMapGenerator:
   - name: hermes-sandbox-spec
     files: [sandbox.yaml]
-secretGenerator:
-  - name: hermes-agentgateway-api-key
-    literals: [api-key=hermes]
 generatorOptions:
   disableNameSuffixHash: true

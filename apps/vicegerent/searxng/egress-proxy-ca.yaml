@@ -1,9 +1,0 @@
----
-# Egress proxy CA cert (public cert only) for searxng to trust the MITM proxy.
-apiVersion: onepassword.com/v1
-kind: OnePasswordItem
-metadata:
-  name: egress-proxy-ca-cert
-  namespace: searxng
-spec:
-  itemPath: vaults/Vicegerent/items/Egress Proxy CA Cert

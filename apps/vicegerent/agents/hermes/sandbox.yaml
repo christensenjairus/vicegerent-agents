@@ -72,7 +72,11 @@ spec:
               # Seed ConfigMap-owned config files; agent runtime state uses different files in the same dirs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
-              cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
+              # Render settings.json from template — substitutes AGENTGATEWAY_API_KEY
+              # so claude-code sends the correct random bearer token to agentgateway.
+              envsubst '${AGENTGATEWAY_API_KEY}' \
+                < /reload/claude-config/settings.json \
+                > /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
               # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
               mkdir -p /opt/data/tmp
@@ -81,6 +85,12 @@ spec:
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
+            - name: AGENTGATEWAY_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: hermes-agentgateway-api-key
+                  key: api-key
+                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -159,12 +169,13 @@ spec:
               value: /opt/data/certs/egress-proxy-ca.crt
             - name: PIP_CERT
               value: /opt/data/certs/egress-proxy-ca.crt
-            # Exclude in-cluster traffic from the proxy (agentgateway, searxng, etc.).
-            # Slack is excluded too — Socket Mode + Web API require POST; bypass directly.
+            # Slack bypasses the proxy — Socket Mode + Web API require POST + WebSocket.
+            # Loopback stays direct. All other destinations (agentgateway, searxng, internet)
+            # flow through the scrubbing proxy so secrets are redacted before forwarding.
             - name: no_proxy
-              value: .cluster.local,.svc,127.0.0.1,localhost,slack.com,.slack.com
+              value: 127.0.0.1,localhost,slack.com,.slack.com
             - name: NO_PROXY
-              value: .cluster.local,.svc,127.0.0.1,localhost,slack.com,.slack.com
+              value: 127.0.0.1,localhost,slack.com,.slack.com
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
             # Config homes on PVC (seeded by seed-data) to stay writable under readOnlyRootFilesystem.
