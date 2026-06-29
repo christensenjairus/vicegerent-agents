@@ -120,7 +120,7 @@ RUN curl -fsSL -o /usr/local/bin/jq \
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
 ARG KUSTOMIZE_VERSION=v5.8.1
 # renovate: datasource=github-releases depName=yannh/kubeconform
-ARG KUBECONFORM_VERSION=v0.7.0
+ARG KUBECONFORM_VERSION=v0.8.0
 # renovate: datasource=github-releases depName=cerbos/cerbos
 ARG CERBOS_VERSION=v0.53.0
 ARG TARGETARCH
