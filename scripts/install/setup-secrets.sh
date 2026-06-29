@@ -693,7 +693,11 @@ check_optional "$HERMES_ITEM" "SLACK_APP_TOKEN"
 check_optional "$HERMES_ITEM" "SLACK_ALLOWED_USERS"
 check_optional "$HERMES_ITEM" "SLACK_HOME_CHANNEL"
 check_optional "$HERMES_ITEM" "public-key"
-check_optional "$HERMES_ITEM_SSH" "private-key"
+if op document get "$HERMES_ITEM_SSH" --vault "$VAULT" &>/dev/null; then
+  echo "  ${G}ok${N}   $HERMES_ITEM_SSH (ssh key document)"
+else
+  echo "  ${Y}skip${N} $HERMES_ITEM_SSH (ssh key document — run setup to generate)"
+fi
 
 echo
 if [[ $missing -eq 0 ]]; then

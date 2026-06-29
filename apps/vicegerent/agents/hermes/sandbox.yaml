@@ -139,7 +139,7 @@ spec:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
             - name: GIT_SSH_COMMAND
-              value: ssh -i /opt/hermes-ssh/private-key -o StrictHostKeyChecking=accept-new
+              value: ssh -i /opt/hermes-ssh/hermes_agent_ed25519 -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
             - name: ANTHROPIC_API_KEY
               valueFrom:
