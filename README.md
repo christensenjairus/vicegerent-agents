@@ -1,6 +1,8 @@
-# vicegerent
+# Vicegerent Agents
 
 GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local minikube cluster, managed by Flux.
+
+![Architecture of Vicegerent Agents (Excalidraw)](./architecture.png)
 
 ## MCP authorization model
 

@@ -12,6 +12,7 @@ repos:
       - id: end-of-file-fixer
         exclude: ^host/mcp-proxy-server/
       - id: check-added-large-files
+        exclude: (?i)\.png$
       - id: detect-private-key
         exclude: ^host/mcp-proxy-server/
   - repo: https://github.com/lyz-code/yamlfix/
