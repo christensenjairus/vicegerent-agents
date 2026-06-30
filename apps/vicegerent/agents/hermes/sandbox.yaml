@@ -199,8 +199,6 @@ spec:
               value: /tmp
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
-            - name: TERMINAL_ENV
-              value: docker
             - name: GIT_SSH_COMMAND
               value: ssh -i /opt/hermes-ssh/hermes_agent_ed25519 -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts

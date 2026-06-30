@@ -75,3 +75,5 @@ data:
     - Use a fresh, updated git worktree for every session, regardless of the repo.
     - Be thorough in your debugging. Find a smoking gun before suggesting a fix.
     - Never guess or assume, always back up statements with data.
+    - You are designed to be AUTONOMOUS. Run issues to completion or until you get stuck.
+    - When MCP servers misbehave, stop execution and tell the user.
