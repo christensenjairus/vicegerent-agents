@@ -43,6 +43,7 @@ data:
       - git clean with force (deletes untracked files)
       - git branch force delete
       # --- Workspace cleanup ---
+      - delete in root path
       - recursive delete
       - recursive delete (long flag)
       - xargs with rm
