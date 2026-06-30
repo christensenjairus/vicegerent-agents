@@ -3,12 +3,18 @@ Egress proxy integration test suite — curl-based.
 Runs from inside the hermes sandbox with proxy env vars set.
 python3 /opt/data/egress_proxy_test.py
 """
-import subprocess
 import os
 import socket
+import subprocess
+import sys
+import tempfile
 
-PROXY = os.environ["https_proxy"]
-CA    = os.environ["SSL_CERT_FILE"]
+try:
+    PROXY = os.environ["https_proxy"]
+    CA = os.environ["SSL_CERT_FILE"]
+except KeyError as e:
+    sys.exit(f"missing env var {e} — run this inside the hermes sandbox "
+             "(https_proxy and SSL_CERT_FILE must be set)")
 # Agentgateway internal cluster endpoint
 AGENTGW = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local"
 # External allowlisted
@@ -22,7 +28,6 @@ RESULTS = []
 
 def curl(method, url, body=None, extra_headers=None, use_proxy=True, timeout=10, extra_args=None):
     """Run curl and return (http_status_int, response_body_str)."""
-    import tempfile
     with tempfile.NamedTemporaryFile(delete=False, suffix=".body") as tf:
         body_path = tf.name
 
@@ -63,7 +68,9 @@ def check(label, method, url, body=None, extra_headers=None, use_proxy=True,
           expect_proxy_block=None, expect_status=None, timeout=10, extra_args=None):
     status, body_r = curl(method, url, body=body, extra_headers=extra_headers,
                           use_proxy=use_proxy, timeout=timeout, extra_args=extra_args)
-    is_proxy_block = (status == 403 and "[egress-proxy]" in body_r)
+    # HEAD responses carry no body, so the "[egress-proxy]" marker is invisible; a 403
+    # on an external HEAD is unambiguously a proxy block (origins answer 200/4xx, not 403).
+    is_proxy_block = (status == 403 and ("[egress-proxy]" in body_r or method.upper() == "HEAD"))
 
     passed = True
     fail_reason = ""
@@ -112,7 +119,7 @@ check("CGNAT 100.64.x",              "GET", "http://100.64.0.1/",   expect_proxy
 # Cilium egressDeny covers it at the packet level instead.
 status_lo, _ = curl("GET", "http://127.0.0.1/", use_proxy=True, timeout=3)
 raw_check("Loopback 127.0.0.1 (in no_proxy — bypasses proxy, goes direct)",
-          status_lo is None,  # connection refused = correct, no listener on loopback
+          status_lo in (None, 0),  # connection refused: curl writes http_code 000 → 0
           status_lo,
           "no_proxy bypass: direct connect fails (no listener) — Cilium egressDeny is the guard")
 
@@ -124,9 +131,13 @@ ws_hdrs = {
     "Sec-WebSocket-Key": "dGhlIHNhbXBsZSBub25jZQ==",
     "Sec-WebSocket-Version": "13",
 }
-check("WS upgrade → external host",         "GET", PYPI,                 extra_headers=ws_hdrs, expect_proxy_block=True)
-check("WS upgrade → internal host",         "GET", AGENTGW,              extra_headers=ws_hdrs, expect_proxy_block=True)
-check("WS upgrade → SSRF private IP",       "GET", "http://192.168.1.1/", extra_headers=ws_hdrs, expect_proxy_block=True, timeout=5)
+# Force HTTP/1.1: over HTTP/2 (curl's default for HTTPS) the connection-specific
+# Upgrade/Connection headers are stripped before they reach the proxy, so the WS
+# block would never be exercised.
+ws_args = ["--http1.1"]
+check("WS upgrade → external host",         "GET", PYPI,                 extra_headers=ws_hdrs, expect_proxy_block=True, extra_args=ws_args)
+check("WS upgrade → internal host",         "GET", AGENTGW,              extra_headers=ws_hdrs, expect_proxy_block=True, extra_args=ws_args)
+check("WS upgrade → SSRF private IP",       "GET", "http://192.168.1.1/", extra_headers=ws_hdrs, expect_proxy_block=True, timeout=5, extra_args=ws_args)
 
 
 # ─── 3. URL LENGTH LIMIT ────────────────────────────────────────────────────
@@ -228,7 +239,7 @@ except Exception as e:
 
 # WS check fires before SSRF in code — both produce 403 but WS message is first
 check("WS upgrade to private IP → blocked (WS fires before SSRF check)",
-      "GET", "http://10.0.0.1/", extra_headers=ws_hdrs, expect_proxy_block=True, timeout=5)
+      "GET", "http://10.0.0.1/", extra_headers=ws_hdrs, expect_proxy_block=True, timeout=5, extra_args=ws_args)
 
 # Plain HTTP external POST — method enforcement still applies
 check("POST over plain HTTP to external → blocked",
@@ -302,3 +313,6 @@ if fails:
             if note:
                 print(f"    {note}")
 print("=" * 80)
+
+# Exit non-zero on any failure so a runner (or `vicegerent test`) can detect it.
+sys.exit(1 if fails else 0)

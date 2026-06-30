@@ -21,15 +21,18 @@ These patches modify `src/sse.ts` and trigger a rebuild if the build is stale.
 
 ## Updating to a new upstream version
 
+This directory is vendored as plain committed files (not a git submodule), so
+updating means copying upstream source in at the target tag:
+
 ```bash
-# From repo root
-git -C host/mcp-proxy-server fetch --tags
-git -C host/mcp-proxy-server checkout vX.Y.Z
-# Remove HA-addon files if re-added upstream
-# Then rebuild
+# Clone upstream elsewhere at the target tag, then copy its source in:
+git clone --branch vX.Y.Z https://github.com/ptbsare/mcp-proxy-server /tmp/mps
+rsync -a --delete /tmp/mps/src/ host/mcp-proxy-server/src/
+# repeat for public/, package.json, package-lock.json, tsconfig.json as needed
+# Remove HA-addon files if re-added upstream (see list above).
 npm --prefix host/mcp-proxy-server ci
-npm --prefix host/mcp-proxy-server run build
-# Or just run setup-host-mcp --rebuild
+npm --prefix host/mcp-proxy-server run build   # patches re-apply on next `start`
+# Or just run: ./vicegerent mcp setup --rebuild
 ```
 
 Update the version line at the top of this file after upgrading.

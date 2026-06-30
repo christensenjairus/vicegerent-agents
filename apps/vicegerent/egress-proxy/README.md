@@ -20,11 +20,13 @@ internal (agentgateway, searxng) or external (internet).
 | Pattern | What it catches |
 |---|---|
 | `-----BEGIN ... PRIVATE KEY-----` | SSH private keys — RSA, EC, Ed25519, OpenSSH, PKCS#8 encrypted |
-| `xox[bpraesc]-[A-Za-z0-9\-_]+` | Slack tokens — bot, app-level, user, refresh, socket, client |
+| `xox[bpraescd]-[A-Za-z0-9\-_]+` | Slack tokens — bot, app-level, user, refresh, socket, client |
 | `xapp-[A-Za-z0-9\-_]+` | Slack app-configuration tokens |
 | `Authorization: Bearer <token>` | Bearer tokens stripped from headers on external requests |
+| `Authorization: Basic <creds>` | Basic-auth credentials stripped from headers on external requests |
+| `x-api-key` / `api-key` headers | API-key headers redacted on external requests |
 
-Response bodies are also scrubbed (non-streaming only) to guard against echo attacks.
+The request **URL path and query** are also scrubbed against the body patterns on external requests, and response bodies are scrubbed (non-streaming only) to guard against echo attacks.
 
 ### Method enforcement
 GET and HEAD only for external destinations. POST, PUT, PATCH, DELETE → 403.
@@ -53,7 +55,9 @@ Every request emits a structured log line:
 ALLOW internal=False method=GET url=https://pypi.org/simple/requests/
 RESPONSE method=GET status=200 url=https://pypi.org/simple/requests/
 BLOCKED method=POST url=https://api.github.com/repos/...
-REDACTED count=1 method=GET url=https://example.com/
+REDACTED count=1 method=GET url=https://example.com/          # request header/body
+REDACTED-URL count=1 method=GET url=https://example.com/      # request path/query
+RESPONSE-REDACTED count=1 method=GET status=200 url=https://example.com/  # response body
 ```
 View with: `kubectl logs -n egress-proxy deploy/egress-proxy`
 
@@ -66,8 +70,9 @@ The proxy checks the HTTP *method*, not the *URL path* or *response content*. A 
 to any allowed FQDN succeeds regardless of path. This is intentional — path-based
 policy requires constant maintenance and breaks legitimate use cases.
 
-**Mitigation**: The Cilium FQDN allowlist (`networkpolicy.yaml`) is the destination
-gate. Only explicitly listed FQDNs are reachable. Add FQDNs there, not URL path rules.
+**Mitigation**: The Cilium FQDN allowlist (`egress-proxy/networkpolicy.yaml` for
+proxied destinations) is the destination gate. Only explicitly listed FQDNs are
+reachable. Add FQDNs there, not URL path rules.
 
 ### Sophisticated GET exfiltration
 A URL within the 2048-char limit can still carry meaningful data in query strings or
@@ -79,9 +84,10 @@ Exfiltration requires a reachable destination that accepts and stores GET parame
 — an attacker needs prior access to configure such an endpoint.
 
 ### Secrets not in REDACT_PATTERNS
-Only SSH private keys and Slack tokens are scrubbed. Anthropic/OpenAI API keys and
-other credentials are NOT currently scrubbed. If hermes emits these in a request body
-or query string, they pass through.
+The body/URL regex patterns scrub only SSH private keys and Slack tokens (header
+scrubbing additionally covers Bearer, Basic, and `x-api-key`/`api-key` schemes).
+Anthropic/OpenAI API keys and other credentials carried in a request body or query
+string are NOT currently scrubbed and pass through.
 
 **To add a pattern**: edit `REDACT_PATTERNS` in `addon-configmap.yaml`. Regex patterns
 only. For verbatim secret values, see below.
@@ -96,9 +102,12 @@ proxy entirely. `git push` content is not inspectable at the HTTP layer. The SSH
 deploy key's scope (read-only vs read-write, per-repo vs org-wide) is the control here.
 
 ### Slack traffic
-Four specific Slack FQDNs are allowed direct (bypassing the proxy) via Cilium policy
-and `no_proxy`. Slack Socket Mode requires POST and WebSocket — both blocked by the
-proxy — so Slack must go direct.
+Four specific Slack FQDNs are allowed direct (bypassing the proxy) via the **hermes**
+Cilium policy (`apps/vicegerent/agents/hermes/networkpolicy.yaml`) and `no_proxy` in
+`sandbox.yaml`. Slack Socket Mode requires POST and WebSocket — both blocked by the
+proxy — so Slack must go direct. (`no_proxy` alone is not enough: `slack_sdk` ignores
+`NO_PROXY` and auto-loads `HTTPS_PROXY`, so the hermes image also carries build patch
+`0007-slack-bypass-egress-proxy.py` to force the bypass.)
 
 | FQDN | Purpose |
 |---|---|
@@ -108,8 +117,9 @@ proxy — so Slack must go direct.
 | `files.slack.com` | File/image downloads for attachment handling |
 
 The former `*.slack.com` wildcard is removed. If Slack rotates the WSS hostname,
-Socket Mode reconnections will fail — add the new hostname to `networkpolicy.yaml`
-and `no_proxy` in `sandbox.yaml`. Slack traffic carries no sandbox secrets by design.
+Socket Mode reconnections will fail — add the new hostname to the hermes policy
+(`apps/vicegerent/agents/hermes/networkpolicy.yaml`) and `no_proxy` in `sandbox.yaml`.
+Slack traffic carries no sandbox secrets by design.
 
 ### Streaming responses
 SSE (`text/event-stream`) and chunked transfer responses skip response body scrubbing
@@ -152,9 +162,16 @@ possible but requires the external server to actively reflect back injected cont
 
 ## Adding a new external service
 
-1. Add the FQDN to `networkpolicy.yaml` (egress-proxy policy, not the hermes policy)
-2. If the service requires POST, note it as an accepted exception in this document
+There are two CiliumNetworkPolicies; pick by how the sandbox reaches the service.
+
+For a service the **proxy fetches** (GET/HEAD through the egress proxy):
+1. Add the FQDN to the egress-proxy policy (`apps/vicegerent/egress-proxy/networkpolicy.yaml`)
+2. If the service needs POST it cannot go through the proxy (external POST → 403) — route it direct instead (below)
 3. If the service holds credentials, add a `REDACT_PATTERNS` entry for its token format
+
+For a service the sandbox reaches **direct** (bypassing the proxy, e.g. Slack):
+1. Add the FQDN to the hermes policy (`apps/vicegerent/agents/hermes/networkpolicy.yaml`)
+2. Add it to `no_proxy`/`NO_PROXY` in `sandbox.yaml`
 
 ---
 

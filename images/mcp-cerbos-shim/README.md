@@ -23,8 +23,8 @@ Consequences:
 - An unknown/arbitrary Kubernetes kind (e.g. a CRD) is **allowed**, not denied;
   the shim blocks Secrets, it does not enumerate readable kinds.
 - The only tools mapped in the shim are the ones that take a `kind`/resource
-  selector (`getResource`, `listResources`, `describeResource`), because those
-  are the only ones that can name a Secret. Everything else passes untouched.
+  selector (`kubernetes__resources_get`, `kubernetes__resources_list`), because
+  those are the only ones that can name a Secret. Everything else passes untouched.
 
 Do not add a tool or kind name to the shim mapping or Cerbos `allow` rule just
 to permit it. That belongs in the gateway allowlist.
@@ -58,7 +58,7 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
 
 1. Resolves the backend from `service_names` (exactly one mapped backend, else deny).
 2. Parses the JSON-RPC params (`{name, arguments}`); unparseable/missing denies.
-3. Looks up `(backend, tool)` in the mapping. The k8s backend is `defaultAction:
+3. Looks up `(backend, tool)` in the mapping. The `host` backend is `defaultAction:
    allow`, so an unmapped tool **passes** (it can't name a Secret); only the
    kind-bearing tools are mapped.
 4. Evaluates the mapped tool's CEL expressions against `{tool, args, backend,

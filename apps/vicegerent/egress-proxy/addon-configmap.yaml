@@ -8,7 +8,7 @@
 #
 # Scrubbing (applied to every request, headers + body):
 #   - SSH private keys  — PEM PRIVATE KEY blocks (any algorithm, including ENCRYPTED)
-#   - Slack tokens      — xox[bpraesc]-... (bot, app-level, user, refresh, socket, client)
+#   - Slack tokens      — xox[bpraescd]-... (bot, app-level, user, refresh, socket, client)
 #                         xapp-...          (app-configuration tokens)
 #   - Bearer tokens     — Authorization: Bearer <value> stripped from external requests;
 #                         internal services (agentgateway) legitimately use Bearer auth

@@ -15,7 +15,8 @@ dashboard here).
 A **request-phase** `mcpGuardrails` rejection (how the `mcp-cerbos-shim` denies a
 Secret read, and how it will deny future destructive actions) is returned by
 upstream v1.3.1 as **HTTP 400** with the JSON-RPC error in the body
-(`proxy/mod.rs`, the `McpGuardrails` arm of `into_response_with_grpc`). The
+(`crates/agentgateway/src/proxy/mod.rs`, the `McpGuardrails` arm of the
+`ProxyError` status mapping). The
 Python `mcp` SDK that Hermes uses calls `raise_for_status()` on any non-2xx,
 which tears down the whole MCP session — so a policy deny surfaces to the agent as
 "the MCP disconnected" instead of "blocked by policy".
@@ -39,8 +40,9 @@ this directory.
 
 ## Patches
 
-- `0001-guardrail-reject-200.patch` — `proxy/mod.rs`: map
-  `Error::McpGuardrails` to `StatusCode::OK` instead of `BAD_REQUEST`.
+- `0001-guardrail-reject-200.patch` — `crates/agentgateway/src/proxy/mod.rs`: map
+  the `McpGuardrails` arm to `StatusCode::OK` instead of `BAD_REQUEST` (and updates
+  the corresponding `controller/test/e2e/extmcp_test.go` expectation to 200).
 
 `git apply --verbose` in the build **hard-fails** if a patch stops applying
 against a new `AGW_VERSION`, which is the intended signal to re-verify (or drop)
