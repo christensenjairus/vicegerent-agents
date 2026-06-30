@@ -261,8 +261,13 @@ fi
 
 if [[ $NEW_CA -eq 1 ]]; then
   openssl genrsa -out "$CERTS/ca.key" 4096 >/dev/null 2>&1
+  # keyUsage=keyCertSign is required: OpenSSL 3 / Python reject a CA without it
+  # ("CA cert does not include key usage extension") when validating the chain.
   openssl req -x509 -new -nodes -key "$CERTS/ca.key" -sha256 -days 3650 \
-    -subj "/CN=vicegerent-ghostunnel-ca" -out "$CERTS/ca.crt" >/dev/null 2>&1
+    -subj "/CN=vicegerent-ghostunnel-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -out "$CERTS/ca.crt" >/dev/null 2>&1
   info "Generated a new CA."
 fi
 

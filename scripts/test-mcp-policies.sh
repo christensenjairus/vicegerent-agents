@@ -149,8 +149,7 @@ echo -e "${CYAN}Gateway: ${GATEWAY_URL}${NC}"
 echo -e "${CYAN}Secret probe name: ${SECRET_NAME}${NC}"
 
 HOST_URL="${GATEWAY_URL}/mcp/host"
-TAVILY_URL="${GATEWAY_URL}/mcp/tavily"
-FIRECRAWL_URL="${GATEWAY_URL}/mcp/firecrawl"
+KMCP_URL="${GATEWAY_URL}/mcp/kmcp"
 
 # ── Section 1: agentgateway tool-name allowlist ───────────────────────────────
 
@@ -178,15 +177,19 @@ else
   fail "unlisted tools exposed (policy gap):\n$(echo "$UNLISTED" | sed 's/^/      /')"
 fi
 
-section "2. agentgateway tool allowlist — tavily backend"
+# tavily and firecrawl are kmcp-managed MCPServers aggregated behind /mcp/kmcp;
+# they have no route of their own. agentgateway prefixes each backend server's
+# tool names, so the kmcp-mcp-tools allowlist entries (tavily_search,
+# firecrawl_scrape, …) surface as tavily_tavily_search, firecrawl_firecrawl_scrape.
+section "2. agentgateway tool allowlist — kmcp backend (tavily + firecrawl)"
 
-open_session "$TAVILY_URL"
-TAVILY_TOOLS=$(get_tools "$TAVILY_URL")
-ALLOWED_TAVILY="tavily_search tavily_extract tavily_map tavily_crawl"
+open_session "$KMCP_URL"
+KMCP_TOOLS=$(get_tools "$KMCP_URL")
+ALLOWED_KMCP="tavily_tavily_search tavily_tavily_extract tavily_tavily_map tavily_tavily_crawl firecrawl_firecrawl_scrape firecrawl_firecrawl_search firecrawl_firecrawl_map firecrawl_firecrawl_extract firecrawl_firecrawl_crawl firecrawl_firecrawl_check_crawl_status"
 
 # Must have exactly the allowed set
-for tool in $ALLOWED_TAVILY; do
-  if echo "$TAVILY_TOOLS" | grep -qx "$tool"; then
+for tool in $ALLOWED_KMCP; do
+  if echo "$KMCP_TOOLS" | grep -qx "$tool"; then
     pass "allowed tool present: ${tool}"
   else
     fail "allowed tool MISSING: ${tool}"
@@ -194,46 +197,25 @@ for tool in $ALLOWED_TAVILY; do
 done
 
 # Nothing outside the allowed set
-EXTRA_TAVILY=$(echo "$TAVILY_TOOLS" | grep -vxF -f <(echo "$ALLOWED_TAVILY" | tr ' ' '\n') || true)
-if [[ -z "$EXTRA_TAVILY" ]]; then
-  pass "tavily exposes no unlisted tools"
+EXTRA_KMCP=$(echo "$KMCP_TOOLS" | grep -vxF -f <(echo "$ALLOWED_KMCP" | tr ' ' '\n') || true)
+if [[ -z "$EXTRA_KMCP" ]]; then
+  pass "kmcp exposes no unlisted tools"
 else
-  fail "tavily exposes unlisted tools (policy gap): ${EXTRA_TAVILY}"
+  fail "kmcp exposes unlisted tools (policy gap): ${EXTRA_KMCP}"
 fi
 
-section "3. agentgateway tool allowlist — firecrawl backend"
-
-open_session "$FIRECRAWL_URL"
-FIRECRAWL_TOOLS=$(get_tools "$FIRECRAWL_URL")
-ALLOWED_FIRECRAWL="firecrawl_scrape firecrawl_search firecrawl_map firecrawl_extract firecrawl_crawl firecrawl_check_crawl_status"
-
-for tool in $ALLOWED_FIRECRAWL; do
-  if echo "$FIRECRAWL_TOOLS" | grep -qx "$tool"; then
-    pass "allowed tool present: ${tool}"
-  else
-    fail "allowed tool MISSING: ${tool}"
-  fi
-done
-
-EXTRA_FIRECRAWL=$(echo "$FIRECRAWL_TOOLS" | grep -vxF -f <(echo "$ALLOWED_FIRECRAWL" | tr ' ' '\n') || true)
-if [[ -z "$EXTRA_FIRECRAWL" ]]; then
-  pass "firecrawl exposes no unlisted tools"
-else
-  fail "firecrawl exposes unlisted tools (policy gap): ${EXTRA_FIRECRAWL}"
-fi
-
-# ── Section 4: Cerbos Secret block ──────────────────────────────────────────
+# ── Section 3: Cerbos Secret block ──────────────────────────────────────────
 # All probes are READ-ONLY. Secret probes use a randomly generated name that
 # almost certainly does not exist — even if policy fails, there is nothing to
 # return. The non-secret control probe uses a namespace that certainly exists
 # but we ask for a resource name that won't exist either, so Cerbos is tested
 # without leaking real cluster state if a policy is mis-configured.
 
-section "4. Cerbos guardrail — Secret reads must be denied"
+section "3. Cerbos guardrail — Secret reads must be denied"
 
 open_session "$HOST_URL"
 
-# 4a: resources_get on a Secret — must be denied before k8s is ever contacted.
+# 3a: resources_get on a Secret — must be denied before k8s is ever contacted.
 # Args: apiVersion + kind (kubernetes-mcp-server format). No context arg needed.
 # The secret name is random and almost certainly absent; Cerbos denies before k8s lookup.
 echo -e "  ${YELLOW}probing kubernetes__resources_get(Secret/${SECRET_NAME}) ...${NC}"
@@ -249,7 +231,7 @@ else
   echo "    raw: ${RESP:0:300}"
 fi
 
-# 4b: resources_list of Secrets — must be denied.
+# 3b: resources_list of Secrets — must be denied.
 # Namespace is intentionally a fake one so even if policy fails, no secrets are returned.
 echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Secret, ns=policy-test-ns) ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
@@ -264,7 +246,7 @@ else
   echo "    raw: ${RESP:0:300}"
 fi
 
-# 4c: resources_get on a ConfigMap — must NOT be denied (Cerbos should not over-block).
+# 3c: resources_get on a ConfigMap — must NOT be denied (Cerbos should not over-block).
 # A k8s-level 404 is fine — it means Cerbos passed it through (correct behaviour).
 echo -e "  ${YELLOW}probing kubernetes__resources_get(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__resources_get" \
@@ -276,7 +258,7 @@ else
   pass "kubernetes__resources_get(ConfigMap) → passed Cerbos (k8s-level result is irrelevant)"
 fi
 
-# 4d: resources_list for Pods — must NOT be denied (non-secret, non-empty kind).
+# 3d: resources_list for Pods — must NOT be denied (non-secret, non-empty kind).
 echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Pod) — expect allowed ...${NC}"
 RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
   "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"namespace\":\"default\"}")
@@ -287,7 +269,7 @@ else
   pass "kubernetes__resources_list(Pod) → passed Cerbos (correct)"
 fi
 
-# 4e: Guardrail attachment check — verify the policy carries the shim attachment.
+# 3e: Guardrail attachment check — verify the policy carries the shim attachment.
 # A missing guardrail silently fails open (FailClosed only covers shim failures, not absence).
 echo -e "  ${YELLOW}verifying guardrail attached to host-mcp-tools policy ...${NC}"
 if command -v kubectl &>/dev/null; then
