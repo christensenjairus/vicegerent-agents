@@ -288,6 +288,19 @@ data:
                 status,
                 flow.request.pretty_url,
             )
+    def http_connect(flow: http.HTTPFlow) -> None:
+        host = flow.request.host
+        allowed = (
+            host in EXTERNAL_FQDN_ALLOWLIST
+            or any(host.endswith(s) for s in EXTERNAL_FQDN_WILDCARD_SUFFIXES)
+        )
+        if not allowed:
+            log.warning("BLOCKED connect-fqdn-not-allowlisted host=%s", host)
+            flow.response = http.Response.make(
+                403,
+                f"[egress-proxy] {host} is not on the FQDN allowlist",
+                {"Content-Type": "text/plain"},
+            )
     def websocket_start(flow: http.HTTPFlow) -> None:
         # Belt-and-suspenders: kill any WS that slipped past the request hook.
         log.warning("BLOCKED websocket-start host=%s", flow.request.pretty_host)
