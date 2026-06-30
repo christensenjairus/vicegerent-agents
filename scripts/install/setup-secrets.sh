@@ -685,8 +685,13 @@ else
   confirm "Generate a new CA for the egress MITM proxy and store it in '$PROXY_CA_ITEM'." \
     || die "Egress proxy CA is required for the sandbox to have outbound HTTPS; aborting."
   openssl genrsa -out "$CERTS/proxy-ca.key" 4096 >/dev/null 2>&1
+  # keyUsage=keyCertSign is required: OpenSSL 3 / Python reject a CA without it
+  # ("CA cert does not include key usage extension") when validating the MITM chain.
   openssl req -x509 -new -nodes -key "$CERTS/proxy-ca.key" -sha256 -days 3650 \
-    -subj "/CN=vicegerent-egress-proxy-ca" -out "$CERTS/proxy-ca.crt" >/dev/null 2>&1
+    -subj "/CN=vicegerent-egress-proxy-ca" \
+    -addext "basicConstraints=critical,CA:TRUE" \
+    -addext "keyUsage=critical,keyCertSign,cRLSign" \
+    -out "$CERTS/proxy-ca.crt" >/dev/null 2>&1
   set_field "$PROXY_CA_ITEM" "ca.crt" "$CERTS/proxy-ca.crt" text
   set_field "$PROXY_CA_ITEM" "ca.key" "$CERTS/proxy-ca.key" concealed
   info "Generated egress proxy CA and stored it in '$PROXY_CA_ITEM'."
