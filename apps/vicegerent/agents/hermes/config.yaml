@@ -86,6 +86,7 @@ data:
     agent:
       max_turns: 150
       gateway_timeout: 900
+      reasoning_effort: high
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.
     toolsets:
       - kanban
