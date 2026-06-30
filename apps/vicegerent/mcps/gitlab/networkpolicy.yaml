@@ -15,7 +15,7 @@ spec:
             gateway.networking.k8s.io/gateway-name: agentgateway-proxy
       toPorts:
         - ports:
-            - port: '3000'
+            - port: '3002'
               protocol: TCP
   egress:
     - toEndpoints:

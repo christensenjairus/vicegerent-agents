@@ -8,11 +8,16 @@ spec:
   deployment:
     image: docker.io/node:24-alpine3.21
     cmd: npx
-    args: [-y, '@modelcontextprotocol/server-gitlab@2025.4.25']
-    port: 3000
+    args:
+      - -y
+      - '@zereight/mcp-gitlab@2.1.8'
+      - --api-url=https://gitlab.hahomelabs.com/api/v4
+    port: 3002
     env:
-      HOME: /home/node
-      NODE_OPTIONS: --max-old-space-size=200 --max-semi-space-size=16
+      STREAMABLE_HTTP: 'true'
+      HOST: 0.0.0.0
+      GITLAB_MCP_OAUTH: 'false'
+      REMOTE_AUTHORIZATION: 'false'
     secretRefs:
       - name: gitlab-credentials
     serviceAccountName: gitlab
@@ -29,9 +34,10 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 256Mi
-  stdioTransport: {}
-  transportType: stdio
+        memory: 192Mi
+  httpTransport:
+    targetPort: 3002
+  transportType: http
   timeout: 60s
 ---
 apiVersion: onepassword.com/v1
