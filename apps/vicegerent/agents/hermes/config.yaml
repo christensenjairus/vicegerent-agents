@@ -46,6 +46,7 @@ data:
       disabled_toolsets:
         - computer_use
         - tts
+        - memory
     platform_toolsets:
       slack:
         - hermes-slack
@@ -104,8 +105,8 @@ data:
       search_backend: searxng
     memory:
       provider: mnemosyne
-      memory_char_limit: 4000
-      user_char_limit: 2750
+      memory_enabled: false
+      user_profile_enabled: false
       mnemosyne:
         auto_sleep: true
     context:
