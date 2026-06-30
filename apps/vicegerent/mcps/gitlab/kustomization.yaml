@@ -1,17 +1,6 @@
 ---
-# Manual-apply only — intentionally NOT referenced from apps/vicegerent/kustomization.yaml.
-# Apply with: kubectl apply -k apps/vicegerent/mcps/gitlab
-# Requires 1Password item "MCP - GitLab" in the Vicegerent vault with fields:
-#   token    — GitLab personal access token (api scope)
-#   url      — GitLab instance URL (e.g. https://gitlab.hahomelabs.com)
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
-resources:
-  - serviceaccount.yaml
-  - server.yaml
-  - networkpolicy.yaml
-  - backend.yaml
-  - route.yaml
-  - policy.yaml
+resources: [serviceaccount.yaml, server.yaml, networkpolicy.yaml]
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
