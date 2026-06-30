@@ -43,8 +43,14 @@ data:
       gateway_timeout: 900
       reasoning_effort: high
       system_prompt: You are a technical expert. Provide detailed, accurate technical information.
-    toolsets:
-      - kanban
+      disabled_toolsets:
+        - computer_use
+        - tts
+    platform_toolsets:
+      slack:
+        - hermes-slack
+        - kanban
+        - moa
     kanban:
       dispatch_in_gateway: false
     delegation:
