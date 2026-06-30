@@ -212,6 +212,14 @@ COPY patches/0006-slack-command-name.py /tmp/0006-slack-command-name.py
 RUN /opt/hermes/.venv/bin/python /tmp/0006-slack-command-name.py
 RUN rm -f /tmp/0006-slack-command-name.py
 
+# Make Slack always bypass the egress MITM proxy. slack_sdk auto-loads HTTPS_PROXY
+# (ignoring NO_PROXY), forcing Slack through the GET-only scrubbing proxy where it
+# cannot work (token scrubbing + POST/WebSocket blocking). Patch slack_sdk's env
+# proxy loader to return None. Remove once slack_sdk honors NO_PROXY.
+COPY patches/0007-slack-bypass-egress-proxy.py /tmp/0007-slack-bypass-egress-proxy.py
+RUN /opt/hermes/.venv/bin/python /tmp/0007-slack-bypass-egress-proxy.py
+RUN rm -f /tmp/0007-slack-bypass-egress-proxy.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
