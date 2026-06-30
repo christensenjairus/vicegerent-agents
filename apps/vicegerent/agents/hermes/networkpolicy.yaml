@@ -17,16 +17,12 @@ spec:
               protocol: UDP
           rules:
             dns:
-              # <name>.<namespace>.svc.cluster.local — all in-cluster services
-              - matchPattern: '*.*.svc.cluster.local'
               - matchPattern: '*.cluster.local'
               - matchPattern: '*.svc.cluster.local'
-              # Slack direct egress
               - matchName: slack.com
               - matchName: wss-primary.slack.com
               - matchName: wss-backup.slack.com
               - matchName: files.slack.com
-              # SSH git
               - matchName: gitlab.hahomelabs.com
               - matchName: github.com
     # All HTTP(S) traffic — to internet, agentgateway, and searxng — routes through
