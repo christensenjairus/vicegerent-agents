@@ -220,6 +220,13 @@ COPY patches/0007-slack-bypass-egress-proxy.py /tmp/0007-slack-bypass-egress-pro
 RUN /opt/hermes/.venv/bin/python /tmp/0007-slack-bypass-egress-proxy.py
 RUN rm -f /tmp/0007-slack-bypass-egress-proxy.py
 
+# Patch tools/approval.py to add tirith_only mode: silences pattern-match false
+# positives while still blocking on actual tirith security findings.
+# Remove once upstream Hermes adds this as a first-class mode.
+COPY patches/0008-approval-tirith-only-mode.py /tmp/0008-approval-tirith-only-mode.py
+RUN /opt/hermes/.venv/bin/python /tmp/0008-approval-tirith-only-mode.py
+RUN rm -f /tmp/0008-approval-tirith-only-mode.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
