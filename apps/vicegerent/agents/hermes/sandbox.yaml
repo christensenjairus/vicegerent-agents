@@ -161,6 +161,8 @@ spec:
                   fieldPath: metadata.name
             - name: HERMES_HOME
               value: /opt/data
+            - name: HERMES_TUI_PROVIDER
+              value: sonnet
             - name: HERMES_SLACK_COMMAND_NAME
               value: felix
             # Route all HTTP(S) traffic through the GET-only MITM proxy.
