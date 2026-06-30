@@ -85,6 +85,7 @@ spec:
               mkdir -p /opt/data/tmp
               HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
                 /opt/hermes/.venv/bin/hermes kanban init || true
+              touch /opt/data/.restart_pending.json
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
