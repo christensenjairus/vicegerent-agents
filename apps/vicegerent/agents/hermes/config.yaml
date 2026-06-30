@@ -136,6 +136,7 @@ data:
       enabled: true
     timezone: America/Denver
     terminal:
+      backend: docker
       cwd: /workspace
       persistent_shell: true
     web:
