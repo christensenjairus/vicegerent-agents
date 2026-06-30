@@ -142,9 +142,11 @@ possible but requires the external server to actively reflect back injected cont
 - **`no_proxy` override in subprocesses** — a subprocess could set `NO_PROXY=*`,
   causing it to attempt direct egress which Cilium then drops. Fails noisily rather
   than silently exfiltrating.
-- **IPv6** — no explicit IPv6 FQDN policy on the hermes pod. If the node has IPv6
-  internet connectivity, direct IPv6 egress from the sandbox may be possible for tools
-  that ignore `http_proxy`. Mitigation: disable IPv6 on the minikube node if not needed.
+- **IPv6** — the hermes pod has no IPv6-specific FQDN allowlist. However, the
+  `egressDeny` CiliumNetworkPolicy includes `::1/128`, `fc00::/7`, and `fe80::/10` to
+  block private IPv6 ranges. Direct IPv6 internet egress from tools that ignore
+  `http_proxy` would need a non-private IPv6 destination; the Cilium default deny
+  covers the rest.
 
 ---
 
