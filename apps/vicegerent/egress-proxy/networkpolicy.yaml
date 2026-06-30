@@ -59,8 +59,12 @@ spec:
         - ports:
             - port: '443'
               protocol: TCP
+        - ports:
             - port: '80'
               protocol: TCP
+          rules:
+            http:
+              - method: GET
   # Explicit deny for private/link-local/loopback/CGNAT — defence-in-depth.
   # egressDeny takes precedence over egress allows, guarding against DNS rebinding
   # and future accidental CIDR additions.
