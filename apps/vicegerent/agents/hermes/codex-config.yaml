@@ -11,7 +11,7 @@ data:
     [model_providers.vicegerent]
     name = "Vicegerent agentgateway"
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"
-    env_key = "OPENAI_API_KEY"
+    experimental_bearer_token = "${AGENTGATEWAY_API_KEY}"
     wire_api = "responses"
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"
