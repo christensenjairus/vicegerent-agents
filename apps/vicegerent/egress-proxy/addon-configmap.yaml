@@ -48,6 +48,15 @@ data:
 
     # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
+    EXTERNAL_FQDN_ALLOWLIST = {
+        "pypi.org",
+        "github.com",
+        "githubusercontent.com",
+    }
+    EXTERNAL_FQDN_WILDCARD_SUFFIXES = (
+        ".github.com",
+        ".githubusercontent.com",
+    )
 
     # Secrets patterns — redacted from request headers and body before forwarding.
     REDACT_PATTERNS = [
@@ -226,6 +235,23 @@ data:
                 {"Content-Type": "text/plain"},
             )
             return
+        if not internal:
+            allowed = (
+                host in EXTERNAL_FQDN_ALLOWLIST
+                or any(host.endswith(s) for s in EXTERNAL_FQDN_WILDCARD_SUFFIXES)
+            )
+            if not allowed:
+                log.warning("BLOCKED fqdn-not-allowlisted method=%s url=%s", method, url)
+                flow.response = http.Response.make(
+                    403,
+                    (
+                        f"[egress-proxy] {host} is not on the FQDN allowlist and will be"
+                        " dropped by the network policy. Use an MCP tool instead"
+                        " (web_search, firecrawl, tavily, gitlab, kubernetes, etc.)."
+                    ),
+                    {"Content-Type": "text/plain"},
+                )
+                return
         log.info("ALLOW internal=%s method=%s url=%s", internal, method, url)
     def response(flow: http.HTTPFlow) -> None:
         status = flow.response.status_code if flow.response else "-"
