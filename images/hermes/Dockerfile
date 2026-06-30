@@ -197,13 +197,6 @@ COPY patches/0004-agentburn.py /tmp/0004-agentburn.py
 RUN /opt/hermes/.venv/bin/python /tmp/0004-agentburn.py
 RUN rm -f /tmp/0004-agentburn.py
 
-# Patch Hermes billing chain so agentgateway route-name providers (sonnet,
-# haiku, opus, gpt-4-1, etc.) resolve to real cost figures in state.db.
-# Fixes three intercept points: runtime_provider.py, auth.py, usage_pricing.py.
-# Remove once Hermes supports a billing_provider field in the provider config.
-COPY patches/0005-hermes-billing.py /tmp/0005-hermes-billing.py
-RUN /opt/hermes/.venv/bin/python /tmp/0005-hermes-billing.py
-RUN rm -f /tmp/0005-hermes-billing.py
 
 # Patch Hermes Slack adapter so the catch-all slash command name is configurable
 # via HERMES_SLACK_COMMAND_NAME (default: "hermes"). Set in sandbox.yaml to rename
