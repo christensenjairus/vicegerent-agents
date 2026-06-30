@@ -178,7 +178,11 @@ data:
       enabled:
         - disk-cleanup
         - rtk-rewrite
+        - security-guidance
       disabled:
+        - google_meet
+        - spotify
+        - teams_pipeline
         - raft-platform
         - web/exa
         - web/parallel
