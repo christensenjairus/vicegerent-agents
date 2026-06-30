@@ -33,6 +33,8 @@ spec:
               # chown -R: stale uid-0 dirs from old subPath design cause EPERM on reseed; idempotent on fresh PVCs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
+              # config.yaml is written by the ConfigMap seed as root; make it writable so approval allowlist saves work.
+              [ -f /opt/data/config.yaml ] && chown 10000:10000 /opt/data/config.yaml || true
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -84,16 +86,6 @@ spec:
               HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
                 /opt/hermes/.venv/bin/hermes kanban init || true
               touch /opt/data/.restart_pending.json
-              # Merge GitOps config.yaml onto PVC — ConfigMap keys always win on conflict.
-              if [ -f /opt/data/config.yaml ]; then
-                yq eval-all 'select(fi == 0) * select(fi == 1)' \
-                  /opt/data/config.yaml \
-                  /reload/hermes-config/config.yaml \
-                  > /opt/data/config.yaml.tmp \
-                  && mv /opt/data/config.yaml.tmp /opt/data/config.yaml
-              else
-                cp /reload/hermes-config/config.yaml /opt/data/config.yaml
-              fi
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
@@ -111,9 +103,6 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
-            - name: hermes-config
-              mountPath: /reload/hermes-config
-              readOnly: true
             - name: codex-config
               mountPath: /reload/codex-config
               readOnly: true
@@ -155,8 +144,11 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.name
-            - name: HERMES_HOME
-              value: /opt/data
+            # config.yaml is read-only; model/provider binding must come from env.
+            - name: HERMES_MODEL
+              value: claude-sonnet-4-6
+            - name: HERMES_TUI_PROVIDER
+              value: sonnet
             - name: HERMES_SLACK_COMMAND_NAME
               value: felix
             # Route all HTTP(S) traffic through the GET-only MITM proxy.
@@ -255,7 +247,8 @@ spec:
               mountPath: /opt/hermes-ssh
               readOnly: true
             - name: hermes-config
-              mountPath: /reload/hermes-config
+              mountPath: /opt/data/config.yaml
+              subPath: config.yaml
             - name: hermes-soul
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
