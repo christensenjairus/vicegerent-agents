@@ -12,7 +12,12 @@ spec:
     port: 3000
     env:
       HOME: /home/node
-      NODE_OPTIONS: --max-old-space-size=400 --max-semi-space-size=16
+      # firecrawl handles larger payloads (scraped HTML) so heap is higher than tavily
+      # --max-old-space-size: hard V8 old-gen ceiling (MiB); must be < memory limit
+      # --max-semi-space-size: nursery kept small to avoid holding large scrape results
+      NODE_OPTIONS: --max-old-space-size=300 --max-semi-space-size=8 --gc-interval=100
+      # Redirect npm cache to /tmp so it doesn't persist/bloat the node home dir
+      NPM_CONFIG_CACHE: /tmp/npm-cache
     secretRefs:
       - name: firecrawl-api-key
     serviceAccountName: firecrawl
@@ -29,7 +34,9 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 192Mi
+        memory: 320Mi
+      limits:
+        memory: 400Mi
   stdioTransport: {}
   transportType: stdio
   timeout: 60s
