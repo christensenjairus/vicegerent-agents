@@ -9,6 +9,9 @@ data:
     model:
       provider: anthropic
       default: claude-sonnet-5
+      base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic
+      key_env: ANTHROPIC_API_KEY
+      api_mode: anthropic_messages
     providers:
       anthropic:
         name: Agentgateway-Anthropic
