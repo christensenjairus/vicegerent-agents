@@ -18,6 +18,7 @@ spec:
       HOST: 0.0.0.0
       GITLAB_MCP_OAUTH: 'false'
       REMOTE_AUTHORIZATION: 'false'
+      USE_PIPELINE: 'true'
     secretRefs:
       - name: gitlab-credentials
     serviceAccountName: gitlab

@@ -19,5 +19,12 @@ spec:
               mcp.tool.name in ["tavily_search", "tavily_extract",
               "tavily_map", "tavily_crawl", "firecrawl_scrape",
               "firecrawl_search", "firecrawl_map", "firecrawl_extract",
-              "firecrawl_crawl", "firecrawl_check_crawl_status"] ||
-              mcp.tool.name.startsWith("gitlab_")
+              "firecrawl_crawl", "firecrawl_check_crawl_status", "get_merge_request_approval_state",
+              "get_merge_request_conflicts", "search_repositories", "create_merge_request",
+              "create_branch", "get_merge_request", "get_merge_request_diffs", "list_merge_request_changed_files",
+              "list_merge_request_diffs", "get_merge_request_file_diff", "list_merge_request_versions",
+              "get_merge_request_version", "update_merge_request", "get_branch_diffs",
+              "get_project", "list_projects", "list_merge_requests", "list_commits",
+              "get_commit", "get_commit_diff", "discover_tools", "list_pipelines",
+              "get_pipeline", "list_pipeline_jobs", "list_pipeline_trigger_jobs",
+              "get_pipeline_job", "get_pipeline_job_output",]
