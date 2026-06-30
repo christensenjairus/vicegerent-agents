@@ -2,23 +2,19 @@
 # id/attr/attrFrom are CEL; vars: tool, args, backend, method.
 # Only kind-bearing tools are mapped; unmapped tools pass (defaultAction: allow).
 # canonicalK8s normalizes Secret spellings so Cerbos can deny them.
+# Tool keys are the gateway-exposed names; `action` is the Cerbos action.
 backends:
-  kubernetes:
+  host:
     defaultAction: allow
     helpers: [canonicalK8s]
     tools:
-      getResource:
+      kubernetes__resources_get:
         resourceType: k8s_resource
         action: getResource
         id: get(args,'name','')
         attrFrom: canonicalK8s(args)
-      listResources:
+      kubernetes__resources_list:
         resourceType: k8s_resource
         action: listResources
         id: "''"
-        attrFrom: canonicalK8s(args)
-      describeResource:
-        resourceType: k8s_resource
-        action: describeResource
-        id: get(args,'name','')
         attrFrom: canonicalK8s(args)

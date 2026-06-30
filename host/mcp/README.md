@@ -124,13 +124,14 @@ After `git pull` adds new servers to `servers.json`:
 
 ## Test the filtered endpoint
 
-Only `POST /mcp` is forwarded. Everything else returns `404`.
+Only `POST`, `GET`, and `DELETE` on `/mcp` are forwarded (the StreamableHTTP transport needs all three: POST for requests, GET to open the server→client SSE stream, DELETE to end a session). Everything else returns `404`.
 
 ```bash
 # All should 404:
 curl -i http://127.0.0.1:3777/admin
 curl -i http://127.0.0.1:3777/sse
-curl -i http://127.0.0.1:3777/mcp          # GET — 404
+curl -i http://127.0.0.1:3777/foo
+# GET /mcp is forwarded (opens the SSE stream), NOT 404
 ```
 
 ## Kubernetes

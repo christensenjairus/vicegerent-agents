@@ -63,3 +63,22 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   `CAP_SYS_PTRACE`/`CAP_NET_RAW`, which the locked-down securityContext strips,
   so they would bake fine but fail to attach at runtime.
 - `yq` + `jq` + `pygount`; `rtk-hermes` plugin.
+
+## Patches
+
+Upstream Hermes is also customized at build time by numbered Python scripts in
+`patches/`, each `COPY`d in, run against `/opt/hermes/.venv`, then deleted. They edit
+installed package files in place and self-verify where feasible; remove one once the
+fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
+
+- `0001-toolsearch-context-length.py` — resolve Tool Search context length offline so
+  it never dials `openrouter.ai` at startup behind the egress lockdown.
+- `0004-agentburn.py` — `HERMES_HOME` support for the agentburn adapter and missing
+  Anthropic/OpenAI model prices.
+- `0005-hermes-billing.py` — map agentgateway route-name providers (sonnet/haiku/opus/
+  gpt-4-1) to real costs so cost accounting isn't zeroed out.
+- `0006-slack-command-name.py` — make the catch-all Slack slash command configurable
+  via `HERMES_SLACK_COMMAND_NAME` (default `/hermes`).
+- `0007-slack-bypass-egress-proxy.py` — patch `slack_sdk`'s env proxy loader to return
+  `None` so Slack bypasses the GET-only egress MITM proxy (`slack_sdk` ignores
+  `NO_PROXY`, which would otherwise force every Slack call through the proxy and fail).

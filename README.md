@@ -43,7 +43,7 @@ If metrics are not ready immediately, wait a minute and rerun `kubectl --context
 
 ## Secrets setup
 
-Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Password Connect server and token, the ghostunnel CA, and the server/client certificates — storing everything in 1Password and leaving nothing on disk. It is safe to re-run: anything already in 1Password is reused, never regenerated, and it only prompts before a step that actually changes something.
+Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Password Connect server and token, the ghostunnel CA, the egress-proxy MITM CA, and the server/client certificates — storing everything in 1Password and leaving nothing on disk. It is safe to re-run: anything already in 1Password is reused, never regenerated, and it only prompts before a step that actually changes something.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interactively
@@ -65,6 +65,8 @@ Agentgateway - OpenAI         Authorization                 (optional OpenAI key
 Agentgateway - Host MCP       tls.crt, tls.key             (mTLS client cert → agentgateway-system)
 Agentgateway - Host MCP CA    ca.cert                       (public CA → agentgateway-system)
 Host - MCP Tunnel             server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
+Egress Proxy CA               ca.crt, ca.key               (MITM CA private material → egress-proxy)
+Egress Proxy CA Cert          ca.crt                        (public CA → agent-sandbox + searxng trust)
 Agent - hermes                password, signing-secret, private-key, public-key, Slack tokens  (→ agent-sandbox)
 ```
 
@@ -108,14 +110,23 @@ The committed `gotk-sync.yaml` expects the bootstrap-created `flux-system` Git c
 
 ## Host-side MCP control plane
 
-OAuth-backed or laptop-context MCPs run in the macOS GUI session and are exposed to the cluster through ghostunnel. The v1 host scaffold lives in [`host/mcp`](host/mcp): it renders `mcp-proxy-server` config, starts `mcp-proxy-server` + Caddy + a second ghostunnel, filters the host endpoint to `POST /mcp`, and includes helper commands for `mcp-remote` OAuth cache status/reset.
+OAuth-backed or laptop-context MCPs run in the macOS GUI session and are exposed to the cluster through ghostunnel. The control plane lives in [`host/mcp`](host/mcp): it renders `mcp-proxy-server` config (vendored at `host/mcp-proxy-server`) and supervises `mcp-proxy-server` + Caddy + ghostunnel, plus a `caffeinate` process that keeps macOS awake while the stack runs. It filters the host endpoint to the MCP transport methods (`POST`/`GET`/`DELETE` on `/mcp`) and includes helper commands for `mcp-remote` OAuth cache status/reset.
+
+Start and stop the whole local platform — the minikube cluster and the host MCP stack together — with the top-level commands:
 
 ```bash
-./vicegerent-mcp start --proxy-dir ~/HomeLab/mcp-proxy-server
+./vicegerent start   # resume minikube, then bring up the host MCP stack
+./vicegerent stop    # stop the host MCP stack, then pause minikube
+```
+
+For finer control of just the host stack, drive it with `./vicegerent-mcp` (`start`, `stop`, `status`, `enable`/`disable`, `reload`, `logs`, `doctor`, `tui`); see [`host/mcp/README.md`](host/mcp/README.md) for the full reference.
+
+```bash
+./vicegerent-mcp start
 ./vicegerent-mcp status
 ```
 
-The host-MCP tunnel defaults to `192.168.64.1:8453` so it can run beside the existing Kubernetes MCP tunnel on `:8443`. This scaffold is host-side only; add cluster-side MCP backend/route wiring before agents can call the new SaaS tools.
+The host-MCP tunnel defaults to `192.168.64.1:8453`. Agents reach these tools through two gateway MCP routes: `/mcp/host` (host-tunneled stdio MCPs — Kubernetes, Linear, Notion) and `/mcp/kmcp` (in-cluster kmcp-aggregated SaaS MCPs: Tavily, Firecrawl).
 
 ## Development
 

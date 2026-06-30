@@ -45,8 +45,10 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   repo.
 - **Naming** — the project, cluster, and minikube profile are all `vicegerent`; the shared agent
   namespace is `agent-sandbox`. Only the git repo keeps the `vicegerent-agents` name.
-- **No vendor directories** — controller charts are pulled via Flux `HelmRepository`/`GitRepository`;
-  never commit upstream source.
+- **No vendor directories for cluster infra** — controller charts are pulled via Flux
+  `HelmRepository`/`GitRepository`; never commit upstream chart source. The one exception is the
+  host-side `host/mcp-proxy-server` runtime tool, which can't be Flux-managed; it is vendored and
+  documented in `host/mcp-proxy-server/VENDORED.md`.
 - **Secrets model** — 1Password Connect (custom vault `Vicegerent`, which Connect can read; it cannot
   read Personal/Private/Employee vaults). Runtime app credentials and mTLS material come from
   `OnePasswordItem`s; the sandbox→agentgateway virtual API key is Kustomize-generated, not stored in
