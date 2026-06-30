@@ -72,9 +72,12 @@ spec:
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
               # Seed ConfigMap-owned config files; agent runtime state uses different files in the same dirs.
               mkdir -p /opt/data/.codex /opt/data/.claude
-              cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
-              # Render settings.json from template — substitutes AGENTGATEWAY_API_KEY
-              # so claude-code sends the correct random bearer token to agentgateway.
+              # Render config.toml and settings.json from templates — substitutes
+              # AGENTGATEWAY_API_KEY so codex/claude-code send the correct bearer
+              # token to agentgateway without relying on shell env var lookup.
+              sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
+                < /reload/codex-config/config.toml \
+                > /opt/data/.codex/config.toml
               sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
                 < /reload/claude-config/settings.json \
                 > /opt/data/.claude/settings.json
