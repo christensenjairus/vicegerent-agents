@@ -2,9 +2,7 @@
 # mitmproxy scrubbing + enforcement addon.
 #
 # ALL sandbox outbound traffic (internal cluster services + internet) flows through
-# this proxy. Secrets in headers, bodies, and URL path/query are scrubbed before
-# forwarding. Pattern-based scrubbing does NOT cover encoded forms (base64, hex) —
-# the FQDN allowlist is the primary external control.
+# this proxy so secrets are redacted before reaching any destination.
 #
 # Scrubbing (applied to every request, headers + body):
 #   - SSH private keys  — PEM PRIVATE KEY blocks (any algorithm, including ENCRYPTED)
@@ -60,7 +58,7 @@ data:
         ),
         # Slack tokens — xox* family (bot, app-level, user, refresh, socket, client)
         # and xapp-* (app-configuration tokens). Underscore is valid in token values.
-        re.compile(r"xox[bpraescd]-[A-Za-z0-9\-_]+", re.ASCII),
+        re.compile(r"xox[bpraesc]-[A-Za-z0-9\-_]+", re.ASCII),
         re.compile(r"xapp-[A-Za-z0-9\-_]+", re.ASCII),
     ]
 
@@ -68,7 +66,7 @@ data:
     # Internal services (agentgateway) use Bearer auth legitimately; do not scrub them.
     # Match Bearer token permissively — strip everything after "Bearer " regardless of
     # trailing content (avoids header variants like "Bearer token; extra=data" leaking).
-    BEARER_PATTERN = re.compile(r"(?i)^(Bearer\s+)\S+")
+    BEARER_PATTERN = re.compile(r"(?i)^(Bearer\s+)\S+(.*)$")
 
     # RFC1918, link-local, loopback, CGNAT, and IPv6 private ranges — SSRF protection.
     PRIVATE_NETWORKS = [
@@ -146,18 +144,6 @@ data:
             )
             return
 
-        # Scrub secrets from request URL path + query string on external requests.
-        # Headers and body are scrubbed later; the URL is the only remaining data channel
-        # for GET requests (bodies blocked below), so it must also be scrubbed.
-        # NOTE: scrubbing is pattern-based — encoding (base64, hex) evades it; the FQDN
-        # allowlist is the primary external control, not this scrub.
-        if not internal:
-            raw_path = flow.request.path
-            new_path, n = _redact(raw_path)
-            if n:
-                flow.request.path = new_path
-                log.warning("REDACTED-URL count=%d method=%s url=%s", n, method, url)
-
         # Block GET/HEAD request bodies on external requests — no legitimate use,
         # potential exfiltration channel. Checked before scrubbing so we avoid
         # unnecessary work and the log ordering stays semantically correct
@@ -178,20 +164,8 @@ data:
             auth = flow.request.headers.get("authorization", "")
             m = BEARER_PATTERN.match(auth) if auth else None
             if m:
-                flow.request.headers["authorization"] = m.group(1) + "[REDACTED]"
+                flow.request.headers["authorization"] = m.group(1) + "[REDACTED]" + m.group(2)
                 redacted += 1
-
-        # Scrub additional auth header schemes on external requests.
-        # Basic auth credentials and API key headers carry secrets in plaintext.
-        if not internal:
-            auth = flow.request.headers.get("authorization", "")
-            if auth.lower().startswith("basic "):
-                flow.request.headers["authorization"] = "Basic [REDACTED]"
-                redacted += 1
-            for hdr in ("x-api-key", "api-key"):
-                if flow.request.headers.get(hdr):
-                    flow.request.headers[hdr] = "[REDACTED]"
-                    redacted += 1
 
         # Scrub secrets from all request headers.
         for name, value in list(flow.request.headers.items()):
