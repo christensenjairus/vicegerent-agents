@@ -164,6 +164,8 @@ data:
       search_backend: searxng
     memory:
       provider: mnemosyne
+      memory_char_limit: 4000
+      user_char_limit: 2750
       mnemosyne:
         auto_sleep: true
     context:
