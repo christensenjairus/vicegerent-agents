@@ -67,8 +67,7 @@ data:
     Pick the model that fits the task: heavier reasoning for complex/design work, lighter/faster for quick fixes and alternatives.
 
     # Memory
-    - **Default**: Mnemosyne. Use for all facts.
-    - **Important facts**: Mnemosyne + `memory.md`.
+    - Mnemosyne is the only memory store. Use it for all facts, preferences, and insights
     - **Repo knowledge**: also add a terse bullet to `AGENTS.md` in your next PR.
 
     # Expectations
