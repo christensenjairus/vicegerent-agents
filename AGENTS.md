@@ -63,3 +63,30 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   Don't add a tool or kind name to the shim mapping or the Cerbos `allow` rule to *permit* something
   — that belongs in the gateway allowlist. See `images/mcp-cerbos-shim/README.md` ("Division of
   responsibility").
+
+## Command Approval System
+
+Hermes runs with `approvals.mode: smart` (set in `apps/vicegerent/agents/hermes/config.yaml`).
+Before executing a shell command, the approval pipeline runs in this order:
+
+1. **Hardline block** — unconditional, nothing bypasses it. Covers catastrophic commands
+   (`rm -rf /`, disk formatters, fork bomb, system halt). Defined in `tools/approval.py`.
+2. **Silence list** — operator-configured patterns dropped before any LLM sees them.
+   Read from `apps/vicegerent/agents/hermes/approval-policy.yaml` (ConfigMap
+   `hermes-approval-policy`, mounted read-only at `/opt/hermes/approval-policy.yaml`).
+   Tirith findings and uncancellable patterns (Hermes config escalation, credential writes,
+   self-termination) are never silenced.
+3. **Tirith** — static security scan. Findings that survive the silence list go here.
+4. **Smart approval (haiku)** — aux LLM assesses remaining warnings. Auto-approves low-risk,
+   auto-denies genuinely dangerous, escalates ambiguous to the user.
+
+**Why not `approvals.mode: off`?** That skips steps 3 and 4 entirely — tirith never runs.
+`mode: smart` + a well-tuned silence list gives zero friction on known-benign patterns while
+keeping real detection on novel ones.
+
+**Why not `TERMINAL_ENV=docker`?** The docker backend requires a Docker socket, which does
+not exist in the gVisor sandbox. Setting it removes the `terminal` tool from the schema entirely.
+
+**To add a pattern to the silence list:** edit `approval-policy.yaml`, open an MR. Reloader
+watches the ConfigMap via `restart-job.yaml` and will roll the pod automatically on merge.
+Do not silence tirith findings or uncancellable patterns — those are enforced in code regardless.
