@@ -38,6 +38,11 @@ DEFAULT_HOST_MCP_TUNNEL_PORT = 8453
 DEFAULT_AGENT_CLIENT_CN = "agent-client"
 AUTH_FILENAMES = ("client_info.json", "code_verifier.txt", "tokens.json", "lock.json")
 
+# Programs supervisord runs, in display order. `caffeinate` is listed first because
+# it wraps the rest: it holds a macOS "stay awake" assertion for exactly as long as
+# the supervised stack is up, and dies with it so the Mac can sleep again on stop.
+SUPERVISED_PROGRAMS = ("caffeinate", "proxy", "caddy", "ghostunnel")
+
 
 @dataclass(frozen=True)
 class Server:
@@ -287,6 +292,17 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 
 [supervisorctl]
 serverurl=unix://{sock}
+
+[program:caffeinate]
+command=caffeinate -i
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=4
+redirect_stderr=true
+stdout_logfile={logs}/caffeinate.log
+stdout_logfile_maxbytes=1MB
+stdout_logfile_backups=1
 
 [program:proxy]
 command=node build/sse.js
@@ -780,7 +796,7 @@ def status(
     inf_table.add_column("Process", style="bold")
     inf_table.add_column("State")
     not_running = not sup_states
-    for prog in ("proxy", "caddy", "ghostunnel"):
+    for prog in SUPERVISED_PROGRAMS:
         inf_table.add_row(prog, _style_proc(sup_states.get(prog, "STOPPED" if not_running else "")))
     console.print(inf_table)
     return 0
@@ -905,18 +921,18 @@ def start_stack(
             f"supervisord failed to start (exit {exc.returncode}); check {paths['logs']}/supervisord.log"
         ) from None
 
-    # Wait up to 10s for all three programs to reach RUNNING.
+    # Wait up to 10s for all programs to reach RUNNING.
     deadline = time.time() + 10
     while time.time() < deadline:
         sup_states = get_supervisor_states(runtime_dir)
-        if all(sup_states.get(p) == "RUNNING" for p in ("proxy", "caddy", "ghostunnel")):
+        if all(sup_states.get(p) == "RUNNING" for p in SUPERVISED_PROGRAMS):
             break
         time.sleep(0.5)
 
     sup_states = get_supervisor_states(runtime_dir)
     print("enabled servers: " + ", ".join(s.key for s in active))
-    failed = [p for p in ("proxy", "caddy", "ghostunnel") if sup_states.get(p) != "RUNNING"]
-    for prog in ("proxy", "caddy", "ghostunnel"):
+    failed = [p for p in SUPERVISED_PROGRAMS if sup_states.get(p) != "RUNNING"]
+    for prog in SUPERVISED_PROGRAMS:
         print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
     print(f"filtered MCP:  http://{proxy['listen_host']}:{int(proxy['filtered_port'])}/mcp")
     print(f"ghostunnel:    {effective_listen}")
@@ -1050,7 +1066,7 @@ def doctor(
     proxy = proxy_settings(config)
     print("host MCP doctor")
 
-    binaries = ["node", "npx", "caddy", "ghostunnel", "op", "supervisord", "supervisorctl"]
+    binaries = ["node", "npx", "caddy", "ghostunnel", "op", "supervisord", "supervisorctl", "caffeinate"]
     for binary in binaries:
         found = shutil.which(binary)
         print(f"  {binary}: {found or 'MISSING'}")

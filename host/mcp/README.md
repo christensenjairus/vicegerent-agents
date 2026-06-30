@@ -60,7 +60,7 @@ tui           launch interactive TUI dashboard
 enable KEY    enable a server and hot-reload the proxy
 disable KEY   disable a server and hot-reload the proxy
 reload        re-render proxy config and hot-reload (use after git pull)
-start         start proxy, Caddy, and ghostunnel via supervisord
+start         start proxy, Caddy, and ghostunnel via supervisord (caffeinate keeps macOS awake while up)
 stop          shut down supervisord and all managed processes
 logs PROCESS  tail logs for proxy|caddy|ghostunnel|supervisord (Ctrl-C to exit)
 auth-status   show mcp-remote OAuth cache state
@@ -75,6 +75,10 @@ doctor        check host prerequisites and auth state
 ```
 
 `start` applies two idempotent patches to mcp-proxy-server (vendored at `host/mcp-proxy-server/`), renders runtime config, and launches supervisord. After rebuilding mcp-proxy-server (`npm --prefix host/mcp-proxy-server run build`), run `start` again to re-apply patches.
+
+supervisord also runs a `caffeinate -i` program, so macOS stays awake for exactly as long as the stack is up and is free to sleep again once you `stop`.
+
+For the full machine lifecycle, use the top-level wrapper instead — `./vicegerent start` resumes the minikube cluster then starts this stack, and `./vicegerent stop` stops this stack then pauses the cluster.
 
 ## Enable / disable servers
 

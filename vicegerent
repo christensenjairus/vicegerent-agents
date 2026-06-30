@@ -14,6 +14,8 @@ usage() {
 ${B}vicegerent${N} — operational CLI for the vicegerent infra-agent platform
 
 ${B}Usage:${N}
+  ${C}vicegerent start${N}                   resume minikube + start the host MCP stack
+  ${C}vicegerent stop${N}                    stop the host MCP stack + pause minikube
   ${C}vicegerent cluster setup${N}           create the minikube cluster
   ${C}vicegerent cluster pause${N}           pause the minikube cluster
   ${C}vicegerent cluster resume${N}          resume the minikube cluster
@@ -77,34 +79,63 @@ run_with_portforward() {
     exit 1
   fi
 
-  # Port-forward agentgateway
-  local pf_pid
+  # Port-forward agentgateway. PF_PID is global on purpose: the EXIT trap fires at
+  # script scope, after this function returns, where a `local` would be unset (and
+  # would trip `set -u`). The trap is the single teardown path.
   kubectl --context vicegerent -n agentgateway-system \
     port-forward svc/agentgateway-proxy 8080:80 >/dev/null 2>&1 &
-  pf_pid=$!
-  trap 'kill "$pf_pid" 2>/dev/null || true' EXIT INT TERM
+  PF_PID=$!
+  trap 'kill "${PF_PID:-}" 2>/dev/null || true' EXIT INT TERM
 
-  # Wait for port to open (max 15s)
+  # Wait for port to open (max 15s). Use an assignment, not ((i++)) — under `set -e`
+  # ((i++)) returns non-zero when i is 0 and would abort on the first iteration.
   local i=0
   while ! python3 -c "import socket; s=socket.create_connection(('127.0.0.1',8080),0.25); s.close()" 2>/dev/null; do
-    ((i++))
+    i=$((i + 1))
     if [[ $i -ge 60 ]]; then
       echo "ERROR: agentgateway port-forward did not become ready after 15s" >&2
-      kill "$pf_pid" 2>/dev/null || true
       exit 1
     fi
     sleep 0.25
   done
 
+  # `|| rc=$?` so a failing test doesn't abort under `set -e` before teardown runs.
   export GATEWAY_URL="http://localhost:8080"
-  "$script" "$@"
-  local rc=$?
-  kill "$pf_pid" 2>/dev/null || true
+  local rc=0
+  "$script" "$@" || rc=$?
+  kill "${PF_PID:-}" 2>/dev/null || true
   trap - EXIT INT TERM
   return $rc
 }
 
 case "${1:-}" in
+  start)
+    shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      echo "vicegerent start — resume the minikube cluster, then start the host MCP stack"
+      echo "  1. minikube unpause --profile vicegerent   (resume the paused cluster)"
+      echo "  2. ./vicegerent-mcp start                   (proxy/Caddy/ghostunnel, kept awake by caffeinate)"
+      echo "  Extra args are passed through to 'vicegerent-mcp start'."
+      exit 0
+    fi
+    echo "${B}Resuming minikube cluster…${N}"
+    minikube unpause --profile vicegerent || true
+    echo "${B}Starting host MCP stack…${N}"
+    exec "$REPO_ROOT/vicegerent-mcp" start "$@"
+    ;;
+  stop)
+    shift
+    if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+      echo "vicegerent stop — stop the host MCP stack, then pause the minikube cluster"
+      echo "  1. ./vicegerent-mcp stop                    (tears down the supervised stack + caffeinate)"
+      echo "  2. minikube pause --profile vicegerent      (pause the cluster to free CPU)"
+      exit 0
+    fi
+    echo "${B}Stopping host MCP stack…${N}"
+    "$REPO_ROOT/vicegerent-mcp" stop "$@"
+    echo "${B}Pausing minikube cluster…${N}"
+    exec minikube pause --profile vicegerent
+    ;;
   cluster)
     shift
     case "${1:-}" in
