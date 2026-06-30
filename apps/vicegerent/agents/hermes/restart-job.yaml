@@ -61,6 +61,9 @@ spec:
             - name: claude-config
               mountPath: /reload/claude-config
               readOnly: true
+            - name: hermes-approval-policy
+              mountPath: /reload/approval-policy
+              readOnly: true
             - name: hermes-agentgateway-api-key
               mountPath: /reload/api-key
               readOnly: true
@@ -82,6 +85,9 @@ spec:
         - name: claude-config
           configMap:
             name: claude-config
+        - name: hermes-approval-policy
+          configMap:
+            name: hermes-approval-policy
         - name: hermes-agentgateway-api-key
           secret:
             secretName: hermes-agentgateway-api-key
