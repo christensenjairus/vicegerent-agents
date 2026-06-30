@@ -28,7 +28,13 @@ spec:
               protocol: UDP
           rules:
             dns:
-              - matchPattern: '*'
+              - matchPattern: '*.cluster.local'
+              - matchPattern: '*.svc.cluster.local'
+              - matchName: pypi.org
+              - matchName: github.com
+              - matchPattern: '*.github.com'
+              - matchName: githubusercontent.com
+              - matchPattern: '*.githubusercontent.com'
     # Forward to agentgateway (LLM + MCP calls from hermes).
     - toEndpoints:
         - matchLabels:
@@ -72,3 +78,6 @@ spec:
         - cidr: 169.254.0.0/16
         - cidr: 127.0.0.0/8
         - cidr: 100.64.0.0/10
+        - cidr: ::1/128
+        - cidr: fc00::/7
+        - cidr: fe80::/10

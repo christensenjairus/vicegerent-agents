@@ -124,6 +124,7 @@ possible but requires the external server to actively reflect back injected cont
 - Direct TCP to internet FQDNs not in the allowlist — Cilium drops the packet
 - Direct TCP to internet IPs (bypassing proxy) — Cilium allows only proxy:8080 from sandbox
 - Non-HTTP protocols on port 443 — Cilium allows the port but mitmproxy rejects non-HTTP
+- DNS resolution of non-allowlisted FQDNs — Cilium DNS policy restricts resolution to a fixed set of names
 
 ### Difficult to exploit in practice
 - **GET query string exfiltration** — URL length limit constrains payload size;
@@ -142,9 +143,11 @@ possible but requires the external server to actively reflect back injected cont
 - **`no_proxy` override in subprocesses** — a subprocess could set `NO_PROXY=*`,
   causing it to attempt direct egress which Cilium then drops. Fails noisily rather
   than silently exfiltrating.
-- **IPv6** — no explicit IPv6 FQDN policy on the hermes pod. If the node has IPv6
-  internet connectivity, direct IPv6 egress from the sandbox may be possible for tools
-  that ignore `http_proxy`. Mitigation: disable IPv6 on the minikube node if not needed.
+- **IPv6** — the hermes pod has no IPv6-specific FQDN allowlist. However, the
+  `egressDeny` CiliumNetworkPolicy includes `::1/128`, `fc00::/7`, and `fe80::/10` to
+  block private IPv6 ranges. Direct IPv6 internet egress from tools that ignore
+  `http_proxy` would need a non-private IPv6 destination; the Cilium default deny
+  covers the rest.
 
 ---
 
