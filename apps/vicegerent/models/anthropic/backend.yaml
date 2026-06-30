@@ -1,0 +1,21 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: anthropic
+  namespace: agentgateway-system
+spec:
+  ai:
+    groups:
+      - providers:
+          - name: anthropic
+            anthropic: {}
+            policies:
+              auth:
+                secretRef:
+                  name: vicegerent-secrets
+              ai:
+                routes:
+                  /v1/messages: Messages
+                  /v1/messages/count_tokens: AnthropicTokenCount
+                  '*': Passthrough

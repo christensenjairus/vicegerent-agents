@@ -4,13 +4,9 @@ kind: Kustomization
 resources:
   - gateway
   - ghostunnel-ca
-  - models/sonnet
-  - models/haiku
+  - models/anthropic
   - models/haiku-oai
-  - models/opus
-  - models/gpt-5.5
-  - models/gpt-4.1
-  - models/gpt-4o-mini
+  - models/openai
   - mcps/host
   - mcps/tavily
   - mcps/firecrawl
