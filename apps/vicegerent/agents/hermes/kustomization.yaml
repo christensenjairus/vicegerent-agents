@@ -8,6 +8,7 @@ resources:
   - soul.yaml
   - codex-config.yaml
   - claude-config.yaml
+  - approval-policy.yaml
   - secrets.yaml
   - egress-proxy-ca.yaml
   - sandbox.yaml

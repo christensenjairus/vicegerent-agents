@@ -254,6 +254,10 @@ spec:
             - name: hermes-soul
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
+            - name: hermes-approval-policy
+              mountPath: /opt/hermes/approval-policy.yaml
+              subPath: approval-policy.yaml
+              readOnly: true
       volumes:
         - name: runtime
           emptyDir: {}
@@ -265,6 +269,9 @@ spec:
         - name: hermes-soul
           configMap:
             name: hermes-soul
+        - name: hermes-approval-policy
+          configMap:
+            name: hermes-approval-policy
         - name: codex-config
           configMap:
             name: codex-config
