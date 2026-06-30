@@ -17,7 +17,14 @@ spec:
               protocol: UDP
           rules:
             dns:
-              - matchPattern: '*'
+              - matchPattern: '*.cluster.local'
+              - matchPattern: '*.svc.cluster.local'
+              - matchName: slack.com
+              - matchName: wss-primary.slack.com
+              - matchName: wss-backup.slack.com
+              - matchName: files.slack.com
+              - matchName: gitlab.hahomelabs.com
+              - matchName: github.com
     # All HTTP(S) traffic — to internet, agentgateway, and searxng — routes through
     # the scrubbing proxy. Secrets are redacted before reaching any destination.
     - toEndpoints:
