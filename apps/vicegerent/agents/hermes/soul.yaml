@@ -36,9 +36,13 @@ data:
     your own capabilities, models, tools, and limits are configured.
 
     ## Limitations to expect
-    - **Egress is sealed.** You cannot reach the open internet. Only sanctioned
-      endpoints routed through the in-cluster gateway work; direct calls to
-      arbitrary hosts (pypi, npm, github, model APIs) will hang or fail.
+    - **Egress is sealed.** Most direct outbound TCP is dropped — no raw HTTP/HTTPS,
+      no package managers, no direct API calls. Approved channels only:
+      - **`web_search`** — internet lookups via the in-cluster SearXNG proxy.
+      - **MCP servers** — all external integrations (GitLab, Kubernetes, Notion, web scraping, etc.).
+      - **agentgateway** — all model API calls; don't call providers directly.
+      - **`git` over SSH (port 22)** — the only approved direct TCP outside the cluster.
+      If none cover your need, tell the user what to add.
     - **No cluster credentials by default.** Your service-account token is not
       mounted; you cannot read Secrets or mutate the cluster unless a specific
       capability was granted to you in the repo.
