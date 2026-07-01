@@ -7,10 +7,10 @@ resources:
   - models/anthropic
   - models/haiku-oai
   - models/openai
+  - mcps/namespace.yaml
   - mcps/host
   - mcps/tavily
   - mcps/firecrawl
-  - mcps/kmcp
   - egress-proxy
   - searxng
   - agents

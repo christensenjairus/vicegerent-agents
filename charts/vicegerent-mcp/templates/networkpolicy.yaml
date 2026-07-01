@@ -2,12 +2,12 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: firecrawl
-  namespace: kmcp
+  name: {{ include "vicegerent-mcp.name" . }}
+  namespace: {{ include "vicegerent-mcp.namespace" . }}
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: firecrawl
+      app.kubernetes.io/name: {{ include "vicegerent-mcp.name" . }}
   ingress:
     - fromEndpoints:
         - matchLabels:
@@ -15,7 +15,7 @@ spec:
             gateway.networking.k8s.io/gateway-name: agentgateway-proxy
       toPorts:
         - ports:
-            - port: '3000'
+            - port: '{{ .Values.port }}'
               protocol: TCP
   egress:
     - toEndpoints:
@@ -29,10 +29,13 @@ spec:
           rules:
             dns:
               - matchPattern: '*'
+    {{- if .Values.networkPolicy.toFQDNs }}
     - toFQDNs:
-        - matchName: registry.npmjs.org
-        - matchName: api.firecrawl.dev
+        {{- range .Values.networkPolicy.toFQDNs }}
+        - matchName: {{ . }}
+        {{- end }}
       toPorts:
         - ports:
             - port: '443'
               protocol: TCP
+    {{- end }}

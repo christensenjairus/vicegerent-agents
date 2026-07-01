@@ -14,7 +14,7 @@ data:
       "model": "claude-opus-4-8",
       "enableAllProjectMcpServers": true,
       "permissions": {
-        "allow": ["mcp__mnemosyne", "mcp__kmcp", "mcp__host"]
+        "allow": ["mcp__mnemosyne", "mcp__tavily", "mcp__firecrawl", "mcp__host"]
       }
     }
   claude.json: |-
@@ -25,9 +25,13 @@ data:
           "command": "/opt/hermes/.venv/bin/mnemosyne",
           "args": ["mcp"]
         },
-        "kmcp": {
+        "tavily": {
           "type": "http",
-          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kmcp"
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily"
+        },
+        "firecrawl": {
+          "type": "http",
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl"
         },
         "host": {
           "type": "http",

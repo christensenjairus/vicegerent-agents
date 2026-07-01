@@ -149,7 +149,8 @@ echo -e "${CYAN}Gateway: ${GATEWAY_URL}${NC}"
 echo -e "${CYAN}Secret probe name: ${SECRET_NAME}${NC}"
 
 HOST_URL="${GATEWAY_URL}/mcp/host"
-KMCP_URL="${GATEWAY_URL}/mcp/kmcp"
+TAVILY_URL="${GATEWAY_URL}/mcp/tavily"
+FIRECRAWL_URL="${GATEWAY_URL}/mcp/firecrawl"
 
 # ── Section 1: agentgateway tool-name allowlist ───────────────────────────────
 
@@ -177,31 +178,49 @@ else
   fail "unlisted tools exposed (policy gap):\n$(echo "$UNLISTED" | sed 's/^/      /')"
 fi
 
-# tavily and firecrawl are kmcp-managed MCPServers aggregated behind /mcp/kmcp;
-# they have no route of their own. agentgateway prefixes each backend server's
-# tool names, so the kmcp-mcp-tools allowlist entries (tavily_search,
-# firecrawl_scrape, …) surface as tavily_tavily_search, firecrawl_firecrawl_scrape.
-section "2. agentgateway tool allowlist — kmcp backend (tavily + firecrawl)"
+# tavily and firecrawl each get their own agentgateway backend + route + policy
+# now (charts/vicegerent-mcp), so their tools are no longer prefixed by a shared
+# aggregator name — they surface as tavily_search, firecrawl_scrape, etc.
+section "2. agentgateway tool allowlist — tavily backend"
 
-open_session "$KMCP_URL"
-KMCP_TOOLS=$(get_tools "$KMCP_URL")
-ALLOWED_KMCP="tavily_tavily_search tavily_tavily_extract tavily_tavily_map tavily_tavily_crawl firecrawl_firecrawl_scrape firecrawl_firecrawl_search firecrawl_firecrawl_map firecrawl_firecrawl_extract firecrawl_firecrawl_crawl firecrawl_firecrawl_check_crawl_status"
+open_session "$TAVILY_URL"
+TAVILY_TOOLS=$(get_tools "$TAVILY_URL")
+ALLOWED_TAVILY="tavily_search tavily_extract tavily_map tavily_crawl"
 
-# Must have exactly the allowed set
-for tool in $ALLOWED_KMCP; do
-  if echo "$KMCP_TOOLS" | grep -qx "$tool"; then
+for tool in $ALLOWED_TAVILY; do
+  if echo "$TAVILY_TOOLS" | grep -qx "$tool"; then
     pass "allowed tool present: ${tool}"
   else
     fail "allowed tool MISSING: ${tool}"
   fi
 done
 
-# Nothing outside the allowed set
-EXTRA_KMCP=$(echo "$KMCP_TOOLS" | grep -vxF -f <(echo "$ALLOWED_KMCP" | tr ' ' '\n') || true)
-if [[ -z "$EXTRA_KMCP" ]]; then
-  pass "kmcp exposes no unlisted tools"
+EXTRA_TAVILY=$(echo "$TAVILY_TOOLS" | grep -vxF -f <(echo "$ALLOWED_TAVILY" | tr ' ' '\n') || true)
+if [[ -z "$EXTRA_TAVILY" ]]; then
+  pass "tavily exposes no unlisted tools"
 else
-  fail "kmcp exposes unlisted tools (policy gap): ${EXTRA_KMCP}"
+  fail "tavily exposes unlisted tools (policy gap): ${EXTRA_TAVILY}"
+fi
+
+section "2b. agentgateway tool allowlist — firecrawl backend"
+
+open_session "$FIRECRAWL_URL"
+FIRECRAWL_TOOLS=$(get_tools "$FIRECRAWL_URL")
+ALLOWED_FIRECRAWL="firecrawl_scrape firecrawl_search firecrawl_map firecrawl_extract firecrawl_crawl firecrawl_check_crawl_status"
+
+for tool in $ALLOWED_FIRECRAWL; do
+  if echo "$FIRECRAWL_TOOLS" | grep -qx "$tool"; then
+    pass "allowed tool present: ${tool}"
+  else
+    fail "allowed tool MISSING: ${tool}"
+  fi
+done
+
+EXTRA_FIRECRAWL=$(echo "$FIRECRAWL_TOOLS" | grep -vxF -f <(echo "$ALLOWED_FIRECRAWL" | tr ' ' '\n') || true)
+if [[ -z "$EXTRA_FIRECRAWL" ]]; then
+  pass "firecrawl exposes no unlisted tools"
+else
+  fail "firecrawl exposes unlisted tools (policy gap): ${EXTRA_FIRECRAWL}"
 fi
 
 # ── Section 3: Cerbos Secret block ──────────────────────────────────────────

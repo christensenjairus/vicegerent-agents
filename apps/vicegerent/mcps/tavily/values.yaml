@@ -1,0 +1,21 @@
+---
+name: tavily
+command:
+  cmd: npx
+  args: [-y, tavily-mcp@0.2.20]
+env:
+  HOME: /home/node
+  # Redirect npm cache to /tmp so it doesn't accumulate in /home/node across the pod lifetime
+  NPM_CONFIG_CACHE: /tmp/npm-cache
+secrets:
+  - name: tavily-api-key
+    itemPath: vaults/Vicegerent/items/MCP - Tavily
+networkPolicy:
+  toFQDNs: [registry.npmjs.org, api.tavily.com]
+gateway:
+  enabled: true
+  allowedTools:
+    - tavily_search
+    - tavily_extract
+    - tavily_map
+    - tavily_crawl

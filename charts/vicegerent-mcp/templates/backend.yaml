@@ -1,0 +1,22 @@
+{{- if .Values.gateway.enabled }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: {{ include "vicegerent-mcp.name" . }}
+  namespace: agentgateway-system
+spec:
+  mcp:
+    targets:
+      - name: {{ include "vicegerent-mcp.name" . }}
+        static:
+          host: {{ include "vicegerent-mcp.name" . }}.{{ include "vicegerent-mcp.namespace" . }}.svc.cluster.local
+          port: {{ .Values.port }}
+          path: /mcp
+          protocol: StreamableHTTP
+  policies:
+    tcp:
+      connectTimeout: 5s
+    http:
+      requestTimeout: 60s
+{{- end }}

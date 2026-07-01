@@ -1,0 +1,24 @@
+{{- if .Values.gateway.enabled }}
+{{- if not .Values.gateway.allowedTools }}
+{{- fail (printf "vicegerent-mcp %q: gateway.enabled is true but gateway.allowedTools is empty — this would deny every tool call for this backend" (include "vicegerent-mcp.name" .)) }}
+{{- end }}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: {{ include "vicegerent-mcp.name" . }}-mcp-tools
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: {{ include "vicegerent-mcp.name" . }}
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - >-
+              mcp.tool.name in [{{ range $i, $t := .Values.gateway.allowedTools }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end }}]
+{{- end }}
