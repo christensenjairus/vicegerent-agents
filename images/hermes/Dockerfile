@@ -236,6 +236,14 @@ COPY patches/0008-approval-tirith-only-mode.py /tmp/0008-approval-tirith-only-mo
 RUN /opt/hermes/.venv/bin/python /tmp/0008-approval-tirith-only-mode.py
 RUN rm -f /tmp/0008-approval-tirith-only-mode.py
 
+# Patch tools/mcp_tool.py so the MCP circuit breaker doesn't trip on business
+# errors (isError=true relayed as a JSON "error" key) — only real transport/auth
+# failures should count toward the 3-strike "server unreachable" breaker.
+# Remove once upstream Hermes lands #47918/#47955 (hermes-agent #47851/#11113).
+COPY patches/0009-mcp-circuit-breaker-business-errors.py /tmp/0009-mcp-circuit-breaker-business-errors.py
+RUN /opt/hermes/.venv/bin/python /tmp/0009-mcp-circuit-breaker-business-errors.py
+RUN rm -f /tmp/0009-mcp-circuit-breaker-business-errors.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
