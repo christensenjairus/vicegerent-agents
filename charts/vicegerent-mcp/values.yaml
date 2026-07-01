@@ -22,3 +22,9 @@ gateway:
   enabled: false
   # Required when gateway.enabled — empty fails the render instead of silently shipping a policy-less backend.
   allowedTools: []
+  # Attach the tools/call -> mcp-cerbos-shim guardrail (FailClosed) for argument-level
+  # authorization, same as the hand-written host MCP policy. See images/mcp-cerbos-shim/README.md
+  # before enabling: this only blocks specific resource instances (e.g. Secrets), it is not a
+  # second tool allowlist — add the corresponding mapping to
+  # infrastructure/controllers/mcp-cerbos-shim/mapping.yaml first, or every call fails closed.
+  cerbosGuardrail: false

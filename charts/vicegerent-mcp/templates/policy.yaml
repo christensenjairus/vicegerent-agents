@@ -21,4 +21,16 @@ spec:
           matchExpressions:
             - >-
               mcp.tool.name in [{{ range $i, $t := .Values.gateway.allowedTools }}{{ if $i }}, {{ end }}"{{ $t }}"{{ end }}]
+{{- if .Values.gateway.cerbosGuardrail }}
+      guardrails:
+        processors:
+          - methods:
+              tools/call: Request
+            remote:
+              backendRef:
+                name: mcp-cerbos-shim
+                namespace: cerbos
+                port: 4445
+              failureMode: FailClosed
+{{- end }}
 {{- end }}
