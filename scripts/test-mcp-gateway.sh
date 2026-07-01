@@ -19,10 +19,10 @@ GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:-hermes}"
 
 # MCP endpoints — must match apps/vicegerent/agents/felix/config.yaml mcp_servers
-# (the HTTP MCPs fronted by agentgateway HTTPRoutes). tavily/firecrawl are kmcp
-# MCPServers with no route of their own; their tools surface through /mcp/kmcp.
+# (the HTTP MCPs fronted by agentgateway HTTPRoutes).
 MCPS=(
-  "kmcp:/mcp/kmcp"
+  "tavily:/mcp/tavily"
+  "firecrawl:/mcp/firecrawl"
   "host:/mcp/host"
 )
 

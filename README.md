@@ -161,7 +161,7 @@ For finer control of just the host stack, drive it with `./vicegerent-mcp` (`sta
 ./vicegerent-mcp status
 ```
 
-The host-MCP tunnel defaults to `192.168.64.1:8453`. Agents reach these tools through two gateway MCP routes: `/mcp/host` (host-tunneled stdio MCPs — Kubernetes, Linear, Notion) and `/mcp/kmcp` (in-cluster kmcp-aggregated SaaS MCPs: Tavily, Firecrawl).
+The host-MCP tunnel defaults to `192.168.64.1:8453`. Agents reach these tools through per-server gateway MCP routes: `/mcp/host` (host-tunneled stdio MCPs — Kubernetes, Linear, Notion) and one route per in-cluster `charts/vicegerent-mcp` server — currently `/mcp/tavily` and `/mcp/firecrawl` (gitlab is defined under `apps/vicegerent/mcps/gitlab` but not yet applied by Flux).
 
 ## Development
 

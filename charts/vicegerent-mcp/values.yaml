@@ -1,0 +1,24 @@
+---
+name: ''
+namespace: kmcp
+image:
+  repository: docker.io/node
+  tag: 24-alpine3.21
+command:
+  cmd: npx
+  args: []
+port: 3000
+transportType: stdio
+env: {}
+resources:
+  requests:
+    cpu: 50m
+    memory: 256Mi
+timeout: 60s
+secrets: []
+networkPolicy:
+  toFQDNs: [registry.npmjs.org]
+gateway:
+  enabled: false
+  # Required when gateway.enabled — empty fails the render instead of silently shipping a policy-less backend.
+  allowedTools: []

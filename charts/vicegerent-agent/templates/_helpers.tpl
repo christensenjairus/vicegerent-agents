@@ -80,8 +80,12 @@ mcp_servers:
     args: [mcp]
     env:
       HERMES_HOME: /opt/data
-  kmcp:
-    url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/kmcp
+  tavily:
+    url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/tavily
+    timeout: 30
+    connect_timeout: 5
+  firecrawl:
+    url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl
     timeout: 30
     connect_timeout: 5
   host:

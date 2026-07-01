@@ -1,0 +1,27 @@
+---
+name: firecrawl
+command:
+  cmd: npx
+  args: [-y, firecrawl-mcp@3.22.1]
+env:
+  HOME: /home/node
+  # Redirect npm cache to /tmp so it doesn't accumulate in /home/node across the pod lifetime
+  NPM_CONFIG_CACHE: /tmp/npm-cache
+resources:
+  requests:
+    cpu: 50m
+    memory: 384Mi
+secrets:
+  - name: firecrawl-api-key
+    itemPath: vaults/Vicegerent/items/MCP - Firecrawl
+networkPolicy:
+  toFQDNs: [registry.npmjs.org, api.firecrawl.dev]
+gateway:
+  enabled: true
+  allowedTools:
+    - firecrawl_scrape
+    - firecrawl_search
+    - firecrawl_map
+    - firecrawl_extract
+    - firecrawl_crawl
+    - firecrawl_check_crawl_status

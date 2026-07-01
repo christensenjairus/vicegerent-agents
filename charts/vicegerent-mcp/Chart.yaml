@@ -1,0 +1,6 @@
+---
+apiVersion: v2
+name: vicegerent-mcp
+description: In-house Helm chart for vicegerent kmcp MCP server instances
+type: application
+version: 0.1.0

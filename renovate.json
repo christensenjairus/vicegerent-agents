@@ -117,7 +117,7 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^apps/vicegerent/mcps/.+/server\\.ya?ml$/"
+        "/^apps/vicegerent/mcps/.+/values\\.ya?ml$/"
       ],
       "matchStrings": [
         "args:\\s*\\[\\s*-y\\s*,\\s*'?(?<depName>[^@'\\s\\]]+)@(?<currentValue>[^'\\s\\]]+)'?\\s*\\]"
