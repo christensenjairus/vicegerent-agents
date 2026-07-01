@@ -70,6 +70,8 @@ providers:
 
 {{- /* Platform-wide operational defaults; overridable per-agent via values.config. */ -}}
 {{- define "vicegerent-agent.defaultConfig" -}}
+model:
+  default: claude-sonnet-5
 prompt_caching:
   cache_ttl: 1h
 mcp_servers:

@@ -41,6 +41,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 [[ -n "$AGENT" ]] || { echo "usage: $0 <agent-name> [-y|--yes]" >&2; exit 2; }
+AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
 
 ITEM="Agent - $AGENT"
 ITEM_SSH="Agent - $AGENT SSH Key"

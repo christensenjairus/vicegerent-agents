@@ -228,7 +228,7 @@ case "${1:-}" in
           exit 0
         fi
         [[ $# -ge 1 ]] || { echo "usage: vicegerent agent dashboard <agent-name>" >&2; exit 2; }
-        AGENT="$1"
+        AGENT="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; shift
         NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
         CONTEXT_ARG=()
         kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
@@ -244,7 +244,7 @@ case "${1:-}" in
         if [[ -n "$node_ip" && -n "$node_port" ]]; then
           echo "Dashboard URL: http://${node_ip}:${node_port}/"
         fi
-        exec "$REPO_ROOT/scripts/dashboard/open-dashboard.sh" "$@"
+        exec "$REPO_ROOT/scripts/dashboard/open-dashboard.sh" "$AGENT" "$@"
         ;;
       creds)
         shift
@@ -253,13 +253,13 @@ case "${1:-}" in
           exit 0
         fi
         [[ $# -ge 1 ]] || { echo "usage: vicegerent agent creds <agent-name>" >&2; exit 2; }
-        AGENT="$1"
+        AGENT="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; shift
         NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
         CONTEXT_ARG=()
         kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
         PROFILE="${MINIKUBE_PROFILE:-vicegerent}"
         SERVICE="${AGENT}-dashboard"
-        "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$@"
+        "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$AGENT" "$@"
         node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
           -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
         [[ -n "$node_port" ]] || node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
