@@ -115,7 +115,7 @@ RUN curl -fsSL -o /usr/local/bin/jq \
     && chmod +x /usr/local/bin/yq \
     && yq --version
 
-# Bake kustomize + kubeconform + cerbos so validate.sh and pre-commit hooks
+# Bake kustomize + kubeconform + cerbos + helm so validate.sh and pre-commit hooks
 # work offline in the egress-locked sandbox without downloading at runtime.
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
 ARG KUSTOMIZE_VERSION=v5.8.1
@@ -150,6 +150,22 @@ RUN case "${TARGETARCH}" in \
     && tar -xz -C /usr/local/bin -f /tmp/cerbos.tar.gz cerbos \
     && rm /tmp/cerbos.tar.gz \
     && cerbos --version
+
+# Bake helm so scripts/validate.sh and pre-commit validate-flux-manifests can run offline.
+# renovate: datasource=github-releases depName=helm/helm
+ARG HELM_VERSION=v3.21.2
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        arm64) HELM_ARCH=arm64 ;; \
+        amd64) HELM_ARCH=amd64 ;; \
+        *) echo "helm: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/helm.tar.gz \
+        "https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin --strip-components=1 \
+        -f /tmp/helm.tar.gz "linux-${HELM_ARCH}/helm" \
+    && rm /tmp/helm.tar.gz \
+    && helm version
 
 # Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
 # renovate: datasource=github-releases depName=rtk-ai/rtk
