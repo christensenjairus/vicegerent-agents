@@ -77,7 +77,7 @@ COPY --from=gopls /out/gopls /usr/local/bin/gopls
 
 # hermes-lcm must live in Hermes' bundled context_engine tree, not ~/.hermes/plugins.
 # renovate: datasource=github-releases depName=stephenschoettler/hermes-lcm
-ARG HERMES_LCM_VERSION=v0.18.0
+ARG HERMES_LCM_VERSION=v0.18.1
 RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine as p, os; print(os.path.dirname(p.__file__))')/lcm" \
     && mkdir -p "$LCM_DEST" \
     && curl -fsSL "https://github.com/stephenschoettler/hermes-lcm/archive/refs/tags/${HERMES_LCM_VERSION}.tar.gz" \
