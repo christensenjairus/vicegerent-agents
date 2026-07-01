@@ -6,7 +6,11 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: ^host/mcp-proxy-server/
+        exclude: >-
+          (?x)^(
+            charts/.+/templates/.+\.ya?ml$|
+            host/mcp-proxy-server/
+          )
       - id: trailing-whitespace
         exclude: ^host/mcp-proxy-server/
       - id: end-of-file-fixer

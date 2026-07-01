@@ -2,12 +2,12 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: hermes-restart-egress
+  name: {{ include "vicegerent-agent.name" . }}-restart-egress
   namespace: agent-sandbox
 spec:
   endpointSelector:
     matchLabels:
-      app.kubernetes.io/name: hermes-restart
+      app.kubernetes.io/name: {{ include "vicegerent-agent.name" . }}-restart
   egress:
     - toEndpoints:
         - matchLabels:

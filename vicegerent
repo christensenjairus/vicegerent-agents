@@ -20,7 +20,8 @@ ${B}Usage:${N}
   ${C}vicegerent cluster pause${N}           pause the minikube cluster
   ${C}vicegerent cluster resume${N}          resume the minikube cluster
   ${C}vicegerent cluster status${N}          show minikube cluster status
-  ${C}vicegerent secrets setup${N}           run secrets setup (idempotent)
+  ${C}vicegerent secrets setup platform${N}       provision platform-wide secrets (idempotent)
+  ${C}vicegerent secrets setup agent <name>${N}    provision a named agent's secrets (idempotent)
   ${C}vicegerent bootstrap${N}               bootstrap Flux against this repo
   ${C}vicegerent agent dashboard <name>${N}  open an agent dashboard in browser
   ${C}vicegerent agent creds <name>${N}      show agent dashboard credentials and URL
@@ -175,10 +176,30 @@ case "${1:-}" in
     case "${1:-}" in
       setup)
         shift
-        exec "$REPO_ROOT/scripts/install/setup-secrets.sh" "$@"
+        case "${1:-}" in
+          platform)
+            shift
+            exec "$REPO_ROOT/scripts/install/setup-secrets-platform.sh" "$@"
+            ;;
+          agent)
+            shift
+            [[ $# -ge 1 ]] || { echo "usage: vicegerent secrets setup agent <agent-name> [-y|--yes]" >&2; exit 2; }
+            exec "$REPO_ROOT/scripts/install/setup-secrets-agent.sh" "$@"
+            ;;
+          --help|-h|"")
+            echo "vicegerent secrets setup platform            →  scripts/install/setup-secrets-platform.sh"
+            echo "vicegerent secrets setup agent <agent-name>  →  scripts/install/setup-secrets-agent.sh"
+            exit 0
+            ;;
+          *)
+            echo "unknown secrets setup target: $1 (expected 'platform' or 'agent')" >&2
+            exit 1
+            ;;
+        esac
         ;;
       --help|-h|"")
-        echo "vicegerent secrets setup  →  scripts/install/setup-secrets.sh"
+        echo "vicegerent secrets setup platform            →  platform-wide 1Password material"
+        echo "vicegerent secrets setup agent <agent-name>  →  per-agent 1Password items"
         exit 0
         ;;
       *)

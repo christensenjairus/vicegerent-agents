@@ -45,11 +45,21 @@ If metrics are not ready immediately, wait a minute and rerun `kubectl --context
 
 ## Secrets setup
 
-Run the idempotent setup script. It creates the `Vicegerent` vault, the 1Password Connect server and token, the ghostunnel CA, the egress-proxy MITM CA, and the server/client certificates — storing everything in 1Password and leaving nothing on disk. It is safe to re-run: anything already in 1Password is reused, never regenerated, and it only prompts before a step that actually changes something.
+Secrets are provisioned in two passes: **platform-wide** material (shared by the
+whole cluster) and **per-agent** material (one set per named agent). Both are
+idempotent — anything already in 1Password is reused, never regenerated, and each
+only prompts before a step that actually changes something.
+
+### Platform-wide
+
+Creates the `Vicegerent` vault, the 1Password Connect server and token, the
+ghostunnel CA, the egress-proxy MITM CA, the server/client certificates, and the
+shared model/search API keys — storing everything in 1Password and leaving nothing
+on disk.
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interactively
-./vicegerent secrets setup
+./vicegerent secrets setup platform
 ```
 
 ```text
@@ -69,10 +79,33 @@ Agentgateway - Host MCP CA    ca.cert                       (public CA → agent
 Host - MCP Tunnel             server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
 Egress Proxy CA               ca.crt, ca.key               (MITM CA private material → egress-proxy)
 Egress Proxy CA Cert          ca.crt                        (public CA → agent-sandbox + searxng trust)
-Agent - hermes                password, signing-secret, private-key, public-key, Slack tokens  (→ agent-sandbox)
+SearXNG                       secret_key                    (session/limiter signing key)
+MCP - Tavily                  TAVILY_API_KEY                (optional → kmcp)
+MCP - Firecrawl               FIRECRAWL_API_KEY             (optional → kmcp)
 ```
 
 The CA private key lives only in `Host - MCP Tunnel` so a re-run can re-issue a missing leaf certificate without rebuilding the chain. The server private key never enters Kubernetes. 1Password is the single source of truth for this material, for both the laptop and the cluster.
+
+### Per-agent
+
+Run once per named agent. Each agent gets its own independently generated dashboard
+credentials, SSH key, and agentgateway bearer token — no material is shared between
+agents.
+
+```bash
+./vicegerent secrets setup agent hermes   # accepts -y/--yes
+```
+
+This provisions, in vault `Vicegerent` (for agent name `<name>`):
+
+```text
+Agent - <name>                    password, signing-secret  (dashboard auth)
+                                  SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+                                  SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (optional),
+                                  public-key                (→ agent-sandbox)
+Agent - <name> SSH Key            ed25519 keypair (1Password Document)
+Agent - <name> agentgateway API key   api-key (random hex bearer token)
+```
 
 ## Bootstrap Flux
 

@@ -1,0 +1,11 @@
+---
+# Egress proxy CA cert (public cert only — no private key), shared by every agent
+# in the namespace so each sandbox trusts the MITM proxy. The key-bearing item
+# ("Egress Proxy CA") is scoped to the egress-proxy namespace only.
+apiVersion: onepassword.com/v1
+kind: OnePasswordItem
+metadata:
+  name: egress-proxy-ca-cert
+  namespace: agent-sandbox
+spec:
+  itemPath: vaults/Vicegerent/items/Egress Proxy CA Cert

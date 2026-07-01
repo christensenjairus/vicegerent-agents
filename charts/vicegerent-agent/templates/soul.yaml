@@ -1,0 +1,11 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vicegerent-agent.name" . }}-soul
+  namespace: agent-sandbox
+data:
+  SOUL.md: |-
+    {{- $personality := .Values.soul | trimSuffix "\n" }}
+    {{- $environment := include "vicegerent-agent.environment" . }}
+    {{- printf "%s\n\n%s" $personality $environment | nindent 4 }}

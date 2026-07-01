@@ -39,7 +39,7 @@ the bakes change what the image contains.
 
 `FROM` is pinned by **tag + digest**. The tag keeps the reference
 Renovate-trackable (an upstream bump opens an MR); the digest makes the build
-reproducible. The `apps/vicegerent/agents/hermes/sandbox.yaml` `Sandbox` is
+reproducible. The `apps/vicegerent/agents/felix/sandbox.yaml` `Sandbox` is
 repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 
 ## Bakes

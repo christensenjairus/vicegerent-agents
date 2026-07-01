@@ -13,4 +13,4 @@ resources:
   - mcps/kmcp
   - egress-proxy
   - searxng
-  - agents/hermes
+  - agents

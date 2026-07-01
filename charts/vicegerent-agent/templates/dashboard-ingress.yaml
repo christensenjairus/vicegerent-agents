@@ -2,12 +2,12 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: hermes-dashboard-ingress
+  name: {{ include "vicegerent-agent.name" . }}-dashboard-ingress
   namespace: agent-sandbox
 spec:
   endpointSelector:
     matchLabels:
-      vicegerent.io/dashboard: hermes
+      vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
   ingress:
     # dashboard only (9119); gateway API (8642) intentionally absent.
     - fromEntities: [world, host, remote-node]

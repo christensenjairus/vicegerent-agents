@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: codex-config
+  name: {{ include "vicegerent-agent.name" . }}-codex-config
   namespace: agent-sandbox
 data:
   config.toml: |-

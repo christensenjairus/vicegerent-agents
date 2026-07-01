@@ -16,8 +16,8 @@
 #   --reseed-secrets    re-apply the op-credentials + onepassword-token Secrets from
 #                       1Password and restart Connect, even when the release is already
 #                       deployed. Use after rotating the Connect token or credentials.
-#                       Requires the Connect server to still exist (run setup-secrets.sh
-#                       first if it was deleted).
+#                       Requires the Connect server to still exist (run
+#                       setup-secrets-platform.sh first if it was deleted).
 #   -h, --help          show this help
 #
 # Env overrides: KUBE_CONTEXT, REPO_URL, BRANCH, CLUSTER_PATH, PRIVATE_KEY_FILE,
@@ -153,7 +153,7 @@ if [[ "$SKIP_ONEPASSWORD_BOOTSTRAP" != "1" ]]; then
   if [[ "$status" == "deployed" ]]; then
     if [[ "$RESEED_CONNECT_SECRETS" == "1" ]]; then
       connect_server_exists \
-        || die "Connect server '$OP_CONNECT_SERVER' does not exist — its 1Password credentials are dead and cannot be reseeded. Run ./vicegerent secrets setup first to recreate the server, then re-run with --reseed-secrets."
+        || die "Connect server '$OP_CONNECT_SERVER' does not exist — its 1Password credentials are dead and cannot be reseeded. Run ./vicegerent secrets setup platform first to recreate the server, then re-run with --reseed-secrets."
       confirm "Re-seed Connect secrets: re-apply op-credentials + onepassword-token from 1Password and restart Connect (release stays Flux-managed; no helm upgrade)." \
         || die "Re-seed declined; aborting."
       apply_connect_secrets

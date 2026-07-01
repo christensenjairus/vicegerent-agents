@@ -103,7 +103,7 @@ deploy key's scope (read-only vs read-write, per-repo vs org-wide) is the contro
 
 ### Slack traffic
 Four specific Slack FQDNs are allowed direct (bypassing the proxy) via the **hermes**
-Cilium policy (`apps/vicegerent/agents/hermes/networkpolicy.yaml`) and `no_proxy` in
+Cilium policy (`apps/vicegerent/agents/felix/networkpolicy.yaml`) and `no_proxy` in
 `sandbox.yaml`. Slack Socket Mode requires POST and WebSocket — both blocked by the
 proxy — so Slack must go direct. (`no_proxy` alone is not enough: `slack_sdk` ignores
 `NO_PROXY` and auto-loads `HTTPS_PROXY`, so the hermes image also carries build patch
@@ -118,7 +118,7 @@ proxy — so Slack must go direct. (`no_proxy` alone is not enough: `slack_sdk` 
 
 The former `*.slack.com` wildcard is removed. If Slack rotates the WSS hostname,
 Socket Mode reconnections will fail — add the new hostname to the hermes policy
-(`apps/vicegerent/agents/hermes/networkpolicy.yaml`) and `no_proxy` in `sandbox.yaml`.
+(`apps/vicegerent/agents/felix/networkpolicy.yaml`) and `no_proxy` in `sandbox.yaml`.
 Slack traffic carries no sandbox secrets by design.
 
 ### Streaming responses
@@ -170,7 +170,7 @@ For a service the **proxy fetches** (GET/HEAD through the egress proxy):
 3. If the service holds credentials, add a `REDACT_PATTERNS` entry for its token format
 
 For a service the sandbox reaches **direct** (bypassing the proxy, e.g. Slack):
-1. Add the FQDN to the hermes policy (`apps/vicegerent/agents/hermes/networkpolicy.yaml`)
+1. Add the FQDN to the hermes policy (`apps/vicegerent/agents/felix/networkpolicy.yaml`)
 2. Add it to `no_proxy`/`NO_PROXY` in `sandbox.yaml`
 
 ---
