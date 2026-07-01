@@ -50,6 +50,8 @@ data:
         - computer_use
         - tts
         - memory
+        - browser
+        - image_gen
     platform_toolsets:
       slack:
         - hermes-slack
