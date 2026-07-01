@@ -12,11 +12,7 @@ spec:
     port: 3000
     env:
       HOME: /home/node
-      # --max-old-space-size: hard V8 old-gen ceiling (MiB); must be < memory limit for OOM headroom
-      # --max-semi-space-size: new-gen nursery — smaller = more frequent minor GCs, less live set
-      # --gc-interval: trigger idle GC roughly every N allocations (reduces long-term retention)
-      NODE_OPTIONS: --max-old-space-size=256 --max-semi-space-size=8
-      # Redirect npm cache to /tmp so it doesn't bloat the node home dir across runs
+      # Redirect npm cache to /tmp so it doesn't accumulate in /home/node across the pod lifetime
       NPM_CONFIG_CACHE: /tmp/npm-cache
     secretRefs:
       - name: tavily-api-key
@@ -34,9 +30,7 @@ spec:
     resources:
       requests:
         cpu: 50m
-        memory: 300Mi
-      limits:
-        memory: 400Mi
+        memory: 256Mi
   stdioTransport: {}
   transportType: stdio
   timeout: 60s
