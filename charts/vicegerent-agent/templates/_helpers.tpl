@@ -2,6 +2,14 @@
 {{- .Values.name | default .Release.Name -}}
 {{- end -}}
 
+{{- /* Shared coding-agent instruction: web_search/WebSearch/WebFetch are disabled
+      in codex and claude-code because they're server-side and bypass the sealed
+      egress proxy. Single source of truth for codex's developer_instructions and
+      claude-code's seeded CLAUDE.md — keep them in sync by editing only here. */ -}}
+{{- define "vicegerent-agent.webSearchInstructions" -}}
+WebSearch/web_search and WebFetch are disabled — both are server-side tools that bypass the sealed egress proxy. For web search, curl $SEARXNG_URL/search?q=<query>&format=json instead.
+{{- end -}}
+
 {{- define "vicegerent-agent.environment" -}}
 # Environment
 You run inside a sealed agent sandbox: a non-root container on a

@@ -14,7 +14,8 @@ data:
       "model": "claude-opus-4-8",
       "enableAllProjectMcpServers": true,
       "permissions": {
-        "allow": ["mcp__mnemosyne", "mcp__tavily", "mcp__firecrawl", "mcp__host"]
+        "allow": ["mcp__mnemosyne", "mcp__tavily", "mcp__firecrawl"],
+        "deny": ["WebSearch", "WebFetch"]
       }
     }
   claude.json: |-
@@ -32,10 +33,6 @@ data:
         "firecrawl": {
           "type": "http",
           "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/firecrawl"
-        },
-        "host": {
-          "type": "http",
-          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/host"
         }
       },
       "projects": {
@@ -50,3 +47,5 @@ data:
         }
       }
     }
+  CLAUDE.md: |-
+    {{ include "vicegerent-agent.webSearchInstructions" . | trim }}

@@ -82,6 +82,7 @@ spec:
                 < /reload/claude-config/settings.json \
                 > /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
+              cp -f /reload/claude-config/CLAUDE.md /opt/data/.claude/CLAUDE.md
               # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
               mkdir -p /opt/data/tmp
               HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
