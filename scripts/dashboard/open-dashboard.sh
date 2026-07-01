@@ -24,6 +24,7 @@ usage() {
 [[ $# -eq 1 ]] || usage
 AGENT="$1"
 [[ -n "$AGENT" ]] || usage
+AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
 SERVICE="${HERMES_DASHBOARD_SERVICE:-${AGENT}-dashboard}"
 
 for cmd in kubectl op python3; do

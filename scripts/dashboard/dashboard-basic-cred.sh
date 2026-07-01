@@ -20,6 +20,7 @@ usage() {
 [ "$#" -eq 1 ] || usage
 name="$1"
 [ -n "$name" ] || usage
+name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
 
 command -v op >/dev/null 2>&1 || {
   echo "1Password CLI not found. brew install 1password-cli." >&2
