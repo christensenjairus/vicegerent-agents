@@ -137,6 +137,10 @@ auxiliary:
 tool_loop_guardrails:
   hard_stop_enabled: true
 display:
+  skin: slate
+  streaming: true
+  show_cost: true
+  timestamps: true
   tool_progress: verbose
   platforms:
     slack:
@@ -146,6 +150,8 @@ approvals:
 command_allowlist: []
 checkpoints:
   enabled: true
+clarify:
+  timeout: 300
 timezone: America/Denver
 terminal:
   cwd: /workspace
