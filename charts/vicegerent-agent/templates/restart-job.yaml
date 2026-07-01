@@ -1,0 +1,108 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "vicegerent-agent.name" . }}-restart
+  namespace: agent-sandbox
+  annotations:
+    # Helm (not Flux) owns this Job now — kustomize.toolkit.fluxcd.io/force is a
+    # no-op under helm-controller. Reloader still patches this Job's pod template
+    # in-place when a watched ConfigMap/Secret changes, but Job pod templates are
+    # immutable, so a plain `helm upgrade` diff on this resource would fail once
+    # Reloader's live patch has drifted it from the chart's rendered manifest.
+    # post-install/post-upgrade (not pre-*): this Job restarts the sandbox pod to
+    # pick up new config, so it must run AFTER the release's ConfigMaps/Sandbox
+    # are applied — pre-* would either fail on first install (ConfigMaps don't
+    # exist yet) or restart into stale config on upgrade. before-hook-creation
+    # makes Helm delete the previous hook Job before creating the new one, so the
+    # immutable Job spec is always recreated fresh instead of diffed in place.
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
+spec:
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ include "vicegerent-agent.name" . }}-restart
+    spec:
+      serviceAccountName: {{ include "vicegerent-agent.name" . }}-restart
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: restart
+          image: alpine/k8s:1.36.2
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          env:
+            - name: HOME
+              value: /tmp
+            - name: SANDBOX_NAME
+              value: {{ include "vicegerent-agent.name" . }}
+            - name: NAMESPACE
+              value: agent-sandbox
+          command:
+            - /bin/bash
+            - -c
+            - |-
+              set -euo pipefail
+              echo "restarting sandbox ${SANDBOX_NAME} in ${NAMESPACE}"
+              kubectl delete pod "${SANDBOX_NAME}" \
+                --namespace "${NAMESPACE}" \
+                --ignore-not-found \
+                --wait=false
+          volumeMounts:
+            - name: sandbox-spec
+              mountPath: /reload/sandbox-spec
+              readOnly: true
+            - name: config
+              mountPath: /reload/config
+              readOnly: true
+            - name: soul
+              mountPath: /reload/soul
+              readOnly: true
+            - name: codex-config
+              mountPath: /reload/codex-config
+              readOnly: true
+            - name: claude-config
+              mountPath: /reload/claude-config
+              readOnly: true
+            - name: approval-policy
+              mountPath: /reload/approval-policy
+              readOnly: true
+            - name: agentgateway-api-key
+              mountPath: /reload/api-key
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: sandbox-spec
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-sandbox-spec
+        - name: config
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-config
+        - name: soul
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-soul
+        - name: codex-config
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-codex-config
+        - name: claude-config
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-claude-config
+        - name: approval-policy
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-approval-policy
+        - name: agentgateway-api-key
+          secret:
+            secretName: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
+            optional: true
+        - name: tmp
+          emptyDir: {}

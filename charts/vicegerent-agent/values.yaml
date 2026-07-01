@@ -1,0 +1,18 @@
+---
+name: ''
+image:
+  repository: harbor.hahomelabs.com/vicegerent/hermes-agent
+  tag: v2026.6.19
+storage:
+  data: 10Gi
+  gitrepos: 50Gi
+slack:
+  commandName: ''
+# Required per agent; empty leaves the NodePort auto-allocated, which is unstable.
+dashboard:
+  nodePort: ''
+# Personality/voice only. The chart appends a fixed Environment section after this.
+soul: ''
+# Agent config.yaml as a literal YAML string. Merged with defaultConfig and
+# mandatoryConfig in _helpers.tpl — see those for what's default vs. locked.
+config: ''

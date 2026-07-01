@@ -2,29 +2,30 @@
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: hermes-restart
+  name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
-  name: hermes-restart
+  name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
 rules:
   - apiGroups: ['']
     resources: [pods]
-    verbs: [get, list, delete]
+    resourceNames: [{{ include "vicegerent-agent.name" . | quote }}]
+    verbs: [get, delete]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
-  name: hermes-restart
+  name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: hermes-restart
+  name: {{ include "vicegerent-agent.name" . }}-restart
 subjects:
   - kind: ServiceAccount
-    name: hermes-restart
+    name: {{ include "vicegerent-agent.name" . }}-restart
     namespace: agent-sandbox

@@ -33,7 +33,7 @@ op account get >/dev/null 2>&1 || { echo "1Password CLI is not signed in. Run: o
 
 ITEM="Agent - ${AGENT}"
 PASSWORD="$(op read "op://${OP_VAULT}/${ITEM}/password")"
-[[ -n "$PASSWORD" ]] || {   echo "Missing op://${OP_VAULT}/${ITEM}/password. Run: ./vicegerent secrets setup (with DASHBOARD_AUTH_AGENTS including '${AGENT}')." >&2; exit 1; }
+[[ -n "$PASSWORD" ]] || {   echo "Missing op://${OP_VAULT}/${ITEM}/password. Run: ./vicegerent secrets setup agent ${AGENT}" >&2; exit 1; }
 
 node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
 if [[ -z "$node_port" ]]; then

@@ -2,10 +2,12 @@
 apiVersion: cilium.io/v2
 kind: CiliumNetworkPolicy
 metadata:
-  name: hermes-egress
+  name: {{ include "vicegerent-agent.name" . }}-egress
   namespace: agent-sandbox
 spec:
-  endpointSelector: {}
+  endpointSelector:
+    matchLabels:
+      vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
   egress:
     - toEndpoints:
         - matchLabels:
@@ -35,7 +37,7 @@ spec:
     #                      apps.connections.open, reactions.*, files.*, users.info, etc.
     # wss-primary.slack.com — Socket Mode WebSocket endpoint (primary)
     # wss-backup.slack.com  — Socket Mode WebSocket endpoint (failover)
-    # files.slack.com    — File/image downloads when hermes reads attachments
+    # files.slack.com    — File/image downloads when the agent reads attachments
     #
     # NOTE: if Slack rotates the WSS hostname (rare but possible), Socket Mode will
     # fail to reconnect and you'll see apps.connections.open succeed but the WSS

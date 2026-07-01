@@ -1,8 +1,8 @@
----
+{{- define "vicegerent-agent.sandbox" -}}
 apiVersion: agents.x-k8s.io/v1alpha1
 kind: Sandbox
 metadata:
-  name: hermes
+  name: {{ include "vicegerent-agent.name" . }}
   namespace: agent-sandbox
   annotations:
     kustomize.toolkit.fluxcd.io/force: Disabled
@@ -10,7 +10,7 @@ spec:
   podTemplate:
     metadata:
       labels:
-        vicegerent.io/dashboard: hermes
+        vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
     spec:
       runtimeClassName: gvisor
       automountServiceAccountToken: false
@@ -23,7 +23,7 @@ spec:
           type: RuntimeDefault
       initContainers:
         - name: prepare-run
-          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: Always
           command: [sh, -c]
           args:
@@ -43,7 +43,7 @@ spec:
             - name: data
               mountPath: /opt/data
         - name: seed-data
-          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: Always
           command: [bash, -c]
           args:
@@ -107,7 +107,7 @@ spec:
             - name: AGENTGATEWAY_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: hermes-agentgateway-api-key
+                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: true
           securityContext:
@@ -118,7 +118,7 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
-            - name: hermes-config
+            - name: config
               mountPath: /reload/hermes-config
               readOnly: true
             - name: codex-config
@@ -131,8 +131,8 @@ spec:
               mountPath: /reload/egress-proxy-ca
               readOnly: true
       containers:
-        - name: hermes
-          image: harbor.hahomelabs.com/vicegerent/hermes-agent:v2026.6.19
+        - name: {{ include "vicegerent-agent.name" . }}
+          image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: Always
           args: [gateway]
           env:
@@ -149,13 +149,13 @@ spec:
             - name: HERMES_DASHBOARD_BASIC_AUTH_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: hermes-secrets
+                  name: {{ include "vicegerent-agent.name" . }}-secrets
                   key: password
                   optional: false
             - name: HERMES_DASHBOARD_BASIC_AUTH_SECRET
               valueFrom:
                 secretKeyRef:
-                  name: hermes-secrets
+                  name: {{ include "vicegerent-agent.name" . }}-secrets
                   key: signing-secret
                   optional: false
             - name: SANDBOX_NAME
@@ -165,7 +165,7 @@ spec:
             - name: HERMES_HOME
               value: /opt/data
             - name: HERMES_SLACK_COMMAND_NAME
-              value: felix
+              value: {{ .Values.slack.commandName }}
             # Route all HTTP(S) traffic through the GET-only MITM proxy.
             - name: http_proxy
               value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
@@ -212,13 +212,13 @@ spec:
             - name: ANTHROPIC_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: hermes-agentgateway-api-key
+                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: false
             - name: OPENAI_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: hermes-agentgateway-api-key
+                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: false
             # TODO: haiku is overkill for mnemosyne consolidation; replace with a cheap OpenAI model once org tokens are available.
@@ -231,13 +231,13 @@ spec:
             - name: MNEMOSYNE_LLM_API_KEY
               valueFrom:
                 secretKeyRef:
-                  name: hermes-agentgateway-api-key
+                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: false
           envFrom:
-            # All hermes pod credentials: dashboard auth, SSH key, and optional Slack tokens.
+            # All agent pod credentials: dashboard auth, SSH key, and optional Slack tokens.
             - secretRef:
-                name: hermes-secrets
+                name: {{ include "vicegerent-agent.name" . }}-secrets
                 optional: false
           ports:
             - containerPort: 8642
@@ -258,15 +258,15 @@ spec:
               mountPath: /opt/data
             - name: gitrepos
               mountPath: /workspace
-            - name: hermes-ssh-key
+            - name: ssh-key
               mountPath: /opt/hermes-ssh
               readOnly: true
-            - name: hermes-config
+            - name: config
               mountPath: /reload/hermes-config
-            - name: hermes-soul
+            - name: soul
               mountPath: /opt/data/SOUL.md
               subPath: SOUL.md
-            - name: hermes-approval-policy
+            - name: approval-policy
               mountPath: /opt/hermes/approval-policy.yaml
               subPath: approval-policy.yaml
               readOnly: true
@@ -275,24 +275,24 @@ spec:
           emptyDir: {}
         - name: tmp
           emptyDir: {}
-        - name: hermes-config
+        - name: config
           configMap:
-            name: hermes-config
-        - name: hermes-soul
+            name: {{ include "vicegerent-agent.name" . }}-config
+        - name: soul
           configMap:
-            name: hermes-soul
-        - name: hermes-approval-policy
+            name: {{ include "vicegerent-agent.name" . }}-soul
+        - name: approval-policy
           configMap:
-            name: hermes-approval-policy
+            name: {{ include "vicegerent-agent.name" . }}-approval-policy
         - name: codex-config
           configMap:
-            name: codex-config
+            name: {{ include "vicegerent-agent.name" . }}-codex-config
         - name: claude-config
           configMap:
-            name: claude-config
-        - name: hermes-ssh-key
+            name: {{ include "vicegerent-agent.name" . }}-claude-config
+        - name: ssh-key
           secret:
-            secretName: hermes-ssh-key  # pragma: allowlist secret
+            secretName: {{ include "vicegerent-agent.name" . }}-ssh-key  # pragma: allowlist secret
             defaultMode: 0400
             optional: true
         - name: egress-proxy-ca-cert
@@ -306,11 +306,12 @@ spec:
         accessModes: [ReadWriteOnce]
         resources:
           requests:
-            storage: 10Gi
+            storage: {{ .Values.storage.data }}
     - metadata:
         name: gitrepos
       spec:
         accessModes: [ReadWriteOnce]
         resources:
           requests:
-            storage: 50Gi
+            storage: {{ .Values.storage.gitrepos }}
+{{- end -}}

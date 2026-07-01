@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: hermes-approval-policy
+  name: {{ include "vicegerent-agent.name" . }}-approval-policy
   namespace: agent-sandbox
 data:
   approval-policy.yaml: |-

@@ -1,0 +1,6 @@
+---
+apiVersion: v2
+name: vicegerent-agent
+description: In-house Helm chart for vicegerent Hermes agent instances
+type: application
+version: 0.1.0

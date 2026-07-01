@@ -33,7 +33,7 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
   to define an agent/model/MCP live under `apps/vicegerent` (agents, gateway, models, mcps);
   standardized controllers (agentgateway, kmcp, agent-sandbox, onepassword-connect, reloader) live
   under `infrastructure/controllers`.
-- **The layout is the documentation.** A user creates a new agent by copying `agents/hermes`, a new
+- **The layout is the documentation.** A user creates a new agent by copying `agents/felix` (or `agents/anton`), a new
   model/route by copying `models/sonnet`, a new MCP by copying `mcps/kubernetes`. Keep names
   self-explanatory and do not add explanatory comment blocks — rationale goes in the MR description,
   not inline.
@@ -66,13 +66,13 @@ agent sandboxes on a local minikube cluster, managed by Flux. The git repo is na
 
 ## Command Approval System
 
-Hermes runs with `approvals.mode: smart` (set in `apps/vicegerent/agents/hermes/config.yaml`).
+Hermes runs with `approvals.mode: smart` (set in `apps/vicegerent/agents/felix/config.yaml`).
 Before executing a shell command, the approval pipeline runs in this order:
 
 1. **Hardline block** — unconditional, nothing bypasses it. Covers catastrophic commands
    (`rm -rf /`, disk formatters, fork bomb, system halt). Defined in `tools/approval.py`.
 2. **Silence list** — operator-configured patterns dropped before any LLM sees them.
-   Read from `apps/vicegerent/agents/hermes/approval-policy.yaml` (ConfigMap
+   Read from `apps/vicegerent/agents/felix/approval-policy.yaml` (ConfigMap
    `hermes-approval-policy`, mounted read-only at `/opt/hermes/approval-policy.yaml`).
    Tirith findings and uncancellable patterns (Hermes config escalation, credential writes,
    self-termination) are never silenced.

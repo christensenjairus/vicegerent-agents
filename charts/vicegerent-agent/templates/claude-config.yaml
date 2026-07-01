@@ -2,7 +2,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: claude-config
+  name: {{ include "vicegerent-agent.name" . }}-claude-config
   namespace: agent-sandbox
 data:
   settings.json: |-
