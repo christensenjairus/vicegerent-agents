@@ -80,3 +80,10 @@ fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
 - `0007-slack-bypass-egress-proxy.py` — patch `slack_sdk`'s env proxy loader to return
   `None` so Slack bypasses the GET-only egress MITM proxy (`slack_sdk` ignores
   `NO_PROXY`, which would otherwise force every Slack call through the proxy and fail).
+- `0008-approval-tirith-only-mode.py` — add `approvals.pattern_silence` to smart-mode
+  command approval so operator-configured false-positive patterns skip the aux-LLM
+  pre-screen (tirith findings and uncancellable patterns are never silenced).
+- `0009-mcp-circuit-breaker-business-errors.py` — stop the MCP circuit breaker from
+  tripping on business errors (`isError: true` relayed as a JSON `"error"` key); only
+  real transport/auth exceptions should count toward the 3-strike "server unreachable"
+  block. Remove once upstream lands hermes-agent #47918/#47955 (issues #47851/#11113).

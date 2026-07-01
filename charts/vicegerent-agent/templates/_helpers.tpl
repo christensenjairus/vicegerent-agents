@@ -138,6 +138,8 @@ auxiliary:
     model: claude-haiku-4-5
 tool_loop_guardrails:
   hard_stop_enabled: true
+  hard_stop_after:
+    exact_failure: 8
 display:
   skin: slate
   streaming: true
