@@ -15,7 +15,7 @@ spec:
       # firecrawl handles larger payloads (scraped HTML) so heap is higher than tavily
       # --max-old-space-size: hard V8 old-gen ceiling (MiB); must be < memory limit
       # --max-semi-space-size: nursery kept small to avoid holding large scrape results
-      NODE_OPTIONS: --max-old-space-size=300 --max-semi-space-size=8 --gc-interval=100
+      NODE_OPTIONS: --max-old-space-size=300 --max-semi-space-size=8
       # Redirect npm cache to /tmp so it doesn't persist/bloat the node home dir
       NPM_CONFIG_CACHE: /tmp/npm-cache
     secretRefs:
