@@ -95,7 +95,6 @@ agent:
   disabled_toolsets:
     - computer_use
     - tts
-    - memory
     - browser
     - image_gen
 platform_toolsets:
