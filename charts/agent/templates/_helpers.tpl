@@ -128,7 +128,7 @@ auxiliary:
     model: claude-haiku-4-5
   compression:
     provider: anthropic
-    model: claude-haiku-4-5
+    model: claude-sonnet-5
   web_extract:
     provider: anthropic
     model: claude-haiku-4-5
