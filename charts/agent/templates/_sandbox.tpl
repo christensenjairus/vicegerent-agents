@@ -322,6 +322,8 @@ spec:
                   name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: false
+            - name: HERMES_WRITE_SAFE_ROOT
+              value: "/opt/data:/workspace"
           envFrom:
             # All agent pod credentials: dashboard auth, SSH key, and optional Slack tokens.
             - secretRef:
