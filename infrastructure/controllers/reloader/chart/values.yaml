@@ -2,7 +2,7 @@
 # https://artifacthub.io/packages/helm/stakater/reloader?modal=values
 image:
   repository: ghcr.io/stakater/reloader
-  tag: v1.4.17
+  tag: v1.4.19
 reloader:
   autoReloadAll: true
   reloadOnCreate: true
