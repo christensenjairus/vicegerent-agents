@@ -4,20 +4,6 @@ kind: Job
 metadata:
   name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
-  annotations:
-    # Helm (not Flux) owns this Job now — kustomize.toolkit.fluxcd.io/force is a
-    # no-op under helm-controller. Reloader still patches this Job's pod template
-    # in-place when a watched ConfigMap/Secret changes, but Job pod templates are
-    # immutable, so a plain `helm upgrade` diff on this resource would fail once
-    # Reloader's live patch has drifted it from the chart's rendered manifest.
-    # post-install/post-upgrade (not pre-*): this Job restarts the sandbox pod to
-    # pick up new config, so it must run AFTER the release's ConfigMaps/Sandbox
-    # are applied — pre-* would either fail on first install (ConfigMaps don't
-    # exist yet) or restart into stale config on upgrade. before-hook-creation
-    # makes Helm delete the previous hook Job before creating the new one, so the
-    # immutable Job spec is always recreated fresh instead of diffed in place.
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 3
   template:
