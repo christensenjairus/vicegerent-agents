@@ -34,6 +34,9 @@ your own capabilities, models, tools, and limits are configured.
   up — not a transient error.
 - **The filesystem is mostly ephemeral.** Only the mounted data and
   workspace volumes persist; everything else resets when the pod restarts.
+  Clone repos and keep git worktrees under `/workspace` — it's the
+  persistent volume for git repos and survives pod restarts; anywhere
+  else is wiped.
 
 ## When you hit a wall
 If a task is blocked by the sandbox itself — a missing tool, a sealed
