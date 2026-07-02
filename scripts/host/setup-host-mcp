@@ -1,32 +1,30 @@
 #!/usr/bin/env bash
 # scripts/host/setup-host-mcp
 #
-# Idempotent setup of all host-side prerequisites for vicegerent host MCP:
+# Idempotent setup of the host-side prerequisites for the vicegerent host stack
+# (ToolHive workloads + vMCP + ghostunnel, kept awake by caffeinate):
 #
-#   1. Homebrew packages: caddy ghostunnel node supervisor
-#   2. Python deps: pip install -r host/mcp/requirements-host.txt
-#   3. mcp-proxy-server: npm ci + npm run build (vendored at host/mcp-proxy-server/)
+#   1. Homebrew packages: thv (ToolHive), ghostunnel, supervisor
+#   2. Python venv + deps: pip install -r host/mcp/requirements-host.txt
+#   3. ToolHive secrets provider + required API-key secrets (guidance)
 #   4. Final doctor check: vicegerent-mcp doctor
 #
 # Flags:
 #   -y, --yes      auto-approve every step (non-interactive)
-#   --rebuild      force npm ci + rebuild of mcp-proxy-server
 #   -h, --help     show this help
 #
-# Prerequisites on the host Mac: Homebrew, Node.js
+# Prerequisites on the host Mac: Homebrew, a running kind cluster (for the
+# kubernetes MCP server) — see `./vicegerent cluster setup`.
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-PROXY_DIR="$REPO_ROOT/host/mcp-proxy-server"
 
 ASSUME_YES=0
-UPDATE_PROXY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes)    ASSUME_YES=1 ;;
-    --rebuild)   UPDATE_PROXY=1 ;;
-    -h|--help)   sed -n '2,18p' "$0"; exit 0 ;;
+    -h|--help)   sed -n '2,17p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -41,7 +39,6 @@ info()    { echo "${G}✓${N} $*"; }
 step()    { echo; echo "${B}== $* ==${N}"; }
 warn()    { echo "${Y}!${N} $*" >&2; }
 die()     { echo "${R}ERROR:${N} $*" >&2; exit 1; }
-skipped() { echo "  (already present — skipping)"; }
 
 confirm() {
   if [[ "$ASSUME_YES" == "1" ]]; then return 0; fi
@@ -65,22 +62,36 @@ need_cmd python3
 # ---------------------------------------------------------------------------
 step "Homebrew packages"
 
-BREW_PACKAGES=(caddy ghostunnel node supervisor)
+# ToolHive ships from the stacklok tap; ghostunnel + supervisor are core formulae.
+# `bin:formula` pairs — plain indexed array so this works on macOS's stock bash 3.2
+# (which has no associative arrays; `declare -A [thv]=…` there dies under `set -u`).
+BREW_FORMULAE=(
+  "thv:stacklok/tap/thv"
+  "ghostunnel:ghostunnel"
+  "supervisor:supervisor"
+)
 MISSING=()
-for pkg in "${BREW_PACKAGES[@]}"; do
-  if brew list --formula "$pkg" >/dev/null 2>&1; then
-    info "$pkg already installed"
+for entry in "${BREW_FORMULAE[@]}"; do
+  formula="${entry#*:}"
+  if brew list --formula "$formula" >/dev/null 2>&1; then
+    info "$formula already installed"
   else
-    MISSING+=("$pkg")
+    MISSING+=("$formula")
   fi
 done
 
 if [[ ${#MISSING[@]} -gt 0 ]]; then
   echo "  Will install: ${MISSING[*]}"
-  confirm "Install missing Homebrew packages?" || die "Aborted."
-  brew install "${MISSING[@]}"
-  info "Installed: ${MISSING[*]}"
+  if confirm; then
+    brew install "${MISSING[@]}"
+    info "Installed: ${MISSING[*]}"
+  else
+    warn "Skipped Homebrew install. Install manually, e.g.:"
+    warn "    brew install ${MISSING[*]}"
+  fi
 fi
+
+command -v thv >/dev/null 2>&1 || warn "thv still not on PATH — see https://github.com/stacklok/toolhive"
 
 # ---------------------------------------------------------------------------
 # 2. Python deps
@@ -96,11 +107,10 @@ if [[ ! -d "$VENV" ]]; then
   python3 -m venv "$VENV"
 fi
 
-# Check if all deps are already satisfied inside the venv
 if "$VENV/bin/python" -c "
-import importlib, sys
-pkgs = {'rich': 'rich', 'textual': 'textual'}
-missing = [name for name, mod in pkgs.items() if importlib.util.find_spec(mod) is None]
+import importlib.util, sys
+mods = ['rich', 'supervisor', 'textual']
+missing = [m for m in mods if importlib.util.find_spec(m) is None]
 if missing:
     print('missing:', ' '.join(missing))
     sys.exit(1)
@@ -108,34 +118,30 @@ if missing:
   info "Python dependencies up to date (host/mcp/.venv)"
 else
   echo "  Installing from $REQ into host/mcp/.venv"
-  confirm "pip install -r host/mcp/requirements-host.txt into venv?" || die "Aborted."
+  confirm || die "Aborted."
   "$VENV/bin/pip" install -r "$REQ" -q
   info "Python dependencies installed into host/mcp/.venv"
 fi
 
 # ---------------------------------------------------------------------------
-# 3. mcp-proxy-server
+# 3. ToolHive secrets provider + required secrets
 # ---------------------------------------------------------------------------
-step "mcp-proxy-server (host/mcp-proxy-server/)"
+step "ToolHive secrets"
 
-[[ -d "$PROXY_DIR" ]] || die "mcp-proxy-server source not found at $PROXY_DIR — check your repo clone"
-
-if [[ "$UPDATE_PROXY" == "1" ]]; then
-  echo "  Rebuilding mcp-proxy-server..."
-  confirm "npm ci + npm run build in $PROXY_DIR?" || die "Aborted."
-  npm --prefix "$PROXY_DIR" ci --quiet
-  npm --prefix "$PROXY_DIR" run build --silent
-  info "mcp-proxy-server rebuilt"
-elif [[ -f "$PROXY_DIR/build/sse.js" ]]; then
-  info "mcp-proxy-server already built (host/mcp-proxy-server/build/)"
-  echo "  (Run with --rebuild to force a clean rebuild)"
+if command -v thv >/dev/null 2>&1 && thv secret list >/dev/null 2>&1; then
+  info "thv secrets provider configured"
 else
-  echo "  Building mcp-proxy-server for the first time..."
-  confirm "npm ci + npm run build in host/mcp-proxy-server/?" || die "Aborted."
-  npm --prefix "$PROXY_DIR" ci --quiet
-  npm --prefix "$PROXY_DIR" run build --silent
-  info "mcp-proxy-server built"
+  warn "No thv secrets provider configured. OAuth tokens (notion/linear) won't"
+  warn "persist and API-key secrets can't be stored. Configure one (choose 'encrypted'):"
+  echo "     thv secret setup"
 fi
+
+echo
+echo "  MCP servers are OFF by default. Enable the ones you want and set their API"
+echo "  keys interactively with:"
+echo "     ./vicegerent mcp configure"
+echo "  (GitLab/Tavily/Firecrawl prompt for a key; Notion/Linear use OAuth — a browser"
+echo "  tab opens on first start and the token persists via the secrets provider.)"
 
 # ---------------------------------------------------------------------------
 # 4. Doctor check
@@ -145,9 +151,11 @@ echo
 "$REPO_ROOT/host/mcp/.venv/bin/python" "$REPO_ROOT/host/mcp/vicegerent_mcp.py" doctor || true
 
 echo
-echo "${G}${B}Host MCP setup complete.${N}"
+echo "${G}${B}Host stack setup complete.${N}"
 echo
 echo "Next steps:"
-echo "  1. Sign in to 1Password:  op signin"
-echo "  2. Start the stack:       ./vicegerent-mcp start --proxy-dir $PROXY_DIR"
-echo "  3. Open the TUI:          ./vicegerent-mcp tui"
+echo "  1. Provision host + cluster secrets:  ./vicegerent secrets setup platform"
+echo "     (writes host ghostunnel material to ~/.vicegerent/ghostunnel)"
+echo "  2. Ensure the kind cluster is up:      ./vicegerent cluster setup"
+echo "  3. Enable + set up the MCP servers:    ./vicegerent mcp configure"
+echo "  4. Bring up the stack:                 ./vicegerent start"

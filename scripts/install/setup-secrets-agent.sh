@@ -1,39 +1,38 @@
 #!/usr/bin/env bash
-# Idempotent 1Password setup for a single vicegerent agent.
+# Idempotent secret setup for a single vicegerent agent, using Kubernetes Secrets
+# directly (no 1Password). All material lives in the agent-sandbox namespace.
 #
 # Usage: setup-secrets-agent.sh <agent-name> [-y|--yes]
 #
-# Provisions, in 1Password vault "Vicegerent", the per-agent items for <agent-name>:
-#   - Agent - <name>                    password, signing-secret  (dashboard auth)
-#                                       SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
-#                                       SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (optional)
-#                                       public-key (text)         (→ agent-sandbox only)
-#   - Agent - <name> SSH Key            ed25519 keypair (1Password Document)
-#   - Agent - <name> agentgateway API key   api-key (random hex bearer token)
+# Applies these Kubernetes Secrets in namespace agent-sandbox:
+#   <name>-secrets                 password, signing-secret, public-key,
+#                                  SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+#                                  SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (Slack optional)
+#   <name>-agentgateway-api-key    api-key         (random bearer token)
+#   <name>-ssh-key                 hermes_agent_ed25519  (ed25519 private key)
 #
-# Each agent gets its own independently generated bearer token, dashboard
-# credentials, and SSH key — no material is shared between agents.
-#
-# Properties:
-#   - Idempotent: anything already present in 1Password is reused, never regenerated.
-#   - Self-cleaning: all key material is written only inside a private tmpdir that is
-#     removed on any exit (including Ctrl-C). Nothing is left on disk.
-#   - Verbose: every mutating step is announced and confirmed before it runs.
+# Generated material (dashboard auth, SSH key, bearer token) is generated once and
+# reused on re-run; Slack values are taken from the environment or prompted for.
+# Secrets are disposable/recreatable — keep your own copy of any Slack tokens.
 #
 # Flags:
 #   -y, --yes     auto-approve every change (non-interactive)
 #   -h, --help    show this help
+#
+# Env overrides: KUBE_CONTEXT, SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+#   SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL
 
 set -euo pipefail
 
-VAULT="${VAULT:-Vicegerent}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
+NS=agent-sandbox
 
 ASSUME_YES=0
 AGENT=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) ASSUME_YES=1 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*) echo "unknown argument: $1" >&2; exit 2 ;;
     *) [[ -z "$AGENT" ]] && AGENT="$1" || { echo "unexpected argument: $1" >&2; exit 2; } ;;
   esac
@@ -43,13 +42,12 @@ done
 [[ -n "$AGENT" ]] || { echo "usage: $0 <agent-name> [-y|--yes]" >&2; exit 2; }
 AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
 
-ITEM="Agent - $AGENT"
-ITEM_SSH="Agent - $AGENT SSH Key"
-ITEM_API_KEY="Agent - $AGENT agentgateway API key"  # pragma: allowlist secret
+ITEM="${AGENT}-secrets"
+ITEM_API_KEY="${AGENT}-agentgateway-api-key"  # pragma: allowlist secret
+ITEM_SSH="${AGENT}-ssh-key"  # pragma: allowlist secret
 
-# Fixed key filename: the OnePasswordItem syncs the document into a Secret keyed by
-# this name, and every agent's sandbox mounts it at /opt/hermes-ssh/<name>, so it
-# must match GIT_SSH_COMMAND in the chart (hermes_agent_ed25519) for all agents.
+# Fixed key name: the sandbox mounts this Secret at /opt/hermes-ssh/<name> and
+# GIT_SSH_COMMAND in the chart references hermes_agent_ed25519.
 SSH_KEY_FILE="hermes_agent_ed25519"
 
 if [[ -t 1 ]]; then
@@ -62,7 +60,6 @@ step()  { echo; echo "${B}== $* ==${N}"; }
 warn()  { echo "${Y}!${N} $*" >&2; }
 die()   { echo "${R}ERROR:${N} $*" >&2; exit 1; }
 
-# Announce a pending change and ask before doing it. Returns 0 to proceed.
 confirm() {
   echo
   echo "${Y}CHANGE:${N} $*"
@@ -75,260 +72,118 @@ confirm() {
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
-op_item_exists()  { op item get "$1" --vault "$VAULT" >/dev/null 2>&1; }
-op_field_exists() { op read "op://$VAULT/$1/$2" >/dev/null 2>&1; }
-
-ensure_item() {
-  local title="$1"
-  if ! op_item_exists "$title"; then
-    op item create --category "Secure Note" --vault "$VAULT" --title "$title" >/dev/null
-  fi
-}
-
-# set_field <item> <field> <file> [concealed|text]
-set_field() {
-  local title="$1" field="$2" file="$3" type="${4:-concealed}"
-  local json_type="${type^^}"
-  op item get "$title" --vault "$VAULT" --format json \
-    | jq --arg label "$field" --arg type "$json_type" --rawfile value "$file" \
-        '.fields |= (map(select(.label != $label))
-          + [{"id": $label, "label": $label, "type": $type, "value": $value}])' \
-    | op item edit "$title" --vault "$VAULT" >/dev/null
+kc() { kubectl --context "$KUBE_CONTEXT" "$@"; }
+ensure_ns() { kc create namespace "$1" --dry-run=client -o yaml | kc apply -f - >/dev/null; }
+# secret_val <name> <key> — decoded value of a secret key (empty if absent).
+secret_val() {
+  local json b64
+  json="$(kc -n "$NS" get secret "$1" -o json 2>/dev/null)" || return 0
+  b64="$(printf '%s' "$json" | jq -r --arg k "$2" '.data[$k] // empty')"
+  [[ -n "$b64" ]] && printf '%s' "$b64" | base64 -d
+  return 0
 }
 
 # --- prerequisites ---------------------------------------------------------
-for cmd in op openssl ssh-keygen jq; do
+for cmd in kubectl openssl ssh-keygen jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
-op account get >/dev/null 2>&1 || die "1Password CLI is not signed in. Run: op signin"
+kubectl config get-contexts "$KUBE_CONTEXT" >/dev/null 2>&1 \
+  || die "kubectl context '$KUBE_CONTEXT' does not exist"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vicegerent-agent-setup.XXXXXX")"
 chmod 700 "$WORK"
-CERTS="$WORK/certs"
-mkdir -p "$CERTS"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 
-echo "${B}vicegerent agent secret setup${N}  (agent: $AGENT, vault: $VAULT)"
-echo "Scratch dir: $WORK  — removed automatically on exit."
+echo "${B}vicegerent agent secret setup${N}  (agent: $AGENT, context: $KUBE_CONTEXT)"
+ensure_ns "$NS"
 
-# --- dashboard auth --------------------------------------------------------
-# password + signing-secret (random, generated once, never regenerated).
-step "$ITEM dashboard auth"
-ensure_item "$ITEM"
-any_dashboard_missing=0
-op_field_exists "$ITEM" "password"        || any_dashboard_missing=1
-op_field_exists "$ITEM" "signing-secret"  || any_dashboard_missing=1
-if [[ $any_dashboard_missing -eq 0 ]]; then
-  info "Dashboard auth already set in '$ITEM'; reusing."
+# --- agentgateway virtual API key ------------------------------------------
+step "$ITEM_API_KEY"
+if [[ -n "$(secret_val "$ITEM_API_KEY" api-key)" ]]; then
+  info "agentgateway API key already set; reusing."
 else
-  confirm "Generate missing dashboard auth credentials in '$ITEM'." \
-    || die "Dashboard auth is required; aborting."
-  if ! op_field_exists "$ITEM" "password"; then
-    openssl rand -base64 24 | tr -d '\n' > "$CERTS/dash-pw"
-    set_field "$ITEM" "password" "$CERTS/dash-pw" concealed
-    info "Generated dashboard password in '$ITEM'."
-  fi
-  if ! op_field_exists "$ITEM" "signing-secret"; then
-    openssl rand -base64 32 | tr -d '\n' > "$CERTS/dash-sign"
-    set_field "$ITEM" "signing-secret" "$CERTS/dash-sign" concealed
-    info "Generated dashboard signing-secret in '$ITEM'."
-  fi
-fi
-
-# --- Slack bot credentials (optional) -------------------------------------
-# SLACK_BOT_TOKEN   — xoxb-... Bot User OAuth Token (installed to workspace)
-# SLACK_APP_TOKEN   — xapp-... App-Level Token (Socket Mode, connections:write scope)
-# SLACK_ALLOWED_USERS — space-separated Slack user IDs allowed to talk to the bot
-# SLACK_HOME_CHANNEL  — Slack channel ID for proactive messages (cron output etc.)
-#
-# Stored in '$ITEM' with field names matching the env var names. Slack activates
-# once these fields are set. Create the Slack app with:
-#   vicegerent slack manifest "<BotName>" | pbcopy
-# Paste the manifest at api.slack.com → Your Apps → Create New App → From manifest,
-# then install it to your workspace. Socket Mode must be enabled (Settings → Socket Mode).
-step "$ITEM Slack credentials (optional — skip to configure later)"
-slack_any_missing=0
-op_field_exists "$ITEM" "SLACK_BOT_TOKEN"     || slack_any_missing=1
-op_field_exists "$ITEM" "SLACK_APP_TOKEN"     || slack_any_missing=1
-op_field_exists "$ITEM" "SLACK_ALLOWED_USERS" || slack_any_missing=1
-op_field_exists "$ITEM" "SLACK_HOME_CHANNEL"  || slack_any_missing=1
-
-if [[ $slack_any_missing -eq 0 ]]; then
-  info "Slack credentials already set in '$ITEM'; nothing to do."
-else
-  echo
-  echo "  Create your Slack app with the generated manifest:"
-  echo "    vicegerent slack manifest \"<BotName>\" | pbcopy"
-  echo "  then go to api.slack.com → Your Apps → Create New App → From manifest."
-  echo "  Enable Socket Mode (Settings → Socket Mode) and install to your workspace."
-  echo "  The agent pod starts without these — Slack activates once the item is populated."
-  echo
-
-  if ! op_field_exists "$ITEM" "SLACK_BOT_TOKEN"; then
-    KEY="${SLACK_BOT_TOKEN:-}"
-    if [[ -z "$KEY" ]]; then
-      if [[ "$ASSUME_YES" == "1" ]]; then
-        warn "No SLACK_BOT_TOKEN in environment and --yes is set; leaving unset (optional)."
-      else
-        echo "${Y}CHANGE:${N} Store the Slack Bot User OAuth Token in '$ITEM' (SLACK_BOT_TOKEN)."
-        read -r -s -p "  Bot token (xoxb-..., empty to skip): " KEY; echo
-      fi
-    fi
-    if [[ -n "$KEY" ]]; then
-      printf '%s' "$KEY" > "$CERTS/slack-bot-token"
-      set_field "$ITEM" "SLACK_BOT_TOKEN" "$CERTS/slack-bot-token" concealed
-      unset KEY
-      info "Stored SLACK_BOT_TOKEN in '$ITEM'."
-    else
-      warn "SLACK_BOT_TOKEN left unset — Slack gateway inactive until set."
-    fi
-  else
-    info "SLACK_BOT_TOKEN already set in '$ITEM'; reusing."
-  fi
-
-  if ! op_field_exists "$ITEM" "SLACK_APP_TOKEN"; then
-    KEY="${SLACK_APP_TOKEN:-}"
-    if [[ -z "$KEY" ]]; then
-      if [[ "$ASSUME_YES" == "1" ]]; then
-        warn "No SLACK_APP_TOKEN in environment and --yes is set; leaving unset (optional)."
-      else
-        echo "${Y}CHANGE:${N} Store the Slack App-Level Token in '$ITEM' (SLACK_APP_TOKEN)."
-        echo "  (Settings → Basic Information → App-Level Tokens → connections:write scope)"
-        read -r -s -p "  App token (xapp-..., empty to skip): " KEY; echo
-      fi
-    fi
-    if [[ -n "$KEY" ]]; then
-      printf '%s' "$KEY" > "$CERTS/slack-app-token"
-      set_field "$ITEM" "SLACK_APP_TOKEN" "$CERTS/slack-app-token" concealed
-      unset KEY
-      info "Stored SLACK_APP_TOKEN in '$ITEM'."
-    else
-      warn "SLACK_APP_TOKEN left unset — Socket Mode inactive until set."
-    fi
-  else
-    info "SLACK_APP_TOKEN already set in '$ITEM'; reusing."
-  fi
-
-  if ! op_field_exists "$ITEM" "SLACK_ALLOWED_USERS"; then
-    VAL="${SLACK_ALLOWED_USERS:-}"
-    if [[ -z "$VAL" ]]; then
-      if [[ "$ASSUME_YES" == "1" ]]; then
-        warn "No SLACK_ALLOWED_USERS in environment and --yes is set; leaving unset (optional)."
-      else
-        echo "${Y}CHANGE:${N} Store allowed Slack user IDs in '$ITEM' (SLACK_ALLOWED_USERS)."
-        echo "  Space-separated Slack user IDs (e.g. U04B7TU3HL7). Find yours via api.slack.com/methods/auth.test."
-        read -r -p "  Allowed user IDs (empty to skip): " VAL; echo
-      fi
-    fi
-    if [[ -n "$VAL" ]]; then
-      op item edit "$ITEM" --vault "$VAULT" "SLACK_ALLOWED_USERS[text]=$VAL" >/dev/null
-      unset VAL
-      info "Stored SLACK_ALLOWED_USERS in '$ITEM'."
-    else
-      warn "SLACK_ALLOWED_USERS left unset — bot will reject all messages until set."
-    fi
-  else
-    info "SLACK_ALLOWED_USERS already set in '$ITEM'; reusing."
-  fi
-
-  if ! op_field_exists "$ITEM" "SLACK_HOME_CHANNEL"; then
-    VAL="${SLACK_HOME_CHANNEL:-}"
-    if [[ -z "$VAL" ]]; then
-      if [[ "$ASSUME_YES" == "1" ]]; then
-        warn "No SLACK_HOME_CHANNEL in environment and --yes is set; leaving unset (optional)."
-      else
-        echo "${Y}CHANGE:${N} Store the Slack home channel ID in '$ITEM' (SLACK_HOME_CHANNEL)."
-        echo "  Channel ID where the bot delivers cron output and proactive messages (e.g. C04B7TU3HL7)."
-        echo "  Right-click a channel in Slack → View channel details → copy the ID at the bottom."
-        read -r -p "  Home channel ID (empty to skip): " VAL; echo
-      fi
-    fi
-    if [[ -n "$VAL" ]]; then
-      op item edit "$ITEM" --vault "$VAULT" "SLACK_HOME_CHANNEL[text]=$VAL" >/dev/null
-      unset VAL
-      info "Stored SLACK_HOME_CHANNEL in '$ITEM'."
-    else
-      warn "SLACK_HOME_CHANNEL left unset — cron/proactive output has no home channel until set."
-    fi
-  else
-    info "SLACK_HOME_CHANNEL already set in '$ITEM'; reusing."
-  fi
+  kc -n "$NS" create secret generic "$ITEM_API_KEY" \
+    --from-literal="api-key=$(openssl rand -hex 32)" \
+    --dry-run=client -o yaml | kc apply -f - >/dev/null
+  info "Generated agentgateway API key."
 fi
 
 # --- SSH key ---------------------------------------------------------------
-# Dedicated ed25519 key (generate-once, stored as a 1Password Document so newlines
-# are preserved exactly). The public key is stored as a text field in '$ITEM'.
-step "$ITEM SSH key"
-if op document get "$ITEM_SSH" --vault "$VAULT" &>/dev/null; then
-  info "SSH key document '$ITEM_SSH' already exists; nothing to do."
-  echo
-  echo "  ${Y}Public key${N} (add to GitLab/GitHub if you haven't already):"
-  op item get "$ITEM" --vault "$VAULT" --fields label=public-key --reveal 2>/dev/null | tr -d '"' || true
+# ed25519 keypair (generate-once). Private key → <name>-ssh-key; public key is
+# stored as the public-key field of <name>-secrets (assembled below).
+step "$ITEM_SSH"
+pubkey="$(secret_val "$ITEM" public-key || true)"
+if [[ -n "$(secret_val "$ITEM_SSH" "$SSH_KEY_FILE")" ]]; then
+  info "SSH key already present; reusing."
+  [[ -n "$pubkey" ]] && { echo; echo "  ${Y}Public key${N} (add to GitLab/GitHub if not already):"; echo "  $pubkey"; }
 else
-  if confirm "Generate a new ed25519 SSH key for agent '$AGENT' and store it as '$ITEM_SSH'."; then
-    ssh-keygen -t ed25519 -C "${AGENT}-agent@vicegerent" -N "" -f "$CERTS/$SSH_KEY_FILE" >/dev/null 2>&1
-    op document create "$CERTS/$SSH_KEY_FILE" \
-      --title "$ITEM_SSH" \
-      --vault "$VAULT"
-    set_field "$ITEM" "public-key" "$CERTS/$SSH_KEY_FILE.pub" text
-    info "Stored SSH key document in '$ITEM_SSH'."
+  if confirm "Generate a new ed25519 SSH key for agent '$AGENT' ($ITEM_SSH)."; then
+    ssh-keygen -t ed25519 -C "${AGENT}-agent@vicegerent" -N "" -f "$WORK/$SSH_KEY_FILE" >/dev/null 2>&1
+    kc -n "$NS" create secret generic "$ITEM_SSH" \
+      --from-file="$SSH_KEY_FILE=$WORK/$SSH_KEY_FILE" \
+      --dry-run=client -o yaml | kc apply -f - >/dev/null
+    pubkey="$(cat "$WORK/$SSH_KEY_FILE.pub")"
+    info "Stored SSH private key in $ITEM_SSH."
     echo
-    echo "  ${Y}Next step:${N} Add the public key to your git hosts (GitLab/GitHub deploy keys):"
-    cat "$CERTS/$SSH_KEY_FILE.pub"
+    echo "  ${Y}Next step:${N} add the public key to your git hosts (GitLab/GitHub deploy keys):"
+    echo "  $pubkey"
   else
     warn "SSH key generation skipped — git push/pull from the sandbox will not work until set."
   fi
 fi
 
-# --- agentgateway virtual API key ------------------------------------------
-# Random bearer token the agent presents to agentgateway (generate-once, per agent).
-step "$ITEM_API_KEY"
-ensure_item "$ITEM_API_KEY"
-if op_field_exists "$ITEM_API_KEY" "api-key"; then  # pragma: allowlist secret
-  info "agentgateway API key already in '$ITEM_API_KEY'; reusing."
-else
-  printf '%s' "$(openssl rand -hex 32)" > "$CERTS/agentgateway-api-key"
-  set_field "$ITEM_API_KEY" "api-key" "$CERTS/agentgateway-api-key" concealed  # pragma: allowlist secret
-  info "Generated agentgateway API key and stored it in '$ITEM_API_KEY'."
-fi
+# --- agent secrets (dashboard auth + Slack + public key) -------------------
+# Assembled and applied as a whole because `apply` replaces every key; existing
+# generated values (password, signing-secret) and Slack fields are preserved.
+step "$ITEM"
+password="$(secret_val "$ITEM" password || true)"
+signing="$(secret_val "$ITEM" signing-secret || true)"
+[[ -z "$password" ]] && { password="$(openssl rand -base64 24 | tr -d '\n')"; info "Generated dashboard password."; }
+[[ -z "$signing" ]] && { signing="$(openssl rand -base64 32 | tr -d '\n')"; info "Generated dashboard signing-secret."; }
+
+args=(--from-literal="password=$password" --from-literal="signing-secret=$signing")
+[[ -n "$pubkey" ]] && args+=(--from-literal="public-key=$pubkey")
+
+# Slack fields (optional). env override > existing value > interactive prompt.
+echo
+echo "  Slack is optional. Create the app from a manifest:"
+echo "    vicegerent slack manifest \"<BotName>\" | pbcopy"
+echo "  then api.slack.com → Create New App → From manifest; enable Socket Mode; install to workspace."
+for field in SLACK_BOT_TOKEN SLACK_APP_TOKEN SLACK_ALLOWED_USERS SLACK_HOME_CHANNEL; do
+  val="${!field:-}"
+  [[ -z "$val" ]] && val="$(secret_val "$ITEM" "$field" || true)"
+  if [[ -z "$val" && "$ASSUME_YES" != "1" ]]; then
+    read -r -p "  $field (empty to skip): " val
+  fi
+  if [[ -n "$val" ]]; then
+    args+=(--from-literal="$field=$val")
+    info "$field set."
+  fi
+done
+
+kc -n "$NS" create secret generic "$ITEM" "${args[@]}" --dry-run=client -o yaml | kc apply -f - >/dev/null
+info "Applied $ITEM."
 
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
-check() {
-  if op_field_exists "$1" "$2"; then
-    echo "  ${G}ok${N}   $1/$2"
-  else
-    echo "  ${R}MISS${N} $1/$2"
-    missing=1
-  fi
-}
-check_optional() {
-  if op_field_exists "$1" "$2"; then
-    echo "  ${G}ok${N}   $1/$2"
-  else
-    echo "  ${Y}skip${N} $1/$2  (optional — set later)"
-  fi
-}
-check "$ITEM" "password"
-check "$ITEM" "signing-secret"
-check "$ITEM_API_KEY" "api-key"
-check_optional "$ITEM" "SLACK_BOT_TOKEN"
-check_optional "$ITEM" "SLACK_APP_TOKEN"
-check_optional "$ITEM" "SLACK_ALLOWED_USERS"
-check_optional "$ITEM" "SLACK_HOME_CHANNEL"
-check_optional "$ITEM" "public-key"
-if op document get "$ITEM_SSH" --vault "$VAULT" &>/dev/null; then
-  echo "  ${G}ok${N}   $ITEM_SSH (ssh key document)"
-else
-  echo "  ${Y}skip${N} $ITEM_SSH (ssh key document — run setup to generate)"
-fi
+check() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$1 ($2)"; else echo "  ${R}MISS${N} $NS/$1 ($2)"; missing=1; fi; }
+check_optional() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$1 ($2)"; else echo "  ${Y}skip${N} $NS/$1 ($2)  (optional)"; fi; }
+check "$ITEM" password
+check "$ITEM" signing-secret
+check "$ITEM_API_KEY" api-key
+check_optional "$ITEM" public-key
+check_optional "$ITEM_SSH" "$SSH_KEY_FILE"
+check_optional "$ITEM" SLACK_BOT_TOKEN
+check_optional "$ITEM" SLACK_APP_TOKEN
+check_optional "$ITEM" SLACK_ALLOWED_USERS
+check_optional "$ITEM" SLACK_HOME_CHANNEL
 
 echo
 if [[ $missing -eq 0 ]]; then
-  info "All required secret material for agent '$AGENT' is present in 1Password."
+  info "All required secret material for agent '$AGENT' is present."
 else
-  warn "Some fields are still missing (see above). Re-run to complete them."
+  warn "Some required material is missing (see above). Re-run to complete it."
   exit 1
 fi

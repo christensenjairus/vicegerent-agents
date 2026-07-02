@@ -1,0 +1,59 @@
+---
+# agentgateway is the ONLY workload permitted to reach the host node, and only on
+# the ghostunnel port. Adding egress rules flips it to default-deny egress, so every
+# destination it legitimately needs is enumerated here.
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: agentgateway-egress
+  namespace: agentgateway-system
+spec:
+  endpointSelector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: agentgateway-proxy
+  egress:
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: kube-system
+            k8s-app: kube-dns
+      toPorts:
+        - ports:
+            - port: '53'
+              protocol: UDP
+          rules:
+            dns:
+              - matchPattern: '*'
+    # XDS control plane — the agentgateway controller streams this proxy's config
+    # over gRPC (grpc-xds-agw). Without it the proxy never leaves startup.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: agentgateway-system
+            app.kubernetes.io/name: agentgateway
+      toPorts:
+        - ports:
+            - port: '9978'
+              protocol: TCP
+    # Host laptop via ghostunnel → ToolHive vMCP. On Docker Desktop the cluster reaches
+    # the host through host.docker.internal, which resolves to the Docker Desktop host
+    # gateway (192.168.65.0/24) — a `world` address, NOT the Kind node (`host`). Scoped
+    # to the single ghostunnel port. This is the only host-ward access in the cluster.
+    - toCIDR: [192.168.65.0/24]
+      toPorts:
+        - ports:
+            - port: '8453'
+              protocol: TCP
+    # External model provider APIs (Anthropic, OpenAI).
+    - toEntities: [world]
+      toPorts:
+        - ports:
+            - port: '443'
+              protocol: TCP
+    # Cerbos guardrail shim for tools/call authorization.
+    - toEndpoints:
+        - matchLabels:
+            io.kubernetes.pod.namespace: cerbos
+            app.kubernetes.io/name: mcp-cerbos-shim
+      toPorts:
+        - ports:
+            - port: '4445'
+              protocol: TCP

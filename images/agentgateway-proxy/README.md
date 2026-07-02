@@ -55,7 +55,7 @@ egress-locked cluster only ever pulls.
 
 ```sh
 docker login harbor.hahomelabs.com
-make image PLATFORM=linux/arm64      # minikube on Apple Silicon
+make image PLATFORM=linux/arm64      # Kind on Apple Silicon
 make push
 # or: make release PLATFORM=linux/arm64 AGW_VERSION=v1.3.1
 ```
@@ -73,11 +73,11 @@ patch can be re-checked.
 
 The image `TAG` is the upstream version verbatim (`v1.3.1`), **not** a patch-suffixed
 tag. This keeps the gateway image ref a clean semver string so the `docker`
-datasource on `apps/vicegerent/gateway/gateway.yaml` tracks it and Renovate
+datasource on `apps/base/gateway/gateway.yaml` tracks it and Renovate
 auto-detects the next build. The patched-vs-stock distinction is carried by the
 **registry path** (`harbor.hahomelabs.com/vicegerent/agentgateway` vs upstream
 `ghcr.io/agentgateway/agentgateway`), not the tag.
 
 Keep `AGW_VERSION` in lockstep with the agentgateway chart/data-plane version
-(`apps/vicegerent/gateway/gateway.yaml` `AgentgatewayParameters.spec.image.tag`
+(`apps/base/gateway/gateway.yaml` `AgentgatewayParameters.spec.image.tag`
 and the chart in `infrastructure/controllers/agentgateway/`) when rebuilding.

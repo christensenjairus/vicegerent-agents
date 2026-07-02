@@ -8,26 +8,28 @@ reads of non-secret resources.
 
 ## Authorization Layers
 
-Only agentgateway is a tool allowlist. The shim and Cerbos block sensitive
-resource instances; duplicating the allowlist here would drift.
+There is **no per-tool allowlist**: every tool the host vMCP exposes passes through
+agentgateway to the agent. This shim + Cerbos are the only instance-level control, and
+they block exactly one thing — reading Kubernetes Secrets. They are a confidentiality
+guardrail, not a tool gate.
 
 | Layer | Job | What it is NOT |
 | --- | --- | --- |
-| **agentgateway** tool-name allowlist | The single gate for **which tools an agent may call at all**. | None. |
+| **agentgateway** | Single MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. | NOT a per-tool allowlist — it does not decide *which* tools an agent may call. |
 | **mcp-cerbos-shim** (this) | Extract the resource a *kind-bearing* tool targets and ask Cerbos about it. | NOT a list of allowed tools or kinds. `defaultAction: allow`; only the tools that can name a Secret are mapped. |
 | **Cerbos policy** | Make every deny decision: block instances that touch Secrets, and reject a kind-bearing call whose kind can't be resolved. | NOT a list of allowed tools/kinds, and NOT a principal gate. Rule is allow-all for all roles + DENY overrides for Secrets and empty-kind. |
 
 Consequences:
-- A new read-only tool added to the gateway allowlist needs **no** shim/Cerbos
-  change; it passes, because it isn't a Secret.
+- A new read-only tool exposed by the vMCP needs **no** shim/Cerbos change; it
+  passes, because it isn't a Secret.
 - An unknown/arbitrary Kubernetes kind (e.g. a CRD) is **allowed**, not denied;
   the shim blocks Secrets, it does not enumerate readable kinds.
 - The only tools mapped in the shim are the ones that take a `kind`/resource
-  selector (`kubernetes__resources_get`, `kubernetes__resources_list`), because
+  selector (`kubernetes_resources_get`, `kubernetes_resources_list`), because
   those are the only ones that can name a Secret. Everything else passes untouched.
 
-Do not add a tool or kind name to the shim mapping or Cerbos `allow` rule just
-to permit it. That belongs in the gateway allowlist.
+Do not add a tool or kind name to the shim mapping or Cerbos `allow` rule to permit
+something — permitting a tool is not this layer's job; it exists only to deny Secret reads.
 
 ### Guardrail Attachment
 
@@ -58,7 +60,7 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
 
 1. Resolves the backend from `service_names` (exactly one mapped backend, else deny).
 2. Parses the JSON-RPC params (`{name, arguments}`); unparseable/missing denies.
-3. Looks up `(backend, tool)` in the mapping. The `host` backend is `defaultAction:
+3. Looks up `(backend, tool)` in the mapping. The `vmcp` backend is `defaultAction:
    allow`, so an unmapped tool **passes** (it can't name a Secret); only the
    kind-bearing tools are mapped.
 4. Evaluates the mapped tool's CEL expressions against `{tool, args, backend,
@@ -72,8 +74,8 @@ It **never** returns `mutated`, `header_mutation`, or `metadata`; only `pass` or
 
 The shim makes **no policy decisions**; it standardizes fields and delegates
 the verdict. Every *deny* is Cerbos's (Secrets, and a kind-bearing call whose
-kind can't be resolved as `kind==""`/`deny-no-kind`); the *permit* decision is
-the gateway's tool allowlist. The shim only fails closed on its own malfunction
+kind can't be resolved as `kind==""`/`deny-no-kind`); everything else is permitted
+by default — there is no per-tool allowlist. The shim only fails closed on its own malfunction
 (unparseable params, unknown/multiple backend, CEL eval error, Cerbos
 unreachable). See `internal/server/server_test.go` for the full matrix.
 

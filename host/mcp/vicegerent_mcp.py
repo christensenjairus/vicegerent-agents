@@ -1,257 +1,531 @@
 #!/usr/bin/env python3
-"""Host-side MCP control helper for vicegerent.
+"""Host-side stack controller for vicegerent.
 
-Manages N stdio MCP servers via mcp-proxy-server with supervisord supervision,
-hot-reload on enable/disable, and a rich CLI status display.
+Owns the full local ToolHive stack that backs the cluster's MCP access:
+
+  ToolHive workloads   6 MCP backends (kubernetes, gitlab, tavily, firecrawl,
+                       notion, linear) run by `thv run` into the group
+                       `vicegerent`. Managed by ToolHive's own daemon (Docker
+                       containers), NOT by supervisord — they persist across
+                       stack restarts so OAuth tokens are not re-prompted.
+  vMCP                 `thv vmcp serve` aggregates the group behind one
+                       loopback endpoint on 127.0.0.1:4483, prefixing every
+                       backend's tools with `{workload}_`.
+  ghostunnel           terminates mTLS from the cluster and forwards to vMCP.
+  caffeinate           opt-in: holds a macOS "stay awake" assertion while the
+                       stack is up (enable per-start with --caffeinate, or --always).
+
+vMCP and ghostunnel (plus caffeinate when enabled) run under supervisord with
+autorestart. The workloads are brought up by `start` (idempotent) before it starts.
+
+Tool authorization lives in the cluster (agentgateway allowlist + Cerbos); the
+vMCP config here exposes ALL backend tools and adds no filter/authz.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
-import http.cookiejar
 import json
 import os
+import base64
 import re
-import secrets
 import shutil
 import subprocess
 import sys
 import time
-import urllib.parse
-import urllib.request
-from dataclasses import dataclass
 from pathlib import Path
-from queue import Empty, Queue
-from threading import Thread
 from typing import Any, Iterator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-DEFAULT_CONFIG = REPO_ROOT / "host" / "mcp" / "servers.json"
 DEFAULT_RUNTIME_DIR = Path.home() / ".vicegerent" / "mcp"
-DEFAULT_PROXY_DIR = Path(__file__).parent.parent / "mcp-proxy-server"
 DEFAULT_GHOSTSHELL = REPO_ROOT / "scripts" / "ghostunnel" / "ghostshell.sh"
-DEFAULT_AUTH_DIR = Path.home() / ".mcp-auth"
-DEFAULT_HOST_ONLY_IP = "192.168.64.1"
-DEFAULT_HOST_MCP_TUNNEL_PORT = 8453
+DEFAULT_SERVERS_CONFIG = Path(__file__).resolve().parent / "toolhive-servers.json"
+
+DEFAULT_GROUP = "vicegerent"
+DEFAULT_VMCP_HOST = "127.0.0.1"
+DEFAULT_VMCP_PORT = 4483
+# Loopback only — Kind reaches it via host.docker.internal (Docker Desktop proxies
+# to the host's localhost). Binding 0.0.0.0 would expose the tunnel to the LAN.
+DEFAULT_LISTEN = "127.0.0.1:8453"
 DEFAULT_AGENT_CLIENT_CN = "agent-client"
-AUTH_FILENAMES = ("client_info.json", "code_verifier.txt", "tokens.json", "lock.json")
 
-# Programs supervisord runs, in display order. `caffeinate` is listed first because
-# it wraps the rest: it holds a macOS "stay awake" assertion for exactly as long as
-# the supervised stack is up, and dies with it so the Mac can sleep again on stop.
-SUPERVISED_PROGRAMS = ("caffeinate", "proxy", "caddy", "ghostunnel")
+# Host ghostunnel mTLS material. Source of truth is the laptop; a copy of the
+# server cert/key + CA cert is mirrored to a kind Secret by setup-secrets-platform.sh
+# so a host that's missing them can recover before ghostunnel starts.
+DEFAULT_GHOSTUNNEL_DIR = Path.home() / ".vicegerent" / "ghostunnel"
+GHOSTUNNEL_KUBE_CONTEXT = os.environ.get("KUBE_CONTEXT", "kind-vicegerent")
+GHOSTUNNEL_SECRET_NS = "agentgateway-system"  # pragma: allowlist secret
+GHOSTUNNEL_SECRET = "ghostunnel-server"  # pragma: allowlist secret
+# host filename -> kind Secret data key
+GHOSTUNNEL_FILES = {"server.crt": "server.crt", "server.key": "server.key", "ca.cert": "ca.crt"}
 
+THV = os.environ.get("THV", "thv")
 
-@dataclass(frozen=True)
-class Server:
-    key: str
-    enabled: bool
-    mode: str
-    name: str
-    url: str | None
-    command: str
-    args: list[str]
-    env: dict[str, str]
+# Kubeconfig mount path inside the containerized kubernetes MCP server.
+KUBECONFIG_CONTAINER_PATH = "/kubeconfig/config"
 
-
-# ---------------------------------------------------------------------------
-# Config & runtime state
-# ---------------------------------------------------------------------------
-
-
-def load_config(path: Path) -> dict[str, Any]:
-    with path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
-    if not isinstance(data, dict):
-        raise SystemExit(f"config must be a JSON object: {path}")
-    data.setdefault("proxy", {})
-    data.setdefault("servers", {})
-    return data
-
-
-def proxy_settings(config: dict[str, Any]) -> dict[str, Any]:
-    proxy = dict(config.get("proxy") or {})
-    proxy.setdefault("listen_host", "127.0.0.1")
-    proxy.setdefault("proxy_port", 3663)
-    proxy.setdefault("filtered_port", 3777)
-    proxy.setdefault("disable_stdio_retries", True)
-    return proxy
-
-
-def load_state(state_path: Path) -> dict[str, bool]:
-    """Return runtime enable/disable overrides. Missing key = use servers.json default."""
-    if not state_path.exists():
-        return {}
-    try:
-        data = json.loads(state_path.read_text(encoding="utf-8"))
-        return {k: bool(v) for k, v in (data.get("enabled") or {}).items()}
-    except Exception:
-        print(
-            f"warning: could not parse {state_path}; ignoring runtime overrides.\n"
-            "  If you deliberately disabled a server, re-run 'disable <key>' after fixing the file.",
-            file=sys.stderr,
-        )
-        return {}
-
-
-def save_state(state_path: Path, overrides: dict[str, bool]) -> None:
-    state_path.parent.mkdir(parents=True, exist_ok=True)
-    state_path.write_text(json.dumps({"enabled": overrides}, indent=2) + "\n", encoding="utf-8")
-
-
-def iter_servers(config: dict[str, Any], state: dict[str, bool] | None = None) -> list[Server]:
-    """Return servers in sorted key order, applying runtime state overrides."""
-    overrides = state or {}
-    servers = []
-    for key, raw in sorted((config.get("servers") or {}).items()):
-        if not isinstance(raw, dict):
-            raise SystemExit(f"server {key!r} must be an object")
-        mode = raw.get("mode")
-        command = raw.get("command")
-        args = raw.get("args", [])
-        env = raw.get("env", {})
-        if not isinstance(args, list) or not all(isinstance(v, str) for v in args):
-            raise SystemExit(f"server {key!r} args must be a list of strings")
-        if not isinstance(env, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in env.items()):
-            raise SystemExit(f"server {key!r} env must be an object of string keys and values")
-        if not isinstance(command, str) or not command:
-            raise SystemExit(f"server {key!r} command must be a non-empty string")
-        # Expand ~ in env values at load time so subprocesses see real paths.
-        env = {k: str(Path(v).expanduser()) if v.startswith("~") else v for k, v in env.items()}
-        enabled = overrides[key] if key in overrides else bool(raw.get("enabled", True))
-        servers.append(
-            Server(
-                key=key,
-                enabled=enabled,
-                mode=str(mode),
-                name=str(raw.get("name") or key),
-                url=raw.get("url"),
-                command=command,
-                args=args,
-                env=env,
-            )
-        )
-    return servers
+# Core supervised programs (always run): vMCP, then ghostunnel (forwards to vMCP).
+SUPERVISED_PROGRAMS = ("vmcp", "ghostunnel")
+# caffeinate (macOS stay-awake) is opt-in per `start`; shown in status/logs regardless.
+ALL_PROGRAMS = ("caffeinate", *SUPERVISED_PROGRAMS)
 
 
 # ---------------------------------------------------------------------------
-# Proxy config generation
-# ---------------------------------------------------------------------------
-
-
-def make_proxy_config(servers: list[Server]) -> dict[str, Any]:
-    """Build the mcp-proxy-server JSON config from a server list."""
-    mcp_servers: dict[str, dict[str, Any]] = {}
-    for server in servers:
-        if server.mode not in {"remote-oauth", "local-stdio"}:
-            raise SystemExit(f"unsupported server mode for {server.key}: {server.mode}")
-        command = server.command
-        if command.startswith("scripts/") or command.startswith("host/"):
-            command = str(REPO_ROOT / command)
-        entry: dict[str, Any] = {
-            "type": "stdio",
-            "name": server.name,
-            "active": server.enabled,
-            "command": command,
-            "args": server.args,
-        }
-        if server.env:
-            entry["env"] = server.env
-        mcp_servers[server.key] = entry
-    return {"mcpServers": mcp_servers}
-
-
-def make_caddyfile(config: dict[str, Any]) -> str:
-    proxy = proxy_settings(config)
-    host = proxy["listen_host"]
-    filtered_port = int(proxy["filtered_port"])
-    proxy_port = int(proxy["proxy_port"])
-    return f"""\
-{{
-  admin off
-  auto_https off
-  log {{
-    level WARN
-  }}
-}}
-
-:{filtered_port} {{
-  bind {host}
-
-  @mcp_request {{
-    method POST GET DELETE
-    path /mcp
-  }}
-
-  handle @mcp_request {{
-    reverse_proxy {host}:{proxy_port} {{
-      flush_interval -1
-    }}
-  }}
-
-  respond 404
-}}
-"""
-
-
-def make_proxy_env(config: dict[str, Any], admin_password: str, session_secret: str) -> dict[str, str]:
-    """Return env vars for the proxy supervisord program."""
-    proxy = proxy_settings(config)
-    env: dict[str, str] = {
-        "PORT": str(int(proxy["proxy_port"])),
-        "ENABLE_ADMIN_UI": "true",
-        "LOGGING": "info",
-        "ADMIN_USERNAME": "admin",
-        "ADMIN_PASSWORD": admin_password,
-        "SESSION_SECRET": session_secret,
-    }
-    if proxy.get("disable_stdio_retries", True):
-        env["RETRY_STDIO_TOOL_CALL"] = "false"
-        env["STDIO_TOOL_CALL_MAX_RETRIES"] = "0"
-    return env
-
-
-# ---------------------------------------------------------------------------
-# Runtime paths & secrets
+# Runtime paths + config
 # ---------------------------------------------------------------------------
 
 
 def runtime_paths(runtime_dir: Path) -> dict[str, Path]:
     return {
         "runtime": runtime_dir,
-        "proxy_config_dir": runtime_dir / "mcp-proxy-server" / "config",
-        "caddyfile": runtime_dir / "caddy" / "Caddyfile",
         "logs": runtime_dir / "logs",
-        "admin_password": runtime_dir / "admin_password",
-        "session_secret": runtime_dir / "session_secret",
         "supervisord_conf": runtime_dir / "supervisord.conf",
         "supervisord_sock": runtime_dir / "supervisor.sock",
         "supervisord_pid": runtime_dir / "supervisord.pid",
-        "state": runtime_dir / "state.json",
+        "vmcp_config": runtime_dir / "vmcp-config.json",
+        "vmcp_init": runtime_dir / "vmcp-init.yaml",
+        "servers_state": runtime_dir / "servers-state.json",
     }
 
 
-def get_or_create_secret(path: Path, generator: Any = None) -> str:
-    if path.exists():
-        # Re-apply restrictive permissions in case created with a permissive umask.
-        path.chmod(0o600)
-        return path.read_text(encoding="utf-8").strip()
-    value = generator() if generator else secrets.token_urlsafe(24)
+def load_servers_config(path: Path = DEFAULT_SERVERS_CONFIG) -> dict[str, Any]:
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise SystemExit(f"servers config not found: {path}")
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"invalid servers config {path}: {exc}")
+
+
+def group_name(config: dict[str, Any]) -> str:
+    return os.environ.get("THV_GROUP") or config.get("group") or DEFAULT_GROUP
+
+
+def vmcp_port(config: dict[str, Any]) -> int:
+    return int(os.environ.get("VMCP_PORT") or config.get("vmcp_port") or DEFAULT_VMCP_PORT)
+
+
+def load_server_state(runtime_dir: Path) -> dict[str, bool]:
+    """Runtime enable/disable overrides written by `configure`.
+
+    A server absent from this map falls back to its config default. This keeps
+    the tracked toolhive-servers.json declarative (all off by default) while the
+    user's opt-in choices live in disposable runtime state.
+    """
+    return {k: bool(v) for k, v in (_read_state(runtime_dir).get("enabled") or {}).items()}
+
+
+def _read_state(runtime_dir: Path) -> dict[str, Any]:
+    path = runtime_paths(runtime_dir)["servers_state"]
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def _write_state(runtime_dir: Path, data: dict[str, Any]) -> None:
+    path = runtime_paths(runtime_dir)["servers_state"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(value + "\n", encoding="utf-8")
-    path.chmod(0o600)
-    return value
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def save_server_state(runtime_dir: Path, enabled: dict[str, bool]) -> None:
+    data = _read_state(runtime_dir)
+    data["enabled"] = enabled
+    _write_state(runtime_dir, data)
+
+
+def caffeinate_always(runtime_dir: Path) -> bool:
+    """Persisted preference: keep macOS awake whenever the stack starts."""
+    return bool(_read_state(runtime_dir).get("always_caffeinate", False))
+
+
+def set_caffeinate_always(runtime_dir: Path, value: bool) -> None:
+    data = _read_state(runtime_dir)
+    data["always_caffeinate"] = bool(value)
+    _write_state(runtime_dir, data)
+
+
+def load_server_params(runtime_dir: Path) -> dict[str, dict[str, str]]:
+    """Per-server non-secret parameter values set by `configure` (e.g. GitLab URL,
+    kubeconfig path). Shape: {server_name: {param_name: value}}."""
+    raw = _read_state(runtime_dir).get("params") or {}
+    return {k: {pk: str(pv) for pk, pv in v.items()} for k, v in raw.items() if isinstance(v, dict)}
+
+
+def save_server_params(runtime_dir: Path, params: dict[str, dict[str, str]]) -> None:
+    data = _read_state(runtime_dir)
+    data["params"] = params
+    _write_state(runtime_dir, data)
+
+
+def server_param(runtime_dir: Path, server_name: str, param_name: str, default: str = "") -> str:
+    return load_server_params(runtime_dir).get(server_name, {}).get(param_name, default)
+
+
+def is_server_enabled(server: dict[str, Any], state: dict[str, bool]) -> bool:
+    """Effective enabled state: a runtime override wins over the config default."""
+    name = server["name"]
+    if name in state:
+        return state[name]
+    return bool(server.get("enabled", False))
+
+
+def enabled_servers(
+    config: dict[str, Any], runtime_dir: Path = DEFAULT_RUNTIME_DIR
+) -> list[dict[str, Any]]:
+    state = load_server_state(runtime_dir)
+    return [s for s in config.get("servers", []) if is_server_enabled(s, state)]
+
+
+def vmcp_target(config: dict[str, Any]) -> str:
+    host = os.environ.get("VMCP_HOST", DEFAULT_VMCP_HOST)
+    return f"{host}:{vmcp_port(config)}"
+
+
+def default_listen() -> str:
+    return os.environ.get("LISTEN", DEFAULT_LISTEN)
+
+
+def _thv_path() -> str:
+    return shutil.which(THV) or THV
 
 
 # ---------------------------------------------------------------------------
-# supervisord config generation
+# ToolHive workloads
+# ---------------------------------------------------------------------------
+
+
+def thv(*args: str, check: bool = False) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        [_thv_path(), *args], capture_output=True, text=True, check=check,
+    )
+
+
+def list_workloads(group: str) -> dict[str, str]:
+    """Return {workload_name: status} for all workloads in the group."""
+    result = thv("list", "--all", "--group", group, "--format", "json")
+    if result.returncode != 0 or not result.stdout.strip():
+        return {}
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return {}
+    return {w["name"]: w.get("status", "unknown") for w in data if "name" in w}
+
+
+def list_all_workload_names() -> set[str]:
+    """All ToolHive workload names across every group (names are globally unique,
+    so `thv run <name>` collides even with a workload in another group)."""
+    result = thv("list", "--all", "--format", "json")
+    if result.returncode != 0 or not result.stdout.strip():
+        return set()
+    try:
+        data = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return set()
+    return {w["name"] for w in data if "name" in w}
+
+
+def build_thv_run_argv(
+    server: dict[str, Any],
+    group: str,
+    runtime_dir: Path,
+) -> list[str]:
+    """Assemble the `thv run` argv for one server from the config entry.
+
+    The workload name is pinned with --name so it becomes the exact vMCP tool
+    prefix the Cerbos policy expects.
+    """
+    name = server["name"]
+    stype = server["type"]
+    if stype == "npx":
+        positional = f"npx://{server['package']}"
+    elif stype == "remote":
+        positional = server["registry"]
+    else:
+        raise SystemExit(f"server {name!r}: unknown type {stype!r}")
+
+    argv = [_thv_path(), "run", positional, "--name", name, "--group", group]
+
+    # npx-wrapped MCP servers speak stdio. ToolHive otherwise defaults them to
+    # streamable-http (injects MCP_PORT/MCP_TRANSPORT and runs the container with
+    # stdin CLOSED); the server ignores those, starts on stdio, hits EOF, exits 0,
+    # and Docker crashloops it. Tell ToolHive the transport so it attaches stdin
+    # and bridges stdio -> streamable-http. Overridable via a "transport" config field.
+    transport = server.get("transport", "stdio" if stype == "npx" else "")
+    if transport:
+        argv += ["--transport", transport]
+
+    argv += list(server.get("run_flags", []))
+
+    # server_args from config are non-negotiable (e.g. kubernetes' --read-only);
+    # configured params only ADD to them.
+    server_args = list(server.get("server_args", []))
+
+    # Apply configured params (values from `configure`, stored in runtime state).
+    for param in server.get("params", []):
+        pname = param["name"]
+        value = server_param(runtime_dir, name, pname, param.get("default", ""))
+        apply = param.get("apply")
+        if apply == "server_arg":
+            if value:
+                server_args.append(param["template"].replace("{value}", value))
+        elif apply == "kubeconfig":
+            # A user-supplied kubeconfig path wins; otherwise fall back to the
+            # kind cluster's --internal kubeconfig (containerized npx can't reach a
+            # host-loopback API, so it needs the in-docker-network address).
+            if value:
+                kubeconfig = Path(value).expanduser()
+                if not kubeconfig.is_file():
+                    raise SystemExit(f"{name}: kubeconfig not found: {kubeconfig}")
+            elif server.get("kind_cluster"):
+                kubeconfig = write_internal_kubeconfig(server["kind_cluster"], runtime_dir)
+            else:
+                raise SystemExit(f"{name}: no kubeconfig set — run `vicegerent mcp configure`")
+            argv += ["-v", f"{kubeconfig}:{KUBECONFIG_CONTAINER_PATH}:ro"]
+            argv += ["-e", f"KUBECONFIG={KUBECONFIG_CONTAINER_PATH}"]
+            server_args += ["--kubeconfig", KUBECONFIG_CONTAINER_PATH]
+        else:
+            raise SystemExit(f"{name}: param {pname!r} has unknown apply {apply!r}")
+
+    for key, val in server.get("env", {}).items():
+        argv += ["-e", f"{key}={val}"]
+    for sec in server.get("secrets", []):
+        argv += ["--secret", f"{sec['name']},target={sec['target']}"]
+
+    if server_args:
+        argv += ["--", *server_args]
+    return argv
+
+
+def write_internal_kubeconfig(cluster: str, runtime_dir: Path) -> Path:
+    """Write kind's --internal kubeconfig for the cluster and return its path.
+
+    Uses the in-docker-network API address (https://<cluster>-control-plane:6443)
+    so the containerized MCP server can reach it over the kind docker network.
+    """
+    dest = runtime_dir / f"kubeconfig-{cluster}.yaml"
+    result = subprocess.run(
+        ["kind", "get", "kubeconfig", "--name", cluster, "--internal"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        raise SystemExit(
+            f"failed to get internal kubeconfig for kind cluster {cluster!r}: "
+            f"{result.stderr.strip()}"
+        )
+    dest.write_text(result.stdout, encoding="utf-8")
+    dest.chmod(0o644)  # readable by the container's (possibly non-root) user
+    return dest
+
+
+def _ca_data(text: str) -> str:
+    m = re.search(r"certificate-authority-data:\s*(\S+)", text)
+    return m.group(1) if m else ""
+
+
+def kind_kubeconfig_stale(server: dict[str, Any], runtime_dir: Path) -> bool:
+    """A kind_cluster workload mounts an internal kubeconfig captured at `thv run`
+    time. If the cluster is recreated its CA rotates, leaving the mount stale — the
+    MCP server then fails API calls with 'certificate signed by unknown authority'.
+    Detect this by comparing the mounted CA to the current one so start can recreate.
+    """
+    cluster = server.get("kind_cluster")
+    if not cluster:
+        return False
+    dest = runtime_dir / f"kubeconfig-{cluster}.yaml"
+    if not dest.is_file():
+        return True
+    result = subprocess.run(
+        ["kind", "get", "kubeconfig", "--name", cluster, "--internal"],
+        capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        return False  # can't tell (cluster down?) — don't force a needless recreate
+    return _ca_data(result.stdout) != _ca_data(dest.read_text(encoding="utf-8"))
+
+
+def ensure_group(group: str) -> None:
+    thv("group", "create", group)  # idempotent; errors if it already exists
+
+
+def run_workloads(
+    config: dict[str, Any],
+    runtime_dir: Path,
+    dry_run: bool = False,
+) -> int:
+    """Ensure the group exists and every enabled workload is up (idempotent).
+
+    Workloads persist across `stop`, so on a later `start` they already exist:
+    - already running in our group -> leave it
+    - exists in our group but stopped -> restart (don't `thv run`, which errors "already exists")
+    - exists OUTSIDE our group (orphan / name collision) -> remove and recreate in-group
+    - absent -> `thv run`
+    """
+    group = group_name(config)
+    ensure_group(group)
+    in_group = list_workloads(group)
+    all_names = list_all_workload_names()
+
+    for server in enabled_servers(config, runtime_dir):
+        name = server["name"]
+        state = in_group.get(name)
+        # A kind_cluster workload with a stale kubeconfig (cluster CA rotated) must be
+        # recreated so it remounts a fresh internal kubeconfig — restart won't remount.
+        stale = kind_kubeconfig_stale(server, runtime_dir)
+        if state == "running" and not stale:
+            print(f"  workload {name}: already running")
+            continue
+        if stale and name in all_names:
+            action = "recreate"
+        elif name in in_group:
+            action = "restart"
+        elif name in all_names:
+            action = "recreate"  # exists in another group; must be rebuilt in ours
+        else:
+            action = "run"
+        if dry_run:
+            print(f"  would {action} workload {name}")
+            continue
+        if action == "restart":
+            print(f"  restarting workload {name} …")
+            result = thv("restart", name)
+            if result.returncode != 0:
+                print(f"  warning: `thv restart {name}` failed: {result.stderr.strip()}", file=sys.stderr)
+            continue
+        if action == "recreate":
+            reason = "kubeconfig changed" if stale else f"exists outside group '{group}'"
+            print(f"  recreating workload {name} ({reason}) …")
+            thv("rm", name)  # names are global; OAuth tokens persist via the secrets provider
+        print(f"  starting workload {name} …")
+        result = subprocess.run(build_thv_run_argv(server, group, runtime_dir), text=True)
+        if result.returncode != 0:
+            print(f"  warning: `thv run {name}` exited {result.returncode}", file=sys.stderr)
+    return 0
+
+
+def wait_for_workloads_running(
+    config: dict[str, Any], runtime_dir: Path, timeout: float = 120.0
+) -> None:
+    """Block until every enabled workload reports `running`, or timeout.
+
+    `thv vmcp init` only captures backends that are healthy at that instant, so
+    generating the config before slow npx workloads finish starting would silently
+    drop them. Warn (don't fail) on any that never come up — they'll just be absent.
+    """
+    group = group_name(config)
+    want = [s["name"] for s in enabled_servers(config, runtime_dir)]
+    if not want:
+        return
+    deadline = time.time() + timeout
+    pending = list(want)
+    while pending and time.time() < deadline:
+        states = list_workloads(group)
+        pending = [n for n in want if states.get(n) != "running"]
+        if not pending:
+            print(f"  all {len(want)} workloads running")
+            return
+        time.sleep(2)
+    print(f"  warning: workloads not running after {int(timeout)}s: {pending} "
+          "— they will be omitted from the vMCP until healthy", file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# vMCP config generation
+# ---------------------------------------------------------------------------
+
+
+def _parse_init_backends(text: str) -> list[dict[str, str]]:
+    """Extract backend blocks from `thv vmcp init` YAML (stdlib-only, no pyyaml).
+
+    Mirrors the demo's flat-YAML regex approach: blocks are indented `- name:`
+    entries carrying `url:` and `transport:`.
+    """
+    backends: list[dict[str, str]] = []
+    cur: dict[str, str] | None = None
+    for line in text.splitlines():
+        m = re.match(r"\s*-\s*name:\s*(\S+)", line)
+        if m:
+            cur = {"name": m.group(1).strip("\"'"), "url": "", "transport": "streamable-http"}
+            backends.append(cur)
+            continue
+        if cur is not None:
+            mu = re.match(r"\s+url:\s*(\S+)", line)
+            mt = re.match(r"\s+transport:\s*(\S+)", line)
+            if mu:
+                cur["url"] = mu.group(1).strip("\"'")
+            if mt:
+                cur["transport"] = mt.group(1).strip("\"'")
+    return [b for b in backends if b["url"]]
+
+
+def _init_scalar(text: str, key: str) -> str | None:
+    m = re.search(rf"^{key}:\s*(\S+)", text, re.M)
+    return m.group(1).strip("\"'") if m else None
+
+
+def generate_vmcp_config(
+    config: dict[str, Any],
+    runtime_dir: Path,
+    validate: bool = True,
+) -> Path:
+    """Run `thv vmcp init`, post-process, write JSON (valid YAML), and validate.
+
+    Post-processing intentionally exposes ALL tools: no optimizer, no per-workload
+    filter, no Cedar/authz. Authorization stays in the cluster (agentgateway +
+    Cerbos). Backends whose URL is a legacy `/sse` endpoint are fixed to
+    transport: sse (init mislabels them streamable-http).
+    """
+    group = group_name(config)
+    paths = runtime_paths(runtime_dir)
+    init_path = paths["vmcp_init"]
+    out_path = paths["vmcp_config"]
+
+    result = thv("vmcp", "init", "--group", group, "--output", str(init_path))
+    if result.returncode != 0:
+        raise SystemExit(f"`thv vmcp init` failed: {result.stderr.strip()}")
+
+    text = init_path.read_text(encoding="utf-8")
+    backends = _parse_init_backends(text)
+    for b in backends:
+        if "/sse" in b["url"]:
+            b["transport"] = "sse"
+
+    cfg = {
+        "name": _init_scalar(text, "name") or f"{group}-vmcp",
+        "groupRef": _init_scalar(text, "groupRef") or group,
+        "incomingAuth": {"type": "anonymous"},
+        "outgoingAuth": {"source": "inline"},
+        "aggregation": {
+            "conflictResolution": "prefix",
+            "conflictResolutionConfig": {"prefixFormat": "{workload}_"},
+        },
+        "backends": backends,
+    }
+    out_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
+
+    for b in backends:
+        print(f"  backend {b['name']:14} transport={b['transport']}")
+
+    if validate:
+        vr = thv("vmcp", "validate", "--config", str(out_path))
+        if vr.returncode != 0:
+            raise SystemExit(f"vMCP config failed validation:\n{vr.stdout}\n{vr.stderr}")
+    return out_path
+
+
+# ---------------------------------------------------------------------------
+# supervisord config
 # ---------------------------------------------------------------------------
 
 
 def _supervisord_env_str(env: dict[str, str]) -> str:
-    """Format a dict as supervisord environment= value (KEY="val",...).
+    """Format a dict as a supervisord environment= value (KEY="val",...).
 
     Supervisord splits on unescaped commas; double any literal comma in values.
     Also escape % (supervisord expands %(...)s) and quotes.
@@ -265,15 +539,28 @@ def _supervisord_env_str(env: dict[str, str]) -> str:
 
 def build_supervisord_conf(
     paths: dict[str, Path],
-    proxy_dir: Path,
-    proxy_env: dict[str, str],
     ghostshell: Path,
     tunnel_env: dict[str, str],
+    vmcp_command: str,
+    vmcp_env: dict[str, str],
+    caffeinate: bool = False,
 ) -> str:
     sock = paths["supervisord_sock"]
     pidfile = paths["supervisord_pid"]
     logs = paths["logs"]
-    caddyfile_path = paths["caddyfile"]
+    caffeinate_block = f"""\
+[program:caffeinate]
+command=caffeinate -i
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=4
+redirect_stderr=true
+stdout_logfile={logs}/caffeinate.log
+stdout_logfile_maxbytes=1MB
+stdout_logfile_backups=1
+
+""" if caffeinate else ""
     return f"""\
 [unix_http_server]
 file={sock}
@@ -293,38 +580,16 @@ supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface
 [supervisorctl]
 serverurl=unix://{sock}
 
-[program:caffeinate]
-command=caffeinate -i
+{caffeinate_block}[program:vmcp]
+command={vmcp_command}
+directory={REPO_ROOT}
+environment={_supervisord_env_str(vmcp_env)}
 autostart=true
 autorestart=true
-startsecs=2
-stopwaitsecs=4
+startsecs=3
+stopwaitsecs=10
 redirect_stderr=true
-stdout_logfile={logs}/caffeinate.log
-stdout_logfile_maxbytes=1MB
-stdout_logfile_backups=1
-
-[program:proxy]
-command=node build/sse.js
-directory={proxy_dir}
-environment={_supervisord_env_str(proxy_env)}
-autostart=true
-autorestart=true
-startsecs=2
-stopwaitsecs=8
-redirect_stderr=true
-stdout_logfile={logs}/proxy.log
-stdout_logfile_maxbytes=5MB
-stdout_logfile_backups=2
-
-[program:caddy]
-command=caddy run --config {caddyfile_path}
-autostart=true
-autorestart=true
-startsecs=2
-stopwaitsecs=8
-redirect_stderr=true
-stdout_logfile={logs}/caddy.log
+stdout_logfile={logs}/vmcp.log
 stdout_logfile_maxbytes=5MB
 stdout_logfile_backups=2
 
@@ -341,144 +606,6 @@ stdout_logfile={logs}/ghostunnel.log
 stdout_logfile_maxbytes=5MB
 stdout_logfile_backups=2
 """
-
-
-# ---------------------------------------------------------------------------
-# Render helpers
-# ---------------------------------------------------------------------------
-
-
-def render_proxy_config(config: dict[str, Any], servers: list[Server], runtime_dir: Path) -> dict[str, Path]:
-    """Write mcp_server.json + Caddyfile into the runtime dir."""
-    paths = runtime_paths(runtime_dir)
-    paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
-    paths["caddyfile"].parent.mkdir(parents=True, exist_ok=True)
-    paths["logs"].mkdir(parents=True, exist_ok=True)
-    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
-    tool_config = paths["proxy_config_dir"] / "tool_config.json"
-    if not tool_config.exists():
-        write_json(tool_config, {"tools": {}})
-    paths["caddyfile"].write_text(make_caddyfile(config), encoding="utf-8")
-    return paths
-
-
-def copy_proxy_config(runtime_dir: Path, proxy_dir: Path) -> None:
-    src = runtime_paths(runtime_dir)["proxy_config_dir"]
-    dst = proxy_dir / "config"
-    dst.mkdir(parents=True, exist_ok=True)
-    for file in src.iterdir():
-        if file.is_file():
-            shutil.copy2(file, dst / file.name)
-
-
-# ---------------------------------------------------------------------------
-# mcp-proxy-server patches (idempotent, applied at start)
-# ---------------------------------------------------------------------------
-
-
-def ensure_proxy_binds_loopback(proxy_dir: Path, host: str) -> None:
-    """Patch mcp-proxy-server's HTTP listener to bind loopback only.
-
-    Upstream listens on all interfaces. The host stack must keep the raw admin UI
-    local-only and expose only the filtered Caddy port to ghostunnel.
-    """
-    changed: list[Path] = []
-    candidates = [proxy_dir / "src" / "sse.ts", proxy_dir / "build" / "sse.js"]
-    pattern = re.compile(r"expressServer\.listen\(\s*PORT\s*,\s*\(\)\s*=>\s*\{")
-    desired = f"expressServer.listen(Number(PORT), {host!r}, () => {{"
-    for path in candidates:
-        if not path.exists():
-            continue
-        text = path.read_text(encoding="utf-8")
-        if desired in text:
-            continue
-        new_text, count = pattern.subn(desired, text, count=1)
-        if count:
-            path.write_text(new_text, encoding="utf-8")
-            changed.append(path)
-        elif "expressServer.listen" in text:
-            raise SystemExit(f"could not patch listener in {path}; inspect mcp-proxy-server before exposing it")
-    for path in changed:
-        print(f"patched {path} to bind {host}")
-
-    build = proxy_dir / "build" / "sse.js"
-    if not build.exists():
-        raise SystemExit(f"mcp-proxy-server build not found: {build}")
-    if desired not in build.read_text(encoding="utf-8"):
-        raise SystemExit(f"mcp-proxy-server build is not bound to {host}: {build}")
-
-    source = proxy_dir / "src" / "sse.ts"
-    if source.exists() and desired not in source.read_text(encoding="utf-8"):
-        print(
-            f"warning: source listener not patched; npm run build may undo this: {source}",
-            file=sys.stderr,
-        )
-
-
-def ensure_list_changed_notification(proxy_dir: Path) -> None:
-    """Patch mcp-proxy-server to emit notifications/tools/list_changed after admin reload.
-
-    Covers both sseTransports and streamableHttpTransports maps so agentgateway
-    (StreamableHTTP) and any SSE clients both receive the notification.
-    Idempotent: skips if already patched. Re-applies if a fresh npm build overwrites.
-
-    Full chain: enable/disable -> admin reload -> list_changed ->
-    agentgateway forwards -> Hermes auto-refreshes tool list (no /reload-mcp).
-    """
-    sentinel = "notifications/tools/list_changed"
-    src = proxy_dir / "src" / "sse.ts"
-    build = proxy_dir / "build" / "sse.js"
-
-    if not src.exists():
-        print(f"warning: {src} not found; skipping list_changed patch", file=sys.stderr)
-        return
-
-    text = src.read_text(encoding="utf-8")
-    if sentinel in text:
-        # Check the build too — a fresh npm build may have overwritten it.
-        if build.exists() and sentinel not in build.read_text(encoding="utf-8"):
-            print("list_changed patch present in source but missing from build; rebuilding...")
-            _npm_build(proxy_dir)
-        return
-
-    marker = "await updateBackendConnections(latestServerConfig, latestToolConfig);"
-    if marker not in text:
-        print(f"warning: reload marker not found in {src}; skipping list_changed patch", file=sys.stderr)
-        return
-
-    notification_block = """\
-
-            // Notify all connected MCP clients that the tool list has changed.
-            // Hermes receives this via agentgateway and auto-refreshes without /reload-mcp.
-            const listChangedNotification = {
-              jsonrpc: '2.0' as const,
-              method: 'notifications/tools/list_changed',
-            };
-            for (const transport of sseTransports.values()) {
-              transport.send(listChangedNotification).catch((err: Error) => {
-                logger.error('Failed to send list_changed to SSE client:', err);
-              });
-            }
-            for (const transport of streamableHttpTransports.values()) {
-              transport.send(listChangedNotification).catch((err: Error) => {
-                logger.error('Failed to send list_changed to StreamableHTTP client:', err);
-              });
-            }"""
-
-    patched = text.replace(marker, marker + notification_block, 1)
-    src.write_text(patched, encoding="utf-8")
-    print(f"patched {src} to emit notifications/tools/list_changed")
-    _npm_build(proxy_dir)
-
-
-def _npm_build(proxy_dir: Path) -> None:
-    print("rebuilding mcp-proxy-server...")
-    result = subprocess.run(["npm", "run", "build"], cwd=str(proxy_dir), capture_output=True, text=True)
-    if result.returncode != 0:
-        raise SystemExit(
-            f"npm run build failed — list_changed patch will not be active:\n{result.stderr}"
-        )
-    print("rebuild complete")
 
 
 # ---------------------------------------------------------------------------
@@ -508,190 +635,32 @@ def get_supervisor_states(runtime_dir: Path) -> dict[str, str]:
 
 
 def is_supervisor_running(runtime_dir: Path) -> bool:
-    states = get_supervisor_states(runtime_dir)
-    return bool(states)
+    return bool(get_supervisor_states(runtime_dir))
 
 
 # ---------------------------------------------------------------------------
-# Hot reload
-# ---------------------------------------------------------------------------
-
-
-def reload_proxy(runtime_dir: Path, config: dict[str, Any]) -> None:
-    """Hot-reload mcp-proxy-server via session-cookie admin API.
-
-    Flow: POST /admin/login (get cookie) -> POST /admin/server/reload.
-    After reload, the patched proxy sends list_changed to all MCP sessions
-    so Hermes auto-refreshes without a manual /reload-mcp.
-    """
-    proxy = proxy_settings(config)
-    base = f"http://{proxy['listen_host']}:{proxy['proxy_port']}"
-    password = get_or_create_secret(runtime_paths(runtime_dir)["admin_password"])
-
-    jar = http.cookiejar.CookieJar()
-    opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))
-
-    login_data = urllib.parse.urlencode({"username": "admin", "password": password}).encode()
-    try:
-        opener.open(f"{base}/admin/login", login_data, timeout=5)
-    except Exception as e:
-        print(f"  proxy reload: login failed ({e}) — is the stack running?")
-        return
-
-    # Confirm a session cookie was set; wrong password returns HTTP 200 with no cookie.
-    if not any(c.name == "connect.sid" for c in jar):
-        print("  proxy reload: login did not return a session cookie — check admin password")
-        return
-
-    try:
-        resp = opener.open(
-            urllib.request.Request(f"{base}/admin/server/reload", data=b"", method="POST"),
-            timeout=10,
-        )
-        if resp.status == 200:
-            print("  proxy reloaded — notifications/tools/list_changed sent to clients")
-        else:
-            print(f"  proxy reload returned HTTP {resp.status}")
-    except Exception as e:
-        print(f"  proxy reload failed: {e}")
-
-
-# ---------------------------------------------------------------------------
-# TUI helpers
+# Log helpers
 # ---------------------------------------------------------------------------
 
 
 def tail_log_iter(log_file: Path, n_lines: int = 50) -> Iterator[str]:
-    """Yield lines from log_file like `tail -n N -f`, non-blocking.
+    """Yield the last n_lines of a log file, then follow it (like `tail -f`).
 
-    Reads the last N lines immediately, then yields new lines as they arrive.
-    Uses a daemon thread that polls every 100ms. Thread stops when generator
-    is garbage-collected. Suitable for a TUI log pane.
+    Used by the TUI's background log panes. Blocks between reads; the caller is
+    expected to run it in a thread.
     """
-    queue: Queue[str] = Queue()
-
-    def _read_last_n_lines(path: Path, n: int) -> list[str]:
-        if not path.exists():
-            return []
-        with path.open("rb") as f:
-            f.seek(0, 2)
-            size = f.tell()
-            if size == 0:
-                return []
-            block_size = 8192
-            lines: list[bytes] = []
-            remaining = size
-            while remaining > 0 and len(lines) <= n:
-                read_size = min(block_size, remaining)
-                remaining -= read_size
-                f.seek(remaining)
-                chunk = f.read(read_size)
-                lines = chunk.splitlines() + lines
-            return [line.decode("utf-8", errors="replace") for line in lines[-n:]]
-
-    def _tail_worker() -> None:
-        with log_file.open("r", encoding="utf-8", errors="replace") as f:
-            f.seek(0, 2)
-            while True:
-                data = f.read()
-                if data:
-                    for line in data.splitlines():
-                        queue.put(line)
-                time.sleep(0.1)
-
-    for line in _read_last_n_lines(log_file, n_lines):
-        yield line
-
-    thread = Thread(target=_tail_worker, daemon=True)
-    thread.start()
-
-    while True:
-        try:
-            yield queue.get(timeout=0.1)
-        except Empty:
-            pass
-
-
-# ---------------------------------------------------------------------------
-# Utility
-# ---------------------------------------------------------------------------
-
-
-def write_json(path: Path, data: Any) -> None:
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
-
-
-def mcp_remote_hash(
-    server_url: str,
-    authorize_resource: str | None = None,
-    headers: dict[str, str] | None = None,
-) -> str:
-    """Match mcp-remote getServerUrlHash(): md5(parts.join('|'))."""
-    parts = [server_url]
-    if authorize_resource:
-        parts.append(authorize_resource)
-    if headers:
-        raise SystemExit("mcp-remote header hashing is not supported yet")
-    return hashlib.md5("|".join(parts).encode("utf-8")).hexdigest()
-
-
-def auth_prefixes(server: Server) -> list[str]:
-    if server.mode != "remote-oauth" or not server.url:
-        return []
-    return [mcp_remote_hash(server.url)]
-
-
-def auth_files(prefix: str, auth_dir: Path) -> list[Path]:
-    matches: list[Path] = []
-    for version_dir in sorted(auth_dir.glob("mcp-remote-*")):
-        for name in AUTH_FILENAMES:
-            candidate = version_dir / f"{prefix}_{name}"
-            if candidate.exists():
-                matches.append(candidate)
-    return matches
-
-
-def read_json(path: Path) -> Any | None:
-    try:
-        with path.open("r", encoding="utf-8") as f:
-            return json.load(f)
-    except Exception:
-        return None
-
-
-def pid_alive(pid: int) -> bool:
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-
-
-def auth_state(server: Server, auth_dir: Path) -> tuple[str, list[Path]]:
-    prefixes = auth_prefixes(server)
-    files = [p for prefix in prefixes for p in auth_files(prefix, auth_dir)]
-    has_client_info = any(p.name.endswith("_client_info.json") for p in files)
-    has_code_verifier = any(p.name.endswith("_code_verifier.txt") for p in files)
-    token_files = [p for p in files if p.name.endswith("_tokens.json")]
-    lock_files = [p for p in files if p.name.endswith("_lock.json")]
-    if token_files:
-        token = read_json(token_files[0]) or {}
-        if token.get("access_token") and token.get("refresh_token"):
-            return "authenticated", files
-        return "auth-needed", files
-    for lock in lock_files:
-        data = read_json(lock) or {}
-        pid = data.get("pid")
-        if isinstance(pid, int) and pid_alive(pid):
-            return "auth-in-progress", files
-    if has_client_info or has_code_verifier:
-        return "auth-incomplete", files
-    return "unknown", files
-
-
-def default_tunnel_listen() -> str:
-    host_only_ip = os.environ.get("HOST_ONLY_IP", DEFAULT_HOST_ONLY_IP)
-    return f"{host_only_ip}:{DEFAULT_HOST_MCP_TUNNEL_PORT}"
+    with log_file.open("r", encoding="utf-8", errors="replace") as fh:
+        # Prime with the tail.
+        lines = fh.readlines()
+        for line in lines[-n_lines:]:
+            yield line.rstrip("\n")
+        # Follow.
+        while True:
+            line = fh.readline()
+            if line:
+                yield line.rstrip("\n")
+            else:
+                time.sleep(0.4)
 
 
 # ---------------------------------------------------------------------------
@@ -709,21 +678,6 @@ def _require_rich() -> tuple[Any, Any]:
         raise SystemExit("rich is required: pip install -r host/mcp/requirements-host.txt")
 
 
-def _auth_label(server: Server, auth_dir: Path) -> str:
-    if server.mode != "remote-oauth":
-        return "n/a"
-    state, _ = auth_state(server, auth_dir)
-    return state
-
-
-def _style_auth(label: str) -> str:
-    if label == "authenticated":
-        return f"[green]{label}[/green]"
-    if label == "n/a":
-        return f"[dim]{label}[/dim]"
-    return f"[yellow]{label}[/yellow]"
-
-
 def _style_proc(state: str) -> str:
     if state == "RUNNING":
         return f"[green]{state}[/green]"
@@ -734,180 +688,150 @@ def _style_proc(state: str) -> str:
     return f"[dim]{state or '—'}[/dim]"
 
 
+def _style_workload(state: str) -> str:
+    if state == "running":
+        return f"[green]{state}[/green]"
+    if state in ("starting", "auth_retrying", "authenticating"):
+        return f"[yellow]{state}[/yellow]"
+    if state in ("stopped", "error", "unauthenticated"):
+        return f"[red]{state}[/red]"
+    return f"[dim]{state or 'not created'}[/dim]"
+
+
 # ---------------------------------------------------------------------------
-# Action functions (TUI callable)
+# Actions
 # ---------------------------------------------------------------------------
-
-
-def list_servers(
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    auth_dir: Path = DEFAULT_AUTH_DIR,
-) -> int:
-    """Show all configured MCP servers and their declared state (no stack required)."""
-    console, Table = _require_rich()
-    config = load_config(config_path)
-    state = load_state(runtime_paths(runtime_dir)["state"])
-    servers = iter_servers(config, state)
-
-    table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
-    table.add_column("Server", style="bold")
-    table.add_column("Mode")
-    table.add_column("Auth")
-    table.add_column("Enabled")
-    for server in servers:
-        table.add_row(
-            server.key,
-            server.mode,
-            _style_auth(_auth_label(server, auth_dir)),
-            "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
-        )
-    console.print(table)
-    return 0
 
 
 def status(
-    config_path: Path = DEFAULT_CONFIG,
     runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    auth_dir: Path = DEFAULT_AUTH_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
 ) -> int:
-    """Show server auth state and infrastructure process state as rich tables."""
+    """Rich table of workload + supervised-process state."""
     console, Table = _require_rich()
-    config = load_config(config_path)
-    state = load_state(runtime_paths(runtime_dir)["state"])
-    servers = iter_servers(config, state)
+    config = load_servers_config(servers_config)
+    group = group_name(config)
+
+    workloads = list_workloads(group)
+    state = load_server_state(runtime_dir)
+    wl_table = Table(title=f"ToolHive workloads (group: {group})", show_header=True, header_style="bold cyan")
+    wl_table.add_column("Workload", style="bold")
+    wl_table.add_column("Status")
+    for server in config.get("servers", []):
+        name = server["name"]
+        if not is_server_enabled(server, state):
+            wl_table.add_row(name, "[dim]disabled[/dim]")
+            continue
+        wl_table.add_row(name, _style_workload(workloads.get(name, "")))
+    console.print(wl_table)
+
     sup_states = get_supervisor_states(runtime_dir)
-
-    srv_table = Table(title="Host MCP Servers", show_header=True, header_style="bold magenta")
-    srv_table.add_column("Server", style="bold")
-    srv_table.add_column("Mode")
-    srv_table.add_column("Auth")
-    srv_table.add_column("Enabled")
-    for server in servers:
-        srv_table.add_row(
-            server.key,
-            server.mode,
-            _style_auth(_auth_label(server, auth_dir)),
-            "[green]yes[/green]" if server.enabled else "[dim]no[/dim]",
-        )
-    console.print(srv_table)
-
-    inf_table = Table(title="Infrastructure", show_header=True, header_style="bold cyan")
-    inf_table.add_column("Process", style="bold")
-    inf_table.add_column("State")
     not_running = not sup_states
-    for prog in SUPERVISED_PROGRAMS:
-        inf_table.add_row(prog, _style_proc(sup_states.get(prog, "STOPPED" if not_running else "")))
-    console.print(inf_table)
+    proc_table = Table(title="Host stack", show_header=True, header_style="bold cyan")
+    proc_table.add_column("Process", style="bold")
+    proc_table.add_column("State")
+    for prog in ALL_PROGRAMS:
+        proc_table.add_row(prog, _style_proc(sup_states.get(prog, "STOPPED" if not_running else "")))
+    console.print(proc_table)
     return 0
 
 
-def set_server_enabled(
-    server_key: str,
-    enabled: bool,
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    proxy_dir: Path = DEFAULT_PROXY_DIR,
-) -> int:
-    """Enable or disable a server and hot-reload the proxy if running."""
-    config = load_config(config_path)
-    paths = runtime_paths(runtime_dir)
-    all_keys = {s.key for s in iter_servers(config)}
-    if server_key not in all_keys:
-        raise SystemExit(f"unknown server: {server_key!r}. Known: {sorted(all_keys)}")
+def ensure_ghostunnel_material() -> None:
+    """If the host ghostunnel material is missing, recover it from the kind Secret.
 
-    state = load_state(paths["state"])
-    state[server_key] = enabled
-    save_state(paths["state"], state)
-
-    servers = iter_servers(config, state)
-    paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
-    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
-    copy_proxy_config(runtime_dir, proxy_dir)
-
-    verb = "enabled" if enabled else "disabled"
-    print(f"{verb} {server_key!r}")
-
-    if is_supervisor_running(runtime_dir):
-        reload_proxy(runtime_dir, config)
-    else:
-        print("  stack not running — change takes effect on next start")
-    return 0
-
-
-def reload_config(
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    proxy_dir: Path = DEFAULT_PROXY_DIR,
-) -> int:
-    """Re-render proxy config from current state and hot-reload the proxy.
-
-    Use after git pull updates servers.json to pick up new server declarations.
+    ghostunnel (server side) needs server.crt/server.key/ca.cert. Those are written
+    to ~/.vicegerent/ghostunnel by setup-secrets-platform.sh, which also mirrors them
+    to the kind Secret `ghostunnel-server`. On a host that's missing them, pull them
+    back from the cluster before ghostunnel starts. (The CA *key* is never mirrored —
+    it's only needed to re-issue certs, so run setup-secrets to fully rebuild.)
     """
-    config = load_config(config_path)
-    paths = runtime_paths(runtime_dir)
-    state = load_state(paths["state"])
-    servers = iter_servers(config, state)
-    paths["proxy_config_dir"].mkdir(parents=True, exist_ok=True)
-    write_json(paths["proxy_config_dir"] / "mcp_server.json", make_proxy_config(servers))
-    copy_proxy_config(runtime_dir, proxy_dir)
-    print("proxy config re-rendered")
-
-    if is_supervisor_running(runtime_dir):
-        reload_proxy(runtime_dir, config)
-    else:
-        print("stack not running — change takes effect on next start")
-    return 0
+    hd = Path(os.environ.get("GHOSTUNNEL_HOST_DIR", str(DEFAULT_GHOSTUNNEL_DIR)))
+    missing = [f for f in GHOSTUNNEL_FILES if not (hd / f).is_file() or (hd / f).stat().st_size == 0]
+    if not missing:
+        return
+    print(f"ghostunnel material missing {missing}; recovering from kind Secret {GHOSTUNNEL_SECRET} …")
+    hd.mkdir(parents=True, exist_ok=True)
+    hd.chmod(0o700)
+    for fname in missing:
+        key = GHOSTUNNEL_FILES[fname].replace(".", r"\.")
+        result = subprocess.run(
+            ["kubectl", "--context", GHOSTUNNEL_KUBE_CONTEXT, "-n", GHOSTUNNEL_SECRET_NS,
+             "get", "secret", GHOSTUNNEL_SECRET, "-o", f"jsonpath={{.data.{key}}}"],
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0 or not result.stdout.strip():
+            print(
+                f"  could not recover {fname} from kind ({result.stderr.strip() or 'secret/key absent'}).\n"
+                "  Run `./vicegerent secrets setup platform` to (re)generate the ghostunnel material.",
+                file=sys.stderr,
+            )
+            return  # leave it missing; ghostshell.sh will fail with a clear message
+        (hd / fname).write_bytes(base64.b64decode(result.stdout))
+        (hd / fname).chmod(0o600)
+        print(f"  restored {fname} from kind")
 
 
 def start_stack(
-    config_path: Path = DEFAULT_CONFIG,
     runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    proxy_dir: Path = DEFAULT_PROXY_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
     ghostshell: Path | None = None,
     listen: str | None = None,
     allow_cn: str | None = None,
+    skip_workloads: bool = False,
+    caffeinate: bool | None = None,
+    always_caffeinate: bool = False,
 ) -> int:
-    """Start proxy, Caddy, and ghostunnel via supervisord."""
-    config = load_config(config_path)
+    """Full bring-up: thv workloads -> vMCP config -> supervisord (vMCP/ghostunnel, opt-in caffeinate)."""
     paths = runtime_paths(runtime_dir)
-    state = load_state(paths["state"])
-    servers = iter_servers(config, state)
-    active = [s for s in servers if s.enabled]
-
-    if not active:
-        print("no enabled MCP servers — not starting")
-        return 0
-
-    if not (proxy_dir / "build" / "sse.js").exists():
-        raise SystemExit(f"mcp-proxy-server build not found: {proxy_dir / 'build' / 'sse.js'}")
+    config = load_servers_config(servers_config)
 
     if is_supervisor_running(runtime_dir):
-        print("supervisord is already running. Use 'reload' to update config or 'stop' first.")
+        print("supervisord is already running. Use 'stop' first.")
         return 1
 
-    proxy = proxy_settings(config)
-    ensure_proxy_binds_loopback(proxy_dir, str(proxy["listen_host"]))
-    ensure_list_changed_notification(proxy_dir)
+    # caffeinate is opt-in: explicit --caffeinate/--no-caffeinate wins, else the
+    # persisted "always" preference (default off). --always saves the choice.
+    use_caffeinate = caffeinate if caffeinate is not None else caffeinate_always(runtime_dir)
+    if always_caffeinate:
+        set_caffeinate_always(runtime_dir, use_caffeinate)
 
-    render_proxy_config(config, servers, runtime_dir)
-    copy_proxy_config(runtime_dir, proxy_dir)
+    paths["logs"].mkdir(parents=True, exist_ok=True)
 
-    admin_password = get_or_create_secret(paths["admin_password"])
-    session_secret = get_or_create_secret(paths["session_secret"], lambda: secrets.token_hex(32))
-    proxy_env = make_proxy_env(config, admin_password, session_secret)
+    ensure_ghostunnel_material()
+
+    if not skip_workloads:
+        print("Ensuring ToolHive workloads …")
+        run_workloads(config, runtime_dir)
+        # `thv vmcp init` only captures backends that are HEALTHY right now, so wait
+        # for the (often slow, npx-download) workloads to come up first — otherwise
+        # they're silently omitted from the vMCP config and never aggregated.
+        wait_for_workloads_running(config, runtime_dir)
+
+    print("Generating vMCP config …")
+    vmcp_cfg = generate_vmcp_config(config, runtime_dir)
+
+    port = vmcp_port(config)
+    thv_bin = _thv_path()
+    vmcp_command = f'{thv_bin} vmcp serve --config {vmcp_cfg} --port {port}'
+    # Ensure thv's dir (and Homebrew) are on PATH for the supervised process.
+    path_env = os.pathsep.join(
+        dict.fromkeys([str(Path(thv_bin).parent), "/opt/homebrew/bin", os.environ.get("PATH", "")])
+    )
+    vmcp_env = {"PATH": path_env, "HOME": str(Path.home())}
 
     effective_ghostshell = ghostshell or DEFAULT_GHOSTSHELL
-    effective_listen = listen or default_tunnel_listen()
+    effective_listen = listen or default_listen()
+    target = vmcp_target(config)
     tunnel_env: dict[str, str] = {
-        "TARGET": f"{proxy['listen_host']}:{int(proxy['filtered_port'])}",
+        "TARGET": target,
         "LISTEN": effective_listen,
         "ALLOW_CN": allow_cn or DEFAULT_AGENT_CLIENT_CN,
     }
 
-    conf_text = build_supervisord_conf(paths, proxy_dir, proxy_env, effective_ghostshell, tunnel_env)
+    conf_text = build_supervisord_conf(
+        paths, effective_ghostshell, tunnel_env, vmcp_command, vmcp_env, use_caffeinate
+    )
     paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
-    paths["supervisord_conf"].chmod(0o600)  # contains plaintext secrets
 
     # Remove stale socket so supervisord doesn't refuse to start.
     sock = paths["supervisord_sock"]
@@ -921,36 +845,54 @@ def start_stack(
             f"supervisord failed to start (exit {exc.returncode}); check {paths['logs']}/supervisord.log"
         ) from None
 
-    # Wait up to 10s for all programs to reach RUNNING.
-    deadline = time.time() + 10
+    expected = (("caffeinate", *SUPERVISED_PROGRAMS) if use_caffeinate else SUPERVISED_PROGRAMS)
+    # Wait up to 15s for all programs to reach RUNNING.
+    deadline = time.time() + 15
     while time.time() < deadline:
         sup_states = get_supervisor_states(runtime_dir)
-        if all(sup_states.get(p) == "RUNNING" for p in SUPERVISED_PROGRAMS):
+        if all(sup_states.get(p) == "RUNNING" for p in expected):
             break
         time.sleep(0.5)
 
     sup_states = get_supervisor_states(runtime_dir)
-    print("enabled servers: " + ", ".join(s.key for s in active))
-    failed = [p for p in SUPERVISED_PROGRAMS if sup_states.get(p) != "RUNNING"]
-    for prog in SUPERVISED_PROGRAMS:
+    for prog in expected:
         print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
-    print(f"filtered MCP:  http://{proxy['listen_host']}:{int(proxy['filtered_port'])}/mcp")
-    print(f"ghostunnel:    {effective_listen}")
+    print(f"vMCP:          127.0.0.1:{port}  (ToolHive, group '{group_name(config)}')")
+    print(f"ghostunnel:    {effective_listen} -> {target}")
+    print(f"caffeinate:    {'on' if use_caffeinate else 'off'}")
+    failed = [p for p in expected if sup_states.get(p) != "RUNNING"]
     if failed:
         print(f"\nwarning: {failed} did not reach RUNNING; check logs under {paths['logs']}", file=sys.stderr)
         return 1
     return 0
 
 
-def stop_stack(runtime_dir: Path = DEFAULT_RUNTIME_DIR) -> int:
-    """Shut down supervisord and all managed processes, waiting until they exit."""
+def stop_stack(
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
+    stop_workloads: bool = True,
+) -> int:
+    """Shut down the supervised stack (vMCP/ghostunnel + caffeinate if enabled) and,
+    by default, the ToolHive workloads too.
+
+    Workloads are `thv stop`'d (stopped, not removed), so their persisted OAuth
+    sessions survive and the next `start` won't re-prompt. Pass stop_workloads=False
+    (`--keep-workloads`) to leave them running.
+    """
+    if stop_workloads:
+        group = group_name(load_servers_config(servers_config))
+        for name, st in list_workloads(group).items():
+            if st == "running":
+                print(f"  stopping workload {name} …")
+                thv("stop", name)
+
     if not is_supervisor_running(runtime_dir):
         print("supervisord is not running")
         return 0
     result = supervisorctl("shutdown", runtime_dir=runtime_dir)
     print(result.stdout.strip() or "supervisord shutdown initiated")
 
-    # Wait up to 15s for the supervisor socket to disappear (processes fully exited)
+    # Wait up to 15s for the supervisor socket to disappear (processes fully exited).
     sock = runtime_paths(runtime_dir)["supervisord_sock"]
     deadline = time.time() + 15
     while time.time() < deadline:
@@ -964,20 +906,17 @@ def stop_stack(runtime_dir: Path = DEFAULT_RUNTIME_DIR) -> int:
     return 0
 
 
+_LOG_NAMES = ("ghostunnel", "vmcp", "supervisord", "caffeinate")
+
+
 def tail_log(
     process_name: str,
     runtime_dir: Path = DEFAULT_RUNTIME_DIR,
     n_lines: int = 50,
 ) -> int:
-    """Tail logs for a supervised process (or supervisord itself). Blocking CLI version."""
+    """Tail logs for a supervised process (or supervisord itself)."""
     paths = runtime_paths(runtime_dir)
-    log_map = {
-        "proxy": paths["logs"] / "proxy.log",
-        "caddy": paths["logs"] / "caddy.log",
-        "ghostunnel": paths["logs"] / "ghostunnel.log",
-        "supervisord": paths["logs"] / "supervisord.log",
-    }
-    log_file = log_map[process_name]
+    log_file = paths["logs"] / f"{process_name}.log"
     if not log_file.exists():
         print(f"no log file yet for {process_name!r}: {log_file}", file=sys.stderr)
         return 1
@@ -988,168 +927,233 @@ def tail_log(
     return 0
 
 
-def auth_status(
-    server_key: str | None = None,
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    auth_dir: Path = DEFAULT_AUTH_DIR,
-) -> int:
-    """Show mcp-remote OAuth cache state per server."""
-    config = load_config(config_path)
-    state = load_state(runtime_paths(runtime_dir)["state"])
-    all_servers = {s.key: s for s in iter_servers(config, state)}
-    selected = [all_servers[server_key]] if server_key else list(all_servers.values())
-    for server in selected:
-        if server.mode != "remote-oauth":
-            print(f"{server.key}: {server.mode}")
-            continue
-        st, files = auth_state(server, auth_dir)
-        print(f"{server.key}: {st}")
-        if server.url:
-            print(f"  url: {server.url}")
-            print(f"  mcp-remote hash: {mcp_remote_hash(server.url)}")
-        for path in files:
-            print(f"  {path}")
-    return 0
-
-
-def auth_reset(
-    server_key: str,
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    auth_dir: Path = DEFAULT_AUTH_DIR,
-    yes: bool = False,
-    force: bool = False,
-) -> int:
-    """Delete OAuth cache for a server (stop stack first)."""
-    config = load_config(config_path)
-    state = load_state(runtime_paths(runtime_dir)["state"])
-    all_servers = {s.key: s for s in iter_servers(config, state)}
-    if server_key not in all_servers:
-        raise SystemExit(f"unknown server: {server_key!r}")
-    server = all_servers[server_key]
-    if server.mode != "remote-oauth" or not server.url:
-        raise SystemExit(f"{server.key!r} is not a remote-oauth server")
-
-    # Guard: refuse if supervisord is running (mcp-remote may be active).
-    if is_supervisor_running(runtime_dir) and not force:
-        print(
-            "Refusing to delete OAuth cache while the stack is running.\n"
-            "Stop it first ('stop'), or pass --force.",
-            file=sys.stderr,
-        )
-        return 2
-
-    files = auth_files(mcp_remote_hash(server.url), auth_dir)
-    if not files:
-        print(f"no auth files found for {server.key!r}")
-        return 0
-    if not yes:
-        print(f"would delete {len(files)} auth file(s) for {server.key!r}:")
-        for path in files:
-            print(f"  {path}")
-        print("rerun with --yes to delete")
-        return 1
-    for path in files:
-        path.unlink(missing_ok=True)
-        print(f"deleted {path}")
-    return 0
-
-
 def doctor(
-    config_path: Path = DEFAULT_CONFIG,
-    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
-    auth_dir: Path = DEFAULT_AUTH_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
 ) -> int:
-    """Check host prerequisites and auth state."""
-    config = load_config(config_path)
-    proxy = proxy_settings(config)
-    print("host MCP doctor")
+    """Check host prerequisites for the ToolHive + vMCP + ghostunnel stack."""
+    config = load_servers_config(servers_config)
+    group = group_name(config)
+    ok = True
 
-    binaries = ["node", "npx", "caddy", "ghostunnel", "op", "supervisord", "supervisorctl", "caffeinate"]
-    for binary in binaries:
+    print("binaries:")
+    for binary in ("thv", "ghostunnel", "supervisord", "supervisorctl", "caffeinate", "kind"):
         found = shutil.which(binary)
         print(f"  {binary}: {found or 'MISSING'}")
+        if not found and binary != "kind":
+            ok = False
 
-    print(f"proxy port:    {proxy['proxy_port']}")
-    print(f"filtered port: {proxy['filtered_port']}")
-    print(f"auth dir:      {auth_dir}")
-    print()
-    return auth_status(
-        server_key=None,
-        config_path=config_path,
-        runtime_dir=runtime_dir,
-        auth_dir=auth_dir,
-    )
+    print("thv secrets provider:")
+    prov = thv("secret", "list")
+    if prov.returncode == 0:
+        print("  configured (thv secret list OK)")
+    else:
+        print("  NOT configured — run `thv secret setup` (choose 'encrypted')")
+        ok = False
+
+    print("required thv secrets:")
+    needed = sorted({sec["name"] for s in config.get("servers", []) for sec in s.get("secrets", [])})
+    for name in needed:
+        present = thv("secret", "get", name).returncode == 0
+        print(f"  {name}: {'present' if present else 'MISSING (thv secret set ' + name + ')'}")
+        if not present:
+            ok = False
+
+    print("kind cluster:")
+    clusters = {s.get("kind_cluster") for s in config.get("servers", []) if s.get("kind_cluster")}
+    for cluster in sorted(c for c in clusters if c):
+        reachable = subprocess.run(
+            ["kind", "get", "kubeconfig", "--name", cluster, "--internal"],
+            capture_output=True, text=True,
+        ).returncode == 0
+        print(f"  {cluster}: {'reachable' if reachable else 'NOT reachable (kind create cluster / vicegerent cluster setup)'}")
+        if not reachable:
+            ok = False
+
+    print(f"group:         {group}")
+    print(f"vMCP target:   {vmcp_target(config)}")
+    print(f"ghostunnel:    {default_listen()}")
+    return 0 if ok else 1
+
+
+def run_tui(
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
+) -> int:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    try:
+        from tui import HostMCPApp
+    except ImportError as exc:
+        raise SystemExit(f"textual is required for the TUI: {exc}\n  pip install -r host/mcp/requirements-host.txt")
+    HostMCPApp(runtime_dir=runtime_dir, servers_config=servers_config).run()
+    return 0
 
 
 # ---------------------------------------------------------------------------
-# CLI command wrappers (thin adapters from argparse.Namespace to action fns)
+# CLI command wrappers
 # ---------------------------------------------------------------------------
 
 
-def cmd_list(args: argparse.Namespace) -> int:
-    return list_servers(args.config, args.runtime_dir, args.auth_dir)
+def _prompt_yn(prompt: str, default: bool) -> bool:
+    suffix = " [Y/n] " if default else " [y/N] "
+    try:
+        ans = input(prompt + suffix).strip().lower()
+    except EOFError:
+        return default
+    if not ans:
+        return default
+    return ans in ("y", "yes")
 
 
-def cmd_status(args: argparse.Namespace) -> int:
-    return status(args.config, args.runtime_dir, args.auth_dir)
+def _server_auth_line(server: dict[str, Any]) -> str:
+    if server.get("type") == "remote":
+        return "auth: OAuth — a browser opens on first `start` to authorize (token then persists)."
+    secrets = server.get("secrets", [])
+    if secrets:
+        return f"auth: API key via `thv` secret ({', '.join(s['name'] for s in secrets)})."
+    if server.get("kind_cluster"):
+        return f"auth: uses the kind '{server['kind_cluster']}' cluster kubeconfig (no secret)."
+    return "auth: none."
+
+
+def configure(
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
+) -> int:
+    """Interactively walk each MCP server: enable + set up secrets, or skip.
+
+    Skipping (or answering no) disables the server so ToolHive never runs it.
+    Choices persist in the runtime servers-state file; secrets go to `thv`.
+    """
+    config = load_servers_config(servers_config)
+    group = group_name(config)
+    servers = config.get("servers", [])
+    state = load_server_state(runtime_dir)
+    params_all = load_server_params(runtime_dir)
+
+    have_provider = thv("secret", "list").returncode == 0
+    print(f"\nConfigure ToolHive MCP servers (group: {group}).")
+    print("For each server: enable and set it up, or skip it (ToolHive won't run it).")
+    if not have_provider:
+        print(
+            "\n! No `thv` secrets provider configured — servers that need an API key\n"
+            "  can't be set up yet. Run `thv secret setup` (choose 'encrypted'), then re-run.\n"
+        )
+
+    running = list_workloads(group)
+    for server in servers:
+        name = server["name"]
+        secrets = server.get("secrets", [])
+        currently = is_server_enabled(server, state)
+        print(f"\n── {name} ──  (currently {'enabled' if currently else 'disabled'})")
+        if server.get("description"):
+            print(f"   {server['description']}")
+        print(f"   {_server_auth_line(server)}")
+
+        if not _prompt_yn(f"   Enable {name}?", default=currently):
+            state[name] = False
+            if running.get(name):
+                print(f"   stopping running workload {name} …")
+                thv("stop", name)
+            print(f"   {name}: disabled.")
+            continue
+
+        # Non-secret parameters (GitLab URL, kubeconfig path, …).
+        for param in server.get("params", []):
+            pname = param["name"]
+            current = params_all.get(name, {}).get(pname) or str(param.get("default") or "")
+            shown = current if current else "(none)"
+            try:
+                entered = input(f"   {param.get('prompt', pname)} [{shown}]: ").strip()
+            except EOFError:
+                entered = ""
+            value = entered if entered else current
+            params_all.setdefault(name, {})[pname] = value
+            if param.get("required") and not value:
+                print(f"   ! {pname} is required — {name} won't work until it's set.")
+
+        if secrets and not have_provider:
+            print(f"   ! {name} needs a secrets provider — enabling anyway, but set the key later.")
+        for sec in secrets if have_provider else []:
+            sname = sec["name"]
+            exists = thv("secret", "get", sname).returncode == 0
+            if exists and not _prompt_yn(f"   secret '{sname}' is already set — replace it?", default=False):
+                print(f"   keeping existing '{sname}'.")
+                continue
+            print(f"   setting '{sname}' (input hidden):")
+            rc = subprocess.run([_thv_path(), "secret", "set", sname]).returncode
+            if rc != 0:
+                print(f"   warning: `thv secret set {sname}` failed (rc={rc}); {name} may not work.")
+        state[name] = True
+        print(f"   {name}: enabled.")
+
+    save_server_state(runtime_dir, state)
+    save_server_params(runtime_dir, params_all)
+    on = [s["name"] for s in servers if is_server_enabled(s, state)]
+    off = [s["name"] for s in servers if not is_server_enabled(s, state)]
+    print("\nSaved. enabled: " + (", ".join(on) or "(none)"))
+    print("       disabled: " + (", ".join(off) or "(none)"))
+    print("Run `vicegerent start` to bring the enabled servers up.")
+    return 0
+
+
+def set_enabled(
+    name: str,
+    enabled: bool,
+    runtime_dir: Path = DEFAULT_RUNTIME_DIR,
+    servers_config: Path = DEFAULT_SERVERS_CONFIG,
+) -> int:
+    """Non-interactive enable/disable of a single server (persists to state)."""
+    config = load_servers_config(servers_config)
+    known = {s["name"] for s in config.get("servers", [])}
+    if name not in known:
+        raise SystemExit(f"unknown server: {name!r}. Known: {sorted(known)}")
+    state = load_server_state(runtime_dir)
+    state[name] = enabled
+    save_server_state(runtime_dir, state)
+    if not enabled and list_workloads(group_name(config)).get(name):
+        thv("stop", name)
+    print(f"{name}: {'enabled' if enabled else 'disabled'}")
+    return 0
+
+
+def cmd_configure(args: argparse.Namespace) -> int:
+    return configure(args.runtime_dir, args.servers_config)
 
 
 def cmd_enable(args: argparse.Namespace) -> int:
-    return set_server_enabled(args.server, True, args.config, args.runtime_dir, args.proxy_dir)
+    return set_enabled(args.server, True, args.runtime_dir, args.servers_config)
 
 
 def cmd_disable(args: argparse.Namespace) -> int:
-    return set_server_enabled(args.server, False, args.config, args.runtime_dir, args.proxy_dir)
+    return set_enabled(args.server, False, args.runtime_dir, args.servers_config)
 
 
-def cmd_reload(args: argparse.Namespace) -> int:
-    return reload_config(args.config, args.runtime_dir, args.proxy_dir)
+def cmd_status(args: argparse.Namespace) -> int:
+    return status(args.runtime_dir, args.servers_config)
 
 
 def cmd_start(args: argparse.Namespace) -> int:
-    return start_stack(args.config, args.runtime_dir, args.proxy_dir, args.ghostshell, args.listen, args.allow_cn)
+    return start_stack(
+        args.runtime_dir, args.servers_config, args.ghostshell,
+        args.listen, args.allow_cn, args.skip_workloads,
+        args.caffeinate, args.always_caffeinate,
+    )
 
 
 def cmd_stop(args: argparse.Namespace) -> int:
-    return stop_stack(args.runtime_dir)
+    return stop_stack(args.runtime_dir, args.servers_config, not args.keep_workloads)
 
 
 def cmd_logs(args: argparse.Namespace) -> int:
     return tail_log(args.process, args.runtime_dir, args.lines)
 
 
-def cmd_auth_status(args: argparse.Namespace) -> int:
-    return auth_status(getattr(args, "server", None), args.config, args.runtime_dir, args.auth_dir)
-
-
-def cmd_auth_reset(args: argparse.Namespace) -> int:
-    return auth_reset(args.server, args.config, args.runtime_dir, args.auth_dir, args.yes, args.force)
-
-
 def cmd_doctor(args: argparse.Namespace) -> int:
-    return doctor(args.config, args.runtime_dir, args.auth_dir)
+    return doctor(args.servers_config)
 
 
 def cmd_tui(args: argparse.Namespace) -> int:
-    """Launch the interactive TUI."""
-    import importlib.util
-
-    tui_path = Path(__file__).parent / "tui.py"
-    spec = importlib.util.spec_from_file_location("tui", tui_path)
-    tui_mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(tui_mod)  # type: ignore[union-attr]
-    HostMCPApp = tui_mod.HostMCPApp
-
-    app = HostMCPApp(
-        config_path=args.config,
-        runtime_dir=args.runtime_dir,
-        proxy_dir=args.proxy_dir,
-        auth_dir=args.auth_dir,
-    )
-    app.run()
-    return 0
+    return run_tui(args.runtime_dir, args.servers_config)
 
 
 # ---------------------------------------------------------------------------
@@ -1158,42 +1162,45 @@ def cmd_tui(args: argparse.Namespace) -> int:
 
 
 _HELP = """\
-vicegerent-mcp — host-side MCP control plane
+vicegerent-mcp — host-side ToolHive stack controller
 
-Manages N stdio/OAuth MCP servers via mcp-proxy-server + supervisord,
-with hot-reload on enable/disable and a rich TUI dashboard.
+Owns the local ToolHive stack behind the cluster's MCP access:
+  ToolHive workloads (group 'vicegerent') -> vMCP aggregator on :4483
+  -> ghostunnel (mTLS from the cluster), optionally kept awake by caffeinate.
+vMCP and ghostunnel run under supervisord; the workloads run under ToolHive's own
+daemon and persist across stack restarts.
 
 Commands:
-  list                   show all configured MCP servers and their state
-  status                 show server auth state + infrastructure process state
-  enable KEY             enable a server and hot-reload the proxy
-  disable KEY            disable a server and hot-reload the proxy
-  reload                 re-render proxy config from current state and hot-reload
-  start                  start proxy, Caddy, and ghostunnel via supervisord
-  stop                   shut down all managed processes
-  logs PROC              tail logs  (proxy | caddy | ghostunnel | supervisord)
-  auth-status [KEY]      show mcp-remote OAuth cache state (all servers or one)
-  auth-reset KEY         delete OAuth cache for a server (stop stack first)
-  doctor                 check host prerequisites and auth state
-  tui                    launch interactive TUI dashboard
+  configure              interactively enable/skip each MCP server + set secrets
+  enable KEY             enable a server (persists; brought up on next start)
+  disable KEY            disable a server (stops it; ToolHive won't run it)
+  start [--caffeinate]   bring up enabled workloads + vMCP + ghostunnel (idempotent);
+                         --caffeinate keeps macOS awake, --always to make it the default
+  stop                   stop the supervised stack + ToolHive workloads (--keep-workloads to leave them)
+  status                 workload + supervised-process state (rich table)
+  logs PROC              tail logs  (ghostunnel | vmcp | supervisord | caffeinate)
+  doctor                 check binaries, thv secrets provider + secrets, kind
+  tui                    interactive dashboard (textual)
+
+MCP servers are OFF by default; run `configure` (or `enable KEY`) to opt in.
 
 Global options:
-  --config PATH          server config file
-                         (default: host/mcp/servers.json in repo)
-  --auth-dir PATH        mcp-remote OAuth cache directory
-                         (default: ~/.mcp-auth)
   --runtime-dir PATH     supervisord/runtime state directory
                          (default: ~/.vicegerent/mcp)
+  --servers-config PATH  ToolHive servers config
+                         (default: host/mcp/toolhive-servers.json)
+
+Environment:
+  THV_GROUP              ToolHive group name (default: vicegerent)
+  VMCP_HOST / VMCP_PORT  vMCP loopback target (default 127.0.0.1:4483)
+  LISTEN                 ghostunnel listen address (default 127.0.0.1:8453)
 
 Run './vicegerent-mcp COMMAND --help' for per-command options.
 """
 
 
 class _SuppressSubparsers(argparse.RawDescriptionHelpFormatter):
-    """Formatter that hides the auto-generated subcommand list.
-
-    We hand-write the command table in _HELP; the argparse duplicate is noise.
-    """
+    """Hide the auto-generated subcommand list; the command table is in _HELP."""
 
     def _format_action(self, action: argparse.Action) -> str:
         if action.nargs == argparse.PARSER:
@@ -1207,86 +1214,68 @@ def build_parser() -> argparse.ArgumentParser:
         formatter_class=_SuppressSubparsers,
         add_help=True,
     )
-    # Global args available to all subcommands.
-    parser.add_argument(
-        "--config", type=Path, default=DEFAULT_CONFIG, metavar="PATH",
-        help="server config file (default: host/mcp/servers.json in repo)",
-    )
-    parser.add_argument(
-        "--auth-dir", type=Path, default=DEFAULT_AUTH_DIR, metavar="PATH",
-        help="mcp-remote OAuth cache directory (default: ~/.mcp-auth)",
-    )
     parser.add_argument(
         "--runtime-dir", type=Path, default=DEFAULT_RUNTIME_DIR, metavar="PATH",
         help="supervisord/runtime state directory (default: ~/.vicegerent/mcp)",
     )
+    parser.add_argument(
+        "--servers-config", type=Path, default=DEFAULT_SERVERS_CONFIG, metavar="PATH",
+        help="ToolHive servers config (default: host/mcp/toolhive-servers.json)",
+    )
     sub = parser.add_subparsers(dest="command", required=False)
 
-    # list — no stack required
-    sub.add_parser("list", help="show all configured MCP servers and their state").set_defaults(func=cmd_list)
+    sub.add_parser("configure", help="interactively enable/skip each MCP server + set secrets").set_defaults(func=cmd_configure)
 
-    # status — rich table with process state
-    sub.add_parser("status", help="show server auth state and infrastructure process state").set_defaults(func=cmd_status)
-
-    # enable / disable
-    for verb, fn, help_str in [
-        ("enable", cmd_enable, "enable a server and hot-reload the proxy"),
-        ("disable", cmd_disable, "disable a server and hot-reload the proxy"),
-    ]:
-        p = sub.add_parser(verb, help=help_str)
-        p.add_argument("server", metavar="KEY")
-        p.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
+    for verb, fn, helptext in (
+        ("enable", cmd_enable, "enable a server (persists; started on next start)"),
+        ("disable", cmd_disable, "disable a server (stops it; ToolHive won't run it)"),
+    ):
+        p = sub.add_parser(verb, help=helptext)
+        p.add_argument("server", metavar="KEY", help="server name from toolhive-servers.json")
         p.set_defaults(func=fn)
 
-    # reload
-    rl = sub.add_parser("reload", help="re-render proxy config from current state and hot-reload")
-    rl.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
-    rl.set_defaults(func=cmd_reload)
-
-    # start
-    start = sub.add_parser("start", help="start proxy, Caddy, and ghostunnel via supervisord")
-    start.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
+    start = sub.add_parser("start", help="bring up workloads + vMCP + ghostunnel")
     start.add_argument("--ghostshell", type=Path, default=None)
     start.add_argument(
-        "--listen",
-        default=None,
-        help=f"ghostunnel listen address (default: $HOST_ONLY_IP:{DEFAULT_HOST_MCP_TUNNEL_PORT})",
+        "--listen", default=None,
+        help=f"ghostunnel listen address (default: $LISTEN or {DEFAULT_LISTEN})",
     )
     start.add_argument("--allow-cn", default=None, help="ghostunnel client certificate CN")
+    start.add_argument(
+        "--skip-workloads", action="store_true",
+        help="don't run `thv run`; assume workloads are already up",
+    )
+    start.add_argument(
+        "--caffeinate", dest="caffeinate", action="store_true", default=None,
+        help="keep macOS awake while the stack runs (opt-in; default off)",
+    )
+    start.add_argument(
+        "--no-caffeinate", dest="caffeinate", action="store_false",
+        help="don't keep macOS awake, overriding a saved 'always' preference",
+    )
+    start.add_argument(
+        "--always", dest="always_caffeinate", action="store_true",
+        help="persist the caffeinate choice as the default for future starts",
+    )
     start.set_defaults(func=cmd_start)
 
-    # stop
-    sub.add_parser("stop", help="shut down supervisord and all managed processes").set_defaults(func=cmd_stop)
-
-    # logs
-    logs = sub.add_parser("logs", help="tail logs for a supervised process (Ctrl-C to exit)")
-    logs.add_argument(
-        "process",
-        choices=["proxy", "caddy", "ghostunnel", "supervisord"],
-        help="which process log to tail",
+    stop = sub.add_parser("stop", help="stop the supervised stack + ToolHive workloads")
+    stop.add_argument(
+        "--keep-workloads", action="store_true",
+        help="leave the ToolHive workloads running (default: `thv stop` them; auth survives)",
     )
+    stop.set_defaults(func=cmd_stop)
+
+    sub.add_parser("status", help="show workload + supervised-process state").set_defaults(func=cmd_status)
+
+    logs = sub.add_parser("logs", help="tail logs for a supervised process (Ctrl-C to exit)")
+    logs.add_argument("process", choices=list(_LOG_NAMES), help="which process log to tail")
     logs.add_argument("-n", "--lines", type=int, default=50, metavar="N", help="initial lines to show (default: 50)")
     logs.set_defaults(func=cmd_logs)
 
-    # auth-status
-    ast = sub.add_parser("auth-status", help="show mcp-remote OAuth cache state per server")
-    ast.add_argument("server", nargs="?", metavar="KEY")
-    ast.set_defaults(func=cmd_auth_status)
+    sub.add_parser("doctor", help="check host prerequisites").set_defaults(func=cmd_doctor)
 
-    # auth-reset
-    reset = sub.add_parser("auth-reset", help="delete OAuth cache for a server (stop stack first)")
-    reset.add_argument("server", metavar="KEY")
-    reset.add_argument("--yes", action="store_true", help="confirm deletion")
-    reset.add_argument("--force", action="store_true", help="delete even if the stack is running")
-    reset.set_defaults(func=cmd_auth_reset)
-
-    # doctor
-    sub.add_parser("doctor", help="check host prerequisites and auth state").set_defaults(func=cmd_doctor)
-
-    # tui
-    tui_p = sub.add_parser("tui", help="launch interactive TUI dashboard")
-    tui_p.add_argument("--proxy-dir", type=Path, default=DEFAULT_PROXY_DIR)
-    tui_p.set_defaults(func=cmd_tui)
+    sub.add_parser("tui", help="interactive dashboard (textual)").set_defaults(func=cmd_tui)
 
     return parser
 
@@ -1297,50 +1286,35 @@ def main(argv: list[str] | None = None) -> int:
     if not args.command:
         parser.print_help()
         return 0
-    if args.command == "auth-status" and getattr(args, "server", None):
-        servers = {s.key: s for s in iter_servers(load_config(args.config))}
-        if args.server not in servers:
-            raise SystemExit(f"unknown server: {args.server!r}")
     return args.func(args)
 
 
-# ---------------------------------------------------------------------------
-# Public API
-# ---------------------------------------------------------------------------
-
 __all__ = [
-    # Data reading (pure)
-    "load_config",
-    "load_state",
-    "iter_servers",
-    "proxy_settings",
+    "runtime_paths",
+    "load_servers_config",
+    "group_name",
+    "vmcp_port",
+    "enabled_servers",
+    "vmcp_target",
+    "default_listen",
+    "list_workloads",
+    "build_thv_run_argv",
+    "run_workloads",
+    "generate_vmcp_config",
     "get_supervisor_states",
     "is_supervisor_running",
-    "auth_state",
-    # Actions (TUI callable)
-    "list_servers",
+    "tail_log_iter",
     "status",
-    "set_server_enabled",
-    "reload_config",
     "start_stack",
     "stop_stack",
-    "auth_status",
-    "auth_reset",
+    "tail_log",
     "doctor",
-    # TUI helpers
-    "tail_log_iter",
-    "runtime_paths",
-    "_auth_label",
-    "_style_auth",
-    "_style_proc",
-    # Constants
-    "DEFAULT_CONFIG",
+    "run_tui",
     "DEFAULT_RUNTIME_DIR",
-    "DEFAULT_PROXY_DIR",
-    "DEFAULT_AUTH_DIR",
+    "DEFAULT_SERVERS_CONFIG",
     "DEFAULT_GHOSTSHELL",
-    "DEFAULT_HOST_ONLY_IP",
-    "DEFAULT_HOST_MCP_TUNNEL_PORT",
+    "DEFAULT_LISTEN",
+    "SUPERVISED_PROGRAMS",
 ]
 
 

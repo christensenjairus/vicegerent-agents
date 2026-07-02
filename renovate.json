@@ -86,7 +86,7 @@
       "customType": "regex",
       "managerFilePatterns": [
         "/^infrastructure/controllers/agentgateway/chart/values\\.ya?ml$/",
-        "/^apps/vicegerent/gateway/gateway\\.ya?ml$/"
+        "/^apps/base/gateway/gateway\\.ya?ml$/"
       ],
       "matchStrings": [
         "registry:\\s*(?<registryOrg>[^\\s]+)\\s*\\n\\s+repository:\\s*(?<depName>[^\\s]+)\\s*\\n\\s+tag:\\s*(?<currentValue>[^\\s]+)"
@@ -117,20 +117,10 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
-        "/^apps/vicegerent/mcps/.+/values\\.ya?ml$/"
+        "/^host/mcp/toolhive-servers\\.json$/"
       ],
       "matchStrings": [
-        "args:\\s*\\[\\s*-y\\s*,\\s*'?(?<depName>[^@'\\s\\]]+)@(?<currentValue>[^'\\s\\]]+)'?\\s*\\]"
-      ],
-      "datasourceTemplate": "npm"
-    },
-    {
-      "customType": "regex",
-      "managerFilePatterns": [
-        "/^host/mcp/servers\\.json$/"
-      ],
-      "matchStrings": [
-        "\"-y\",\\s+\"(?<depName>[^@\"\\s]+)@(?<currentValue>[^\"\\s]+)\""
+        "\"package\":\\s*\"(?<depName>.+)@(?<currentValue>[^\"@]+)\""
       ],
       "datasourceTemplate": "npm"
     }

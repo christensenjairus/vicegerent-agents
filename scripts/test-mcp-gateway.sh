@@ -3,13 +3,9 @@
 # Probe all MCP endpoints that agentgateway is supposed to expose.
 #
 # Usage (run from your mac):
-#   # Option A: port-forward first in another terminal:
+#   # Port-forward first in another terminal:
 #   #   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
 #   #   GATEWAY_URL=http://localhost:8080 bash scripts/test-mcp-gateway.sh
-#
-#   # Option B: minikube NodePort:
-#   #   export GATEWAY_URL=$(minikube -p vicegerent service agentgateway-proxy -n agentgateway-system --url)
-#   #   bash scripts/test-mcp-gateway.sh
 #
 # Override API key (default is the kustomize-generated literal "hermes"):
 #   MYKEY=myval bash scripts/test-mcp-gateway.sh
@@ -18,12 +14,10 @@ set -uo pipefail
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:-hermes}"
 
-# MCP endpoints — must match apps/vicegerent/agents/felix/config.yaml mcp_servers
-# (the HTTP MCPs fronted by agentgateway HTTPRoutes).
+# MCP endpoints — all backends are aggregated behind the single ToolHive vMCP,
+# fronted by the agentgateway /mcp/vmcp HTTPRoute.
 MCPS=(
-  "tavily:/mcp/tavily"
-  "firecrawl:/mcp/firecrawl"
-  "host:/mcp/host"
+  "vmcp:/mcp/vmcp"
 )
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'

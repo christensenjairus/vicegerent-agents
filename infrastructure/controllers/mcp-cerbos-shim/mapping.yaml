@@ -3,16 +3,16 @@
 # Only kind-bearing tools are mapped; unmapped tools pass (defaultAction: allow).
 # Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
 backends:
-  host:
+  vmcp:
     defaultAction: allow
     helpers: [canonicalK8s]
     tools:
-      kubernetes__resources_get:
+      kubernetes_resources_get:
         resourceType: k8s_resource
         action: getResource
         id: get(args,'name','')
         attrFrom: canonicalK8s(args)
-      kubernetes__resources_list:
+      kubernetes_resources_list:
         resourceType: k8s_resource
         action: listResources
         id: "''"

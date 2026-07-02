@@ -126,7 +126,7 @@ if [[ -d "$cerbos_policy_dir" ]]; then
   fi
 fi
 
-# Assert every MCP overlay's AgentgatewayPolicy either attaches a well-formed
+# Assert the vMCP overlay's AgentgatewayPolicy either attaches a well-formed
 # Cerbos guardrail or attaches none at all — never a malformed/partial one. A
 # guardrail is well-formed only as a single tools/call -> mcp-cerbos-shim
 # processor with FailClosed; anything else forwards to the MCP server with no
@@ -135,10 +135,8 @@ fi
 # (Flux never applying the commit, or the controller silently rejecting the
 # CRD) — that gap is documented in the shim README.
 #
-# `host` (hand-written, not chart-rendered) is required to carry the guardrail
-# — its Secret-blocking model depends on it. Chart-based overlays opt in via
-# gateway.cerbosGuardrail: true (charts/vicegerent-mcp/templates/policy.yaml);
-# for those we just verify that whatever guardrail is present is well-formed.
+# The vMCP backend (hand-written Flux YAML) is required to carry the guardrail
+# — its Secret-blocking model depends on it.
 assert_guardrail_well_formed() {
   local overlay="$1" rendered="$2"
   local processors
@@ -165,36 +163,23 @@ assert_guardrail_well_formed() {
 }
 
 echo "INFO - Asserting MCP Cerbos guardrails are well-formed"
-host_overlay="apps/vicegerent/mcps/host"
-if [[ ! -d "$host_overlay" ]]; then
-  echo "ERROR - $host_overlay not found; cannot verify the host MCP Cerbos guardrail." >&2
+vmcp_overlay="apps/base/mcps/vmcp"
+if [[ ! -d "$vmcp_overlay" ]]; then
+  echo "ERROR - $vmcp_overlay not found; cannot verify the vMCP Cerbos guardrail." >&2
   exit 1
 fi
 
-# host is hand-written Flux YAML — kustomize build renders it directly.
-host_rendered="$(kustomize build "$host_overlay" "${kustomize_flags[@]}")"
-assert_guardrail_well_formed "$host_overlay" "$host_rendered"
-host_guardrail_processors="$(echo "$host_rendered" | yq ea '
+# vMCP is hand-written Flux YAML — kustomize build renders it directly.
+vmcp_rendered="$(kustomize build "$vmcp_overlay" "${kustomize_flags[@]}")"
+assert_guardrail_well_formed "$vmcp_overlay" "$vmcp_rendered"
+vmcp_guardrail_processors="$(echo "$vmcp_rendered" | yq ea '
   select(.kind == "AgentgatewayPolicy")
   | .spec.backend.mcp.guardrails.processors // [] | length' -)"
-if [[ "$host_guardrail_processors" != "1" ]]; then
-  echo "ERROR - host MCP AgentgatewayPolicy must attach exactly one" \
+if [[ "$vmcp_guardrail_processors" != "1" ]]; then
+  echo "ERROR - vMCP AgentgatewayPolicy must attach exactly one" \
        "tools/call -> mcp-cerbos-shim guardrail with FailClosed (found:" \
-       "${host_guardrail_processors:-0}). Refusing to ship a fail-open MCP backend." >&2
+       "${vmcp_guardrail_processors:-0}). Refusing to ship a fail-open MCP backend." >&2
   exit 1
 fi
-
-# Every other overlay is a HelmRelease pointing at ./charts/vicegerent-mcp — kustomize
-# build only renders the HelmRelease + values ConfigMap wrapper (Flux's helm-controller
-# renders the chart itself at reconcile time, not visible via kustomize build), so render
-# the chart directly with that overlay's values.yaml to see the real AgentgatewayPolicy.
-for mcp_overlay in apps/vicegerent/mcps/*/; do
-  mcp_overlay="${mcp_overlay%/}"
-  [[ "$mcp_overlay" == "$host_overlay" ]] && continue
-  [[ -f "$mcp_overlay/values.yaml" && -f "$mcp_overlay/release.yaml" ]] || continue
-  grep -q 'chart: \./charts/vicegerent-mcp' "$mcp_overlay/release.yaml" || continue
-  rendered="$(helm template guardrail-check ./charts/vicegerent-mcp -f "$mcp_overlay/values.yaml")"
-  assert_guardrail_well_formed "$mcp_overlay" "$rendered"
-done
 
 echo "INFO - All validations passed"

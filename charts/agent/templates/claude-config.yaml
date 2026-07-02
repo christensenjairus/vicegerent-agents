@@ -1,0 +1,47 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vicegerent-agent.name" . }}-claude-config
+  namespace: agent-sandbox
+data:
+  settings.json: |-
+    {
+      "env": {
+        "ANTHROPIC_BASE_URL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic",
+        "ANTHROPIC_AUTH_TOKEN": "${AGENTGATEWAY_API_KEY}"
+      },
+      "model": "claude-opus-4-8",
+      "enableAllProjectMcpServers": true,
+      "permissions": {
+        "allow": ["mcp__mnemosyne", "mcp__vmcp"],
+        "deny": ["WebSearch", "WebFetch"]
+      }
+    }
+  claude.json: |-
+    {
+      "mcpServers": {
+        "mnemosyne": {
+          "type": "stdio",
+          "command": "/opt/hermes/.venv/bin/mnemosyne",
+          "args": ["mcp"]
+        },
+        "vmcp": {
+          "type": "http",
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp"
+        }
+      },
+      "projects": {
+        "/workspace": {
+          "hasTrustDialogAccepted": true
+        },
+        "/workspace/vicegerent-agents": {
+          "hasTrustDialogAccepted": true
+        },
+        "/opt/hermes": {
+          "hasTrustDialogAccepted": true
+        }
+      }
+    }
+  CLAUDE.md: |-
+    {{ include "vicegerent-agent.webSearchInstructions" . | trim }}

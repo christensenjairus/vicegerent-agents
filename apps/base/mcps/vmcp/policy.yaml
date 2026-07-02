@@ -1,0 +1,28 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: vmcp-mcp-tools
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: vmcp
+  backend:
+    tls:
+      mtlsCertificateRef:
+        - name: vicegerent-mcp-client
+      caCertificateRefs:
+        - name: ghostunnel-ca
+    mcp:
+      guardrails:
+        processors:
+          - methods:
+              tools/call: Request
+            remote:
+              backendRef:
+                name: mcp-cerbos-shim
+                namespace: cerbos
+                port: 4445
+              failureMode: FailClosed
