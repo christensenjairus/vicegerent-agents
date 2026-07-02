@@ -40,13 +40,41 @@ That's a deliberate design choice, not just a stopgap: it makes the agent a genu
 
 ## MCP authorization model
 
-All MCP tools reach the cluster through one path: the host vMCP → ghostunnel (mTLS) → agentgateway's `vmcp` backend → the agent. Agentgateway is the single ingress gate (routing, auth, mTLS), but it does **not** allowlist individual tools — every tool the vMCP exposes passes through. The only instance-level control is a Cerbos guardrail attached to the `vmcp` backend, which blocks exactly one thing: reading Kubernetes **Secrets** (through any tool, `FailClosed` on `tools/call`).
+All MCP tools reach the cluster through one path: the host vMCP → ghostunnel (mTLS) → agentgateway's `vmcp` backend → the agent. Two separate concerns sit on this path: *tool selection* (which tools exist for the agent) and *argument-level authorization*. Tool selection is done upstream in ToolHive's vMCP (`aggregation.tools`) so operators can scope backends from `toolhive-servers.json`; agentgateway can also enforce a per-tool allowlist itself, and a corporate/centralized deployment would put it there — here it's kept in ToolHive for developer flexibility. Argument-level authorization is a Cerbos guardrail attached to the `vmcp` backend, which denies by resource (`FailClosed` on `tools/call`): reading Kubernetes **Secrets**, reading OpenSearch Grafana datasources, and Jira calls targeting a project other than **CHANGE**.
 
-- **Agentgateway**: single MCP ingress gate — routing, bearer auth, mTLS to the host vMCP. No per-tool allowlist.
-- **Cerbos**: makes the deny decision — blocks reading Kubernetes Secrets (with CEL).
+- **Agentgateway**: MCP ingress gate — routing, bearer auth, mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup tool selection is left to ToolHive.
+- **Cerbos**: makes the deny decision — blocks the protected resources above (with CEL).
 - **mcp-cerbos-shim**: standardizes fields so Cerbos sees an accurate resource; makes no policy decisions.
 
-The shim/Cerbos are a confidentiality guardrail, not a tool allowlist. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the full division of responsibility.
+The shim/Cerbos are a resource guardrail, orthogonal to tool selection. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the full division of responsibility.
+
+## Forking this repo
+
+This repo is meant to be forked, not shared — each person runs their own fork against
+their own laptop and their own local Kind cluster. Nothing here is multi-tenant: two
+people bootstrapping the same repo would each try to push Flux's generated manifests
+back to it and fight over the same git history.
+
+To stand up your own instance:
+
+1. Fork the repo (GitHub, your own self-hosted git, wherever) and clone your fork.
+   `./vicegerent bootstrap` / `install.sh` default `REPO_URL` to this checkout's
+   `origin` remote, so cloning your own fork is enough — no env override needed.
+2. Make sure the SSH key you'll bootstrap with (`PRIVATE_KEY_FILE`, default
+   `~/.ssh/id_rsa`) has **write** access to your fork — `flux bootstrap git` commits
+   its generated manifests back to it.
+3. If your git host isn't `github.com`, add it to the agent sandbox's SSH egress
+   allowlist in `charts/agent/templates/networkpolicy.yaml` (the `toFQDNs` block
+   under the "SSH bypasses the HTTP proxy" comment) — otherwise Cilium blocks
+   git-over-SSH from inside the sandbox. If that host itself resolves through a
+   CNAME (common for self-hosted setups behind dynamic DNS or a tunnel), add every
+   name in the chain, not just the one you git-clone with: Cilium's `toFQDNs` DNS
+   proxy strips a CNAME answer unless every name in it is itself allowlisted. Find
+   the chain with `dig +noall +answer <your-host>`.
+
+After your own `flux bootstrap` run, `clusters/vicegerent/flux-system/gotk-*.yaml`
+will diverge from this repo's copies to point at your fork — that's expected (Flux
+regenerates them per-target), not something to reconcile back upstream.
 
 ## Create the local Kind cluster
 
@@ -59,7 +87,7 @@ Prerequisites:
 - `flux`
 - `helm`
 - `jq`
-- SSH access to `gitlab.hahomelabs.com:jchristensen/vicegerent-agents`
+- SSH access (with write access) to your fork — see "Forking this repo" above
 
 Create the cluster (creates the Kind cluster on its docker network and installs Cilium):
 
@@ -172,7 +200,7 @@ The script defaults to:
 
 ```text
 KUBE_CONTEXT=kind-vicegerent
-REPO_URL=ssh://git@gitlab.hahomelabs.com/jchristensen/vicegerent-agents.git
+REPO_URL=<this checkout's 'origin' remote>
 BRANCH=main
 CLUSTER_PATH=./clusters/vicegerent
 PRIVATE_KEY_FILE=$HOME/.ssh/id_rsa

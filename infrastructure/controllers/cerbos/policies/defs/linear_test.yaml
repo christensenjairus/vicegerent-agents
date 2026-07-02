@@ -1,0 +1,45 @@
+---
+name: linear_devops_team_block_test
+description: Linear create_issue calls targeting a team other than DEVOPS are denied;
+  calls confined to the DEVOPS team are allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  devops_team:
+    id: REPLACE_WITH_DEVOPS_TEAM_ID
+    kind: linear_team
+    attr: {teamId: REPLACE_WITH_DEVOPS_TEAM_ID}
+  other_team:
+    id: some-other-team-id
+    kind: linear_team
+    attr: {teamId: some-other-team-id}
+  missing_team_id:
+    id: '*'
+    kind: linear_team
+    attr: {teamId: ''}
+tests:
+  - name: create_issue confined to DEVOPS is allowed
+    input:
+      principals: [hermes]
+      resources: [devops_team]
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: devops_team
+        actions: {create: EFFECT_ALLOW}
+  - name: create_issue targeting another team, or with no teamId, is denied
+    input:
+      principals: [hermes]
+      resources: [other_team, missing_team_id]
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: other_team
+        actions: {create: EFFECT_DENY}
+      - principal: hermes
+        resource: missing_team_id
+        actions: {create: EFFECT_DENY}

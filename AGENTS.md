@@ -65,11 +65,27 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
 - **Generated Flux manifests** (`clusters/*/flux-system/gotk-*.yaml`) are excluded from `yamlfix`;
   leave them as Flux generates them.
 - **MCP authorization layering** — agentgateway is the single ingress gate for MCP traffic (routing,
-  auth, mTLS to the host vMCP), but it does *not* allowlist individual tools: every tool the vMCP
-  exposes passes through to the agent. The only instance-level control is the `mcp-cerbos-shim` +
-  Cerbos guardrail on the `vmcp` backend, which blocks one thing — reading Kubernetes **Secrets**
-  (FailClosed on `tools/call`). The shim/Cerbos are NOT a tool allowlist; don't add a tool or kind
-  name to the shim mapping or the Cerbos `allow` rule to *permit* something. See
+  auth, mTLS to the host vMCP). Two separate concerns sit on top: *tool selection* (which tools an
+  agent can see/call) and *argument-level authorization*. Tool selection is done upstream in ToolHive's
+  vMCP (`aggregation.tools` in `toolhive-servers.json`) so operators can scope a backend by editing
+  that file and restarting the host stack; agentgateway can also enforce a per-tool allowlist itself,
+  and a corporate/centralized deployment would put it there instead — which place owns it is a policy
+  choice, kept in ToolHive here for developer flexibility. Argument-level authz is the `mcp-cerbos-shim`
+  + Cerbos guardrail on the `vmcp` backend, a deny-by-resource guardrail (FailClosed on `tools/call`)
+  that currently blocks: reading Kubernetes **Secrets**; reading the OpenSearch Grafana
+  datasources; any **Jira** call targeting a project other than **CHANGE** (by `project_key` or
+  the project prefix of an issue/epic key); any **GitHub** call targeting a repo outside the
+  allowlist in `defs/resource_github.yaml` (by `owner`/`repo`), or writing directly to a protected
+  branch (main/master/production); any **GitLab** call writing directly to a protected branch (no
+  repo allowlist — the bot's GitLab PAT is already project-scoped, unlike GitHub's); and any
+  **Linear** `create_issue` targeting a team other than DEVOPS (`defs/resource_linear.yaml` —
+  `update_issue`/`create_comment` carry no verifiable team and are unmapped). The shim mapping and Cerbos rules deny protected resources;
+  they are not the place to permit or block a tool outright — that's the tool-selection layer above.
+  A tool's mapping can also carry a `force` block — a literal, unconditional argument rewrite applied
+  only after Cerbos allows (GitHub `create_pull_request`/`update_pull_request` force `draft: true` so
+  every agent-opened PR stays a draft; **Notion** `create-pages` forces `parent` to the Scratchpad
+  page so every page the agent creates lands there — a rewrite, not a deny, so the agent never sees an
+  error or retries). This is a mutation, not a deny; it never overrides a Cerbos denial. See
   `images/mcp-cerbos-shim/README.md` ("Authorization Layers").
 
 ## Command Approval System

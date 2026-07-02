@@ -51,9 +51,14 @@ spec:
         - ports:
             - port: '443'
               protocol: TCP
-    # SSH bypasses the HTTP proxy — direct egress for git push/pull.
+    # SSH bypasses the HTTP proxy — direct egress for git push/pull. gitlab.hahomelabs.com
+    # resolves through a CNAME chain (dynamic DNS); Cilium's toFQDNs DNS proxy strips a
+    # CNAME answer unless every name in the chain is itself allowlisted, so the
+    # intermediate names are listed alongside the host actually queried.
     - toFQDNs:
         - matchName: gitlab.hahomelabs.com
+        - matchName: uw1-ddns.hahomelabs.com
+        - matchName: uw1-hahomelabs.ddns.net
         - matchName: github.com
       toPorts:
         - ports:

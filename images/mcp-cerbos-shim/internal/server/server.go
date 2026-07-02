@@ -1,5 +1,7 @@
 // Package server implements the agentgateway ExtMcp gRPC service.
-// Fail-closed contract: only tools/call is evaluated; bad params/mapping/eval/Cerbos errors deny; responses set only pass or error.
+// Fail-closed contract: only tools/call is evaluated; bad params/mapping/eval/Cerbos errors
+// deny. Responses are pass or error, except a tool with a mapping `force` set, which allows
+// via a mutated (rewritten-args) result instead of a bare pass — never on a denied call.
 package server
 
 import (
@@ -18,6 +20,15 @@ import (
 )
 
 const toolsCall = "tools/call"
+
+// callToolMeta is the vMCP optimizer's (thv vmcp serve --optimizer/--optimizer-embedding)
+// meta-tool name. With the optimizer on, vMCP exposes only find_tool/call_tool instead
+// of the real backend tools, so every actual invocation arrives wrapped as
+// call_tool{tool_name, parameters} rather than under its own name. Left unhandled, the
+// mapping lookup below would only ever see "call_tool" — never a mapped tool — and
+// silently pass every call through on this backend's defaultAction: allow. Field names
+// match github.com/stacklok/toolhive/pkg/vmcp/optimizer.CallToolInput.
+const callToolMeta = "call_tool"
 
 // denyMessage omits resource/action to avoid leaking probed state; detail goes to shim log.
 const denyMessage = "Access denied by security policy. This is an intentional restriction, not a tool error; try a different resource or action."
@@ -48,8 +59,9 @@ type callParams struct {
 	Arguments map[string]any `json:"arguments"`
 }
 
-// CheckRequest is the pre-forward gate. It returns Pass{} to allow, or an
-// AuthorizationError to deny. It never sets mutated/header_mutation/metadata.
+// CheckRequest is the pre-forward gate. It returns Pass{} to allow, Mutated{}
+// to allow-with-rewritten-args (only for a tool carrying a mapping `force`
+// set), or an AuthorizationError to deny. It never sets header_mutation/metadata.
 func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpRequestResult, error) {
 	backend, derr := s.resolveBackend(req.GetServiceNames())
 	if derr != nil {
@@ -82,7 +94,26 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		cp.Arguments = map[string]any{} // valid: some tools take no args
 	}
 
-	if _, ok := b.Tools[cp.Name]; !ok {
+	// wrapped remembers whether this call arrived through the optimizer's
+	// call_tool meta-tool, so an eventual mutation can be re-wrapped into the
+	// same shape before forwarding (the gateway replaces the whole params
+	// object verbatim; it does not know about call_tool itself).
+	wrapped := cp.Name == callToolMeta
+	if wrapped {
+		toolName, ok := cp.Arguments["tool_name"].(string)
+		if !ok || toolName == "" {
+			return deny("call_tool missing string tool_name"), nil
+		}
+		params, _ := cp.Arguments["parameters"].(map[string]any) // absent/wrong-type -> no args
+		cp.Name = toolName
+		cp.Arguments = params
+		if cp.Arguments == nil {
+			cp.Arguments = map[string]any{}
+		}
+	}
+
+	tool, ok := b.Tools[cp.Name]
+	if !ok {
 		if b.DefaultAction == config.ActionDeny {
 			return deny(fmt.Sprintf("tool %q not mapped on deny-default backend %q", cp.Name, backend)), nil
 		}
@@ -106,7 +137,33 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		log.Printf("deny: %s on %s (tool=%s backend=%s)", res.Action, res.ResourceType, cp.Name, backend)
 		return deny(denyMessage), nil
 	}
-	return pass(), nil
+
+	if len(tool.Force) == 0 {
+		return pass(), nil
+	}
+	mutated, err := buildMutatedParams(cp, wrapped, tool.Force)
+	if err != nil {
+		// A shim-side malfunction (e.g. the tool's own args aren't marshalable) —
+		// fail closed rather than forward an un-mutated, non-compliant call.
+		return deny(fmt.Sprintf("force-override eval: %v", err)), nil
+	}
+	return mutate(mutated), nil
+}
+
+// buildMutatedParams applies literal force-overrides to cp.Arguments and
+// re-serializes the tools/call params in the same shape the request arrived
+// in (re-wrapped into call_tool{tool_name,parameters} if it came in that way).
+func buildMutatedParams(cp callParams, wrapped bool, force map[string]any) ([]byte, error) {
+	for k, v := range force {
+		cp.Arguments[k] = v
+	}
+	if wrapped {
+		return json.Marshal(map[string]any{
+			"name":      callToolMeta,
+			"arguments": map[string]any{"tool_name": cp.Name, "parameters": cp.Arguments},
+		})
+	}
+	return json.Marshal(map[string]any{"name": cp.Name, "arguments": cp.Arguments})
 }
 
 // resolveBackend enforces exactly-one mapped backend in service_names.
@@ -136,6 +193,14 @@ func deny(reason string) *pb.McpRequestResult {
 			},
 		},
 	}
+}
+
+// mutate replaces the JSON-RPC params before the gateway forwards the call
+// upstream. Only reached after Cerbos has already allowed the (unmutated)
+// call, so the resource checked and the resource forwarded always agree on
+// owner/repo/branch — only literal force-override keys (e.g. draft) change.
+func mutate(params []byte) *pb.McpRequestResult {
+	return &pb.McpRequestResult{Result: &pb.McpRequestResult_Mutated{Mutated: params}}
 }
 
 // CheckResponse is stubbed for v1: always Pass with no mutation.

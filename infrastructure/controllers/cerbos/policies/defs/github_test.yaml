@@ -1,0 +1,147 @@
+---
+name: github_repo_allowlist_block_test
+description: GitHub calls targeting a repo outside the allowlist are denied; calls
+  confined to an allowed owner/repo are allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  moveworks_emu_moveworks:
+    id: moveworks-emu/moveworks
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: moveworks}
+  moveworks_emu_k8s_manifests:
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: k8s-manifests}
+  jchristensen_movester_moveworks:
+    id: jchristensen_movester/moveworks
+    kind: github_repo
+    attr: {owner: jchristensen_movester, repo: moveworks}
+  jchristensen_movester_k8s_manifests:
+    id: jchristensen_movester/k8s-manifests
+    kind: github_repo
+    attr: {owner: jchristensen_movester, repo: k8s-manifests}
+  vicegerent_agents:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents}
+  other_repo:
+    id: someoneelse/some-repo
+    kind: github_repo
+    attr: {owner: someoneelse, repo: some-repo}
+  same_repo_wrong_owner:
+    id: moveworks-emu/vicegerent-agents
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: vicegerent-agents}
+  missing_attrs:
+    id: /
+    kind: github_repo
+    attr: {owner: '', repo: ''}
+  push_to_main:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: main}
+  create_or_update_file_on_master:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: master}
+  create_branch_named_production:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: production}
+  push_to_feature_branch:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: feature-x}
+  create_pull_request_against_main:
+    # create_pull_request has no 'branch' arg (only base/head) — the shim's
+    # branch attr resolves to '' for it, same as every other non-branch-writing
+    # tool. Opening a PR against main must not be blocked.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: ''}
+  push_to_main_disallowed_repo:
+    # Both guardrails apply at once; either alone would deny.
+    id: someoneelse/some-repo
+    kind: github_repo
+    attr: {owner: someoneelse, repo: some-repo, branch: main}
+tests:
+  - name: calls confined to an allowed repo are allowed
+    input:
+      principals: [hermes]
+      resources:
+        - moveworks_emu_moveworks
+        - moveworks_emu_k8s_manifests
+        - jchristensen_movester_moveworks
+        - jchristensen_movester_k8s_manifests
+        - vicegerent_agents
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: moveworks_emu_moveworks
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: moveworks_emu_k8s_manifests
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: jchristensen_movester_moveworks
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: jchristensen_movester_k8s_manifests
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: vicegerent_agents
+        actions: {access: EFFECT_ALLOW}
+  - name: calls targeting a repo outside the allowlist are denied
+    input:
+      principals: [hermes]
+      resources: [other_repo, same_repo_wrong_owner, missing_attrs]
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: other_repo
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: same_repo_wrong_owner
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: missing_attrs
+        actions: {access: EFFECT_DENY}
+  - name: writes targeting a protected branch are denied even on an allowed repo
+    input:
+      principals: [hermes]
+      resources:
+        - push_to_main
+        - create_or_update_file_on_master
+        - create_branch_named_production
+        - push_to_main_disallowed_repo
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: push_to_main
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_or_update_file_on_master
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_branch_named_production
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: push_to_main_disallowed_repo
+        actions: {access: EFFECT_DENY}
+  - name: writes to a non-protected branch, and calls that carry no branch, are allowed
+    input:
+      principals: [hermes]
+      resources: [push_to_feature_branch, create_pull_request_against_main]
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: push_to_feature_branch
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_pull_request_against_main
+        actions: {access: EFFECT_ALLOW}

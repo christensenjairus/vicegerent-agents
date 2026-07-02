@@ -73,6 +73,19 @@ backends:
         action: create_issue
         id: "get(args,'repo','')"
         attr: { repo: "get(args,'repo','')" }
+      open_pr:
+        resourceType: gh_action
+        action: open_pr
+        id: "get(args,'repo','')"
+        attr: { repo: "get(args,'repo','')" }
+        force: { draft: true }
+      force_nested:
+        resourceType: gh_action
+        action: force_nested
+        id: "get(args,'repo','')"
+        attr: { repo: "get(args,'repo','')" }
+        force:
+          parent: { type: page_id, page_id: scratchpadid }
 `
 
 func newTestServer(t *testing.T, d *stubDecider) *Server {
@@ -93,12 +106,34 @@ func toolCall(name string, args map[string]any) []byte {
 	return b
 }
 
+// optimizerCall builds the vMCP optimizer's call_tool wrapper around a real
+// invocation: {"name":"call_tool","arguments":{"tool_name":...,"parameters":...}}.
+func optimizerCall(toolName string, params map[string]any) []byte {
+	b, _ := json.Marshal(map[string]any{
+		"name":      callToolMeta,
+		"arguments": map[string]any{"tool_name": toolName, "parameters": params},
+	})
+	return b
+}
+
 func mcpReq(backend, method string, body []byte) *pb.McpRequest {
 	return &pb.McpRequest{ServiceNames: []string{backend}, Method: method, McpRequest: body}
 }
 
-func isPass(r *pb.McpRequestResult) bool { return r.GetPass() != nil }
-func isDeny(r *pb.McpRequestResult) bool { return r.GetError() != nil }
+func isPass(r *pb.McpRequestResult) bool    { return r.GetPass() != nil }
+func isDeny(r *pb.McpRequestResult) bool    { return r.GetError() != nil }
+func isMutated(r *pb.McpRequestResult) bool { return r.GetMutated() != nil }
+
+// decodeMutated parses a Mutated result's replacement params back into a
+// name/arguments pair for assertions.
+func decodeMutated(t *testing.T, r *pb.McpRequestResult) (string, map[string]any) {
+	t.Helper()
+	var cp callParams
+	if err := json.Unmarshal(r.GetMutated(), &cp); err != nil {
+		t.Fatalf("mutated result is not valid callParams JSON: %v", err)
+	}
+	return cp.Name, cp.Arguments
+}
 
 // assertNoSideEffects enforces the v1 invariant: results carry no mutation or metadata channels.
 func assertNoSideEffects(t *testing.T, r *pb.McpRequestResult) {
@@ -278,8 +313,10 @@ func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
 }
 
 // TestCheckRequest_PassDefaultContract documents the simplified model: the shim
-// is a Secret-blocker, not a tool/kind allowlist. agentgateway gates which
-// tools exist; here, anything that isn't a Secret passes.
+// is a resource-blocker, not a tool/kind allowlist. Which tools exist is decided
+// upstream by tool selection (ToolHive's vMCP here, or an agentgateway per-tool
+// allowlist in a centralized setup); here, anything that isn't a protected
+// resource passes.
 func TestCheckRequest_PassDefaultContract(t *testing.T) {
 	t.Run("arbitrary non-secret kind (CRD) reaches Cerbos and passes", func(t *testing.T) {
 		// Unknown non-Secret kinds reach Cerbos; the shim is not a kind allowlist.
@@ -381,6 +418,236 @@ func TestCheckRequest_AllowDefaultBackendPassesUnmappedTool(t *testing.T) {
 	if d.calls != 0 {
 		t.Fatalf("expected no cerbos call, got %d", d.calls)
 	}
+}
+
+// TestCheckRequest_OptimizerCallToolUnwrap covers the vMCP optimizer path
+// (thv vmcp serve --optimizer): every real invocation arrives wrapped as
+// call_tool{tool_name, parameters}. If the shim didn't unwrap it, the mapping
+// lookup would only ever see "call_tool" and silently pass every call on this
+// allow-default backend — including Secret reads.
+func TestCheckRequest_OptimizerCallToolUnwrap(t *testing.T) {
+	t.Run("call_tool wrapping a Secret read still denies", func(t *testing.T) {
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			optimizerCall("getResource", map[string]any{"kind": "Secret", "name": "x"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny for Secret read via call_tool wrapper")
+		}
+		if d.calls != 1 {
+			t.Fatalf("expected 1 cerbos call, got %d", d.calls)
+		}
+		if d.gotAttr["kind"] != "Secret" {
+			t.Errorf("unwrap lost the real args: kind=%q", d.gotAttr["kind"])
+		}
+	})
+
+	t.Run("call_tool wrapping an allowed read passes using the real tool's mapping", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			optimizerCall("getResource", map[string]any{"kind": "Pod", "name": "p", "namespace": "default"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass, got deny: %s", r.GetError().GetReason())
+		}
+		if d.gotAct != "getResource" || d.gotAttr["kind"] != "Pod" {
+			t.Errorf("unwrap didn't reach the real tool's mapping: action=%q kind=%q", d.gotAct, d.gotAttr["kind"])
+		}
+	})
+
+	t.Run("missing tool_name denies without a Cerbos call", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		body, _ := json.Marshal(map[string]any{
+			"name":      callToolMeta,
+			"arguments": map[string]any{"parameters": map[string]any{"kind": "Pod"}},
+		})
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call", body))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny for call_tool missing tool_name")
+		}
+		if d.calls != 0 {
+			t.Fatalf("expected no cerbos call, got %d", d.calls)
+		}
+	})
+
+	t.Run("non-string tool_name denies", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		body, _ := json.Marshal(map[string]any{
+			"name":      callToolMeta,
+			"arguments": map[string]any{"tool_name": 5, "parameters": map[string]any{}},
+		})
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call", body))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny for non-string tool_name")
+		}
+		if d.calls != 0 {
+			t.Fatalf("expected no cerbos call, got %d", d.calls)
+		}
+	})
+
+	t.Run("omitted parameters unwraps to empty args instead of crashing", func(t *testing.T) {
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		body, _ := json.Marshal(map[string]any{
+			"name":      callToolMeta,
+			"arguments": map[string]any{"tool_name": "listResources"},
+		})
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call", body))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny (stub decider denies), got pass")
+		}
+		if d.calls != 1 {
+			t.Fatalf("expected the call to reach Cerbos, got %d calls", d.calls)
+		}
+	})
+
+	t.Run("find_tool invokes no resource and passes on an allow-default backend", func(t *testing.T) {
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		body, _ := json.Marshal(map[string]any{
+			"name":      "find_tool",
+			"arguments": map[string]any{"tool_description": "read a pod"},
+		})
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call", body))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for find_tool (no resource invoked)")
+		}
+		if d.calls != 0 {
+			t.Fatalf("expected no cerbos call for find_tool, got %d", d.calls)
+		}
+	})
+}
+
+// TestCheckRequest_ForceOverride covers a mapping `force` block (used to make
+// GitHub PR create/update always draft: true): on allow, the call must be
+// forwarded with the forced key rewritten regardless of what was sent — as a
+// Mutated result, not a bare Pass. On deny, force must never apply.
+func TestCheckRequest_ForceOverride(t *testing.T) {
+	t.Run("allow: forces the key and forwards other args unchanged", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("open_pr", map[string]any{"repo": "r", "draft": false, "title": "t"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isMutated(r) {
+			t.Fatalf("expected a mutated result for a force-mapped tool, got pass=%v deny=%v", isPass(r), isDeny(r))
+		}
+		name, args := decodeMutated(t, r)
+		if name != "open_pr" {
+			t.Errorf("mutated name = %q, want open_pr", name)
+		}
+		if args["draft"] != true {
+			t.Errorf("forced arg draft = %v, want true", args["draft"])
+		}
+		if args["repo"] != "r" || args["title"] != "t" {
+			t.Errorf("non-forced args not preserved: %v", args)
+		}
+	})
+
+	t.Run("deny: force never applies, no mutation leaks through", func(t *testing.T) {
+		d := &stubDecider{allow: false}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("open_pr", map[string]any{"repo": "r", "draft": false})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny, got pass=%v mutated=%v", isPass(r), isMutated(r))
+		}
+		if isMutated(r) {
+			t.Fatalf("a denied call must never carry a mutation")
+		}
+	})
+
+	t.Run("a tool with no force block still returns a plain pass", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("create_issue", map[string]any{"repo": "r"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected plain pass for a tool with no force block")
+		}
+	})
+
+	t.Run("optimizer-wrapped call_tool is re-wrapped after mutation", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			optimizerCall("open_pr", map[string]any{"repo": "r", "draft": false})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isMutated(r) {
+			t.Fatalf("expected a mutated result, got pass=%v deny=%v", isPass(r), isDeny(r))
+		}
+		name, outerArgs := decodeMutated(t, r)
+		if name != callToolMeta {
+			t.Fatalf("expected the mutation to stay wrapped in call_tool, got name=%q", name)
+		}
+		if outerArgs["tool_name"] != "open_pr" {
+			t.Errorf("tool_name = %v, want open_pr", outerArgs["tool_name"])
+		}
+		params, ok := outerArgs["parameters"].(map[string]any)
+		if !ok {
+			t.Fatalf("parameters is not a map: %v", outerArgs["parameters"])
+		}
+		if params["draft"] != true {
+			t.Errorf("forced arg draft = %v, want true", params["draft"])
+		}
+		if params["repo"] != "r" {
+			t.Errorf("non-forced arg not preserved: %v", params)
+		}
+	})
+
+	// A force value can be a nested object (Notion create-pages forces
+	// parent -> {type: page_id, page_id: <folder>}); it must replace whatever
+	// parent the caller sent, wholesale.
+	t.Run("nested-object force replaces the caller's value", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("force_nested", map[string]any{"repo": "r", "parent": map[string]any{"page_id": "someotherpage"}})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isMutated(r) {
+			t.Fatalf("expected a mutated result, got pass=%v deny=%v", isPass(r), isDeny(r))
+		}
+		_, args := decodeMutated(t, r)
+		parent, ok := args["parent"].(map[string]any)
+		if !ok {
+			t.Fatalf("forced parent is not an object: %v", args["parent"])
+		}
+		if parent["page_id"] != "scratchpadid" || parent["type"] != "page_id" {
+			t.Errorf("forced parent = %v, want {type: page_id, page_id: scratchpadid}", parent)
+		}
+	})
 }
 
 func TestCheckResponse_AlwaysPassNoMutation(t *testing.T) {

@@ -1,0 +1,33 @@
+---
+# jira_project policy: deny any Jira call that targets a project other than CHANGE;
+# allow everything else. The shim maps every project/issue-bearing Jira tool to this
+# resource, carrying project_key plus any issue/inward/outward/epic keys (whose
+# "<PROJECT>-123" prefix is the project). A call is denied if any populated key
+# resolves to a project other than CHANGE. Do NOT add tools here to permit them;
+# that belongs in the vMCP tools allowlist.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: jira_project
+  rules:
+    - name: deny-non-change-project
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            (has(request.resource.attr.projectKey) && request.resource.attr.projectKey
+            != "" && request.resource.attr.projectKey != "CHANGE")
+            || (has(request.resource.attr.issueKey) && request.resource.attr.issueKey
+            != "" && !request.resource.attr.issueKey.startsWith("CHANGE-"))
+            || (has(request.resource.attr.inwardKey) && request.resource.attr.inwardKey
+            != "" && !request.resource.attr.inwardKey.startsWith("CHANGE-"))
+            || (has(request.resource.attr.outwardKey) && request.resource.attr.outwardKey
+            != "" && !request.resource.attr.outwardKey.startsWith("CHANGE-"))
+            || (has(request.resource.attr.epicKey) && request.resource.attr.epicKey
+            != "" && !request.resource.attr.epicKey.startsWith("CHANGE-"))
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

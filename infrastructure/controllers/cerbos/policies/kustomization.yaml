@@ -4,6 +4,13 @@ kind: Kustomization
 namespace: cerbos
 configMapGenerator:
   - name: cerbos-policies
-    files: [defs/resource_k8s.yaml, defs/resource_grafana.yaml]
+    files:
+      - defs/resource_k8s.yaml
+      - defs/resource_grafana.yaml
+      - defs/resource_jira.yaml
+      - defs/resource_github.yaml
+      - defs/resource_notion.yaml
+      - defs/resource_gitlab.yaml
+      - defs/resource_linear.yaml
 generatorOptions:
   disableNameSuffixHash: true

@@ -134,6 +134,9 @@ for cmd in kubectl openssl jq; do
 done
 kubectl config get-contexts "$KUBE_CONTEXT" >/dev/null 2>&1 \
   || die "kubectl context '$KUBE_CONTEXT' does not exist"
+current_ctx="$(kubectl config current-context 2>/dev/null || true)"
+[[ "$current_ctx" == "$KUBE_CONTEXT" ]] \
+  || die "current kubectl context is '${current_ctx:-<none>}', expected '$KUBE_CONTEXT' (run: kubectl config use-context $KUBE_CONTEXT)"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vicegerent-setup.XXXXXX")"
 chmod 700 "$WORK"

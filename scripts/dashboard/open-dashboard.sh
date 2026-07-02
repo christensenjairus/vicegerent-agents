@@ -11,12 +11,13 @@ NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
 DASHBOARD_PATH="${HERMES_DASHBOARD_PATH:-/}"
 [[ "$DASHBOARD_PATH" == /* ]] || DASHBOARD_PATH="/$DASHBOARD_PATH"
 DEFAULT_NODEPORT="${HERMES_DASHBOARD_NODEPORT:-30119}"
-CONTEXT_ARG=()
-if [[ -n "${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-}}" ]]; then
-  CONTEXT_ARG=(--context "${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-}}")
-elif kubectl config get-contexts kind-vicegerent >/dev/null 2>&1; then
-  CONTEXT_ARG=(--context kind-vicegerent)
-fi
+TARGET_CONTEXT="${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-kind-vicegerent}}"
+CURRENT_CONTEXT="$(kubectl config current-context 2>/dev/null || true)"
+[[ "$CURRENT_CONTEXT" == "$TARGET_CONTEXT" ]] || {
+  echo "ERROR: current kubectl context is '${CURRENT_CONTEXT:-<none>}', expected '$TARGET_CONTEXT'. Run: kubectl config use-context $TARGET_CONTEXT" >&2
+  exit 1
+}
+CONTEXT_ARG=(--context "$TARGET_CONTEXT")
 
 usage() {
   echo "usage: $0 <agent-name>" >&2

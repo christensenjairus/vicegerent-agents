@@ -1,0 +1,25 @@
+---
+# gitlab_repo policy: deny any GitLab call whose branch arg names a protected
+# branch (main/master/production); allow everything else. No project allowlist
+# here — unlike GitHub, the bot's GitLab PAT is already scoped to a specific
+# project on gitlab.hahomelabs.com, so the token itself is the repo boundary.
+# The shim maps only push_files/create_or_update_file/create_branch (the tools
+# that write or name a branch directly); everything else is unmapped and passes.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: gitlab_repo
+  rules:
+    - name: deny-protected-branch
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.branch) && request.resource.attr.branch != ""
+            && request.resource.attr.branch in ["main", "master", "production"]
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

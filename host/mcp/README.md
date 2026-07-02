@@ -11,7 +11,7 @@ Hermes sandbox
   -> agentgateway
   -> ghostunnel (mTLS, listen 127.0.0.1:8453, reached via host.docker.internal:8453)
   -> ToolHive vMCP (loopback 127.0.0.1:4483, prefixes each backend's tools with {workload}_)
-  -> 9 ToolHive workloads (group 'vicegerent')
+  -> 11 ToolHive workloads (group 'vicegerent')
 ```
 
 `thv` runs the workloads as Docker containers under ToolHive's own daemon —
@@ -23,7 +23,7 @@ Supervisord manages only the three long-lived host processes:
 - `ghostunnel` — terminates mTLS from the cluster (client CN `agent-client`)
   and forwards to vMCP.
 
-## The 9 backends (group `vicegerent`)
+## The 11 backends (group `vicegerent`)
 
 The workload name is the vMCP tool prefix, and the Cerbos policy keys off it —
 these names are load-bearing, defined in `toolhive-servers.json`:
@@ -32,22 +32,107 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 |---|---|---|
 | `kubernetes` | npx `kubernetes-mcp-server` (`--read-only`) | kind `--internal` kubeconfig |
 | `gitlab` | npx `@zereight/mcp-gitlab` | `gitlab_token` secret |
+| `github` | registry `io.github.stacklok/github` (container) | `github_token` secret |
 | `tavily` | npx `tavily-mcp` | `tavily_api_key` secret |
 | `firecrawl` | npx `firecrawl-mcp` | `firecrawl_api_key` secret |
 | `notion` | registry remote `notion-remote` | OAuth (browser, first run) |
 | `linear` | registry remote `linear` | OAuth (browser, first run) |
+| `jira` | registry `io.github.stacklok/atlassian` (sooperset container) | `jira_url` + `jira_username` + `jira_api_token` secrets |
 | `grafana` | registry `grafana` (container) | `grafana_url` + `grafana_service_account_token` secrets |
 | `alertmanager` | npx `mcp-alertmanager` | `url` param (`--url`), no secret |
 | `pagerduty` | registry `io.github.stacklok/pagerduty` (container) | `pagerduty_user_api_key` secret |
 
 Tool scoping uses the vMCP's native `aggregation.tools` primitive: a server
 with a `tools` allowlist in `toolhive-servers.json` emits a `{workload, filter}`
-entry so the vMCP exposes only those tools (raw, unprefixed names); a server
-without one exposes everything. Currently `pagerduty` (incidents R/W + read-only
-schedules/services/teams/users/escalation) and `grafana` (read-only
-search/datasource/dashboard/prometheus/asserts/annotations/rendering) are
-scoped this way. Instance-level authorization still lives in the cluster
-(agentgateway + the Cerbos guardrail); no Cedar/authz runs in the vMCP.
+entry so the vMCP exposes only those tools (raw, unprefixed names). Every
+backend now carries one — for `kubernetes`/`tavily`/`firecrawl` it's the full
+live tool set pinned explicitly (nothing to restrict — `--read-only` already
+makes k8s writes impossible at the source, and tavily/firecrawl have no write
+capability against anything this platform owns; pinning just stops a future
+package bump from silently adding to what's exposed), for `alertmanager` it's
+the full 12-tool set including `createSilence`/`deleteSilence` (an explicit
+choice, not an oversight — the operator wants the agent able to manage
+silences). The rest genuinely restrict:
+
+- `pagerduty` — incidents R/W + read-only schedules/services/teams/users/escalation.
+- `grafana` — read-only search/datasource/dashboard/prometheus/asserts/annotations/rendering.
+- `jira` — read+write only, Confluence disabled, deletes excluded, confined to
+  the CHANGE project via `JIRA_PROJECTS_FILTER`; also scoped at the source via `ENABLED_TOOLS`.
+- `github` — issues + the full PR lifecycle short of merging; create_repository/
+  fork_repository/delete_file/merge_pull_request and general repo/code browsing
+  excluded; also scoped at the source via `GITHUB_TOOLS`.
+- `gitlab` — issues + the full MR lifecycle short of merging; create_repository/
+  create_group/fork_repository/merge_merge_request, all CI/CD variable and
+  pipeline-trigger tools, `execute_graphql` (an arbitrary API-access escape hatch
+  that would make every other exclusion here meaningless), and wiki/release/tag/
+  milestone/webhook management are excluded.
+- `linear` — no destructive tools exist in its 23-tool surface, so everything's
+  exposed; the Cerbos guardrail below confines new-issue creation to one team instead.
+- `notion` — 7 read tools plus create-pages/update-page/create-comment.
+
+Doing tool selection here (rather than as a per-tool allowlist in agentgateway,
+which it also supports) keeps it a quick host-side edit for developers; a
+centralized corporate deployment would more likely enforce that allowlist at the gateway.
+
+Orthogonal argument-level authorization still lives in the cluster (the Cerbos
+guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
+
+- **GitHub** (`defs/resource_github.yaml`) hard-enforces an owner/repo allowlist
+  and a protected-branch block (main/master/production) on every mapped tool —
+  independent of the source-side scoping above, and unaffected by however broad
+  the underlying PAT's own access actually is. `create_pull_request`/
+  `update_pull_request` also carry a shim-side `force: {draft: true}` — every PR
+  the agent opens, or tries to un-draft via update, is rewritten to stay a draft
+  before it's forwarded (a mutation, applied only once Cerbos has already
+  allowed the call).
+- **GitLab** (`defs/resource_gitlab.yaml`) blocks `push_files`/
+  `create_or_update_file`/`create_branch` from targeting a protected branch.
+  No project allowlist — the bot's GitLab PAT is already scoped to a single
+  project on gitlab.hahomelabs.com, so the token itself is the repo boundary
+  (deliberately different from GitHub, whose token is broader).
+- **Linear** (`defs/resource_linear.yaml`) denies `create_issue` calls whose
+  `teamId` isn't the DEVOPS team. `update_issue`/`create_comment` target an
+  existing issue by id and carry no verifiable team of their own, so they're
+  unmapped and pass; the enforced boundary is "new issues land in DEVOPS," not
+  "every call touches only DEVOPS." **The DEVOPS team ID in the policy is a
+  placeholder (`REPLACE_WITH_DEVOPS_TEAM_ID`) that fails closed (denies every
+  create_issue) until swapped for Linear's real team ID.**
+- **Notion** (`defs/resource_notion.yaml`) folder-pins `create-pages` via a
+  shim-side `force` override — it rewrites `parent` to the Scratchpad page on
+  every call rather than denying an off-folder parent, so the agent never sees
+  an error or retries and every new page lands under Scratchpad;
+  `update-page`/`create-comment` target an existing page by id and are left
+  unconstrained (a hard read-broad/write-narrow split via a separate
+  folder-scoped integration was infeasible — the org blocks creating Notion
+  internal-integration tokens).
+
+`kubernetes`'s Secret-read block (`defs/resource_k8s.yaml`) and `grafana`'s
+OpenSearch-datasource block (`defs/resource_grafana.yaml`) are the other two guardrails.
+
+Two field-name assumptions in the GitLab and Linear mappings aren't verified
+against a live call yet (unlike GitHub/Jira, where a real schema dump was
+available): GitLab's `branch` field on push_files/create_or_update_file/
+create_branch is inferred from GitLab's own REST API convention (which this
+wrapper mirrors directly), and Linear's `teamId` on create_issue matches
+Linear's well-documented GraphQL API. Confirm both once the servers are enabled.
+
+### Tool discovery optimizer
+
+With 11 backends aggregated, the raw tool count is large enough to burn a
+meaningful chunk of the agent's context budget just listing tool definitions.
+`thv vmcp serve --optimizer` (Tier 1, FTS5 keyword search, no extra container)
+collapses the exposed surface to two meta-tools — `find_tool` (search) and
+`call_tool` (invoke by name) — so the agent discovers tools on demand instead
+of loading all of them up front. It's on by default (`generate_vmcp_config`'s
+caller passes `--optimizer`); set `VMCP_OPTIMIZER=0` before `./vicegerent-mcp
+start` to fall back to exposing every tool raw.
+
+This requires `mcp-cerbos-shim` to unwrap `call_tool`'s wrapped
+`{tool_name, parameters}` back into the real tool name before its mapping/Cerbos
+lookup (see `images/mcp-cerbos-shim/README.md` "How it works") — without that,
+every optimizer-routed call looks identical to the shim and the Secret/OpenSearch/
+Jira-project guardrails would silently stop applying. Don't enable `--optimizer`
+against an older shim image that predates this unwrap.
 
 ### Kubernetes networking (the gotcha)
 
@@ -104,11 +189,20 @@ Then configure ToolHive secrets (once):
 ```bash
 thv secret setup                    # choose 'encrypted' (persists OAuth tokens too)
 thv secret set gitlab_token         # GitLab PAT (api scope)
+thv secret set github_token         # GitHub PAT (repo scope)
 thv secret set tavily_api_key
 thv secret set firecrawl_api_key
 thv secret set grafana_url                       # e.g. https://grafana.example.com
 thv secret set grafana_service_account_token     # Grafana service-account token
+thv secret set jira_url                          # e.g. https://your-domain.atlassian.net
+thv secret set jira_username                      # Jira account email (Cloud)
+thv secret set jira_api_token                     # Jira API token (id.atlassian.com/manage-profile/security/api-tokens)
 ```
+
+`notion` `create-pages` is pinned to the **Scratchpad** page by the shim's `force`
+override in `infrastructure/controllers/mcp-cerbos-shim/mapping.yaml`: every create is
+rewritten to land under that page (no error, no retry). Change the forced `parent.page_id`
+there (32 hex, dashes stripped, lowercase) to retarget.
 
 `./vicegerent secrets setup platform` writes the host ghostunnel mTLS material
 to `~/.vicegerent/ghostunnel`.
@@ -136,7 +230,7 @@ resumes the Kind cluster then starts this stack; `./vicegerent stop` reverses it
 
 ## Config + env
 
-`toolhive-servers.json` declares the group, the vMCP port, and the 9 servers
+`toolhive-servers.json` declares the group, the vMCP port, and the 10 servers
 (name, run type, package/registry, run flags, env, and thv secret mappings).
 Overridable env:
 
