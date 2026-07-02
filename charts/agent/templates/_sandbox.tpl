@@ -6,6 +6,7 @@ metadata:
   namespace: agent-sandbox
   annotations:
     kustomize.toolkit.fluxcd.io/force: Disabled
+    helm.sh/resource-policy: keep
 spec:
   podTemplate:
     metadata:
