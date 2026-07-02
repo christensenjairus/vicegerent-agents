@@ -4,7 +4,7 @@
   "servers": [
     {
       "name": "kubernetes",
-      "description": "Read-only Kubernetes access (resources, pods, logs). Cerbos blocks reading Secrets.",
+      "description": "Read-only Kubernetes access (resources, pods, logs). Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary').",
       "enabled": false,
       "type": "npx",
       "package": "kubernetes-mcp-server@0.0.63",
@@ -67,6 +67,59 @@
       "type": "remote",
       "registry": "linear",
       "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"]
+    },
+    {
+      "name": "grafana",
+      "description": "Grafana observability, read-only. Exposed tools scoped via the vMCP tools allowlist (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads); --disable-write is the fail-closed write kill-switch; Cerbos additionally blocks reads of OpenSearch datasources.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "grafana",
+      "server_args": ["--disable-write"],
+      "tools": [
+        "search_dashboards", "search_folders", "list_datasources", "get_datasource",
+        "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",
+        "get_dashboard_property", "get_dashboard_summary", "query_prometheus", "query_prometheus_histogram",
+        "list_prometheus_metric_names", "list_prometheus_metric_metadata", "list_prometheus_label_names",
+        "list_prometheus_label_values", "get_assertions", "get_annotations", "get_annotation_tags",
+        "get_panel_image"
+      ],
+      "secrets": [
+        {"name": "grafana_url", "target": "GRAFANA_URL"},
+        {"name": "grafana_service_account_token", "target": "GRAFANA_SERVICE_ACCOUNT_TOKEN"}
+      ]
+    },
+    {
+      "name": "alertmanager",
+      "description": "Prometheus Alertmanager (alerts, silences, alert groups, status).",
+      "enabled": false,
+      "type": "npx",
+      "package": "mcp-alertmanager@2.1.1",
+      "params": [
+        {
+          "name": "url",
+          "prompt": "Alertmanager API URL (e.g. https://alertmanager.example.com)",
+          "apply": "server_arg",
+          "template": "--url={value}",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "pagerduty",
+      "description": "PagerDuty, scoped via --tools to Incidents (read+write) plus read-only schedules/on-call, services, teams, users, escalation policies.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "io.github.stacklok/pagerduty",
+      "server_args": ["--enable-write-tools"],
+      "tools": [
+        "get_incident", "list_incidents", "get_past_incidents", "get_related_incidents",
+        "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
+        "create_incident", "manage_incidents", "add_note_to_incident", "add_responders",
+        "get_schedule", "list_schedules", "list_schedule_users", "list_oncalls",
+        "get_service", "list_services", "get_team", "list_teams", "list_team_members",
+        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
+      ],
+      "secrets": [{"name": "pagerduty_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
     }
   ]
 }

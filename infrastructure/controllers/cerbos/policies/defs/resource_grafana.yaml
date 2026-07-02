@@ -1,0 +1,24 @@
+---
+# grafana_datasource policy: deny reads targeting an OpenSearch datasource
+# (matched by uid or name); allow everything else. The shim maps every
+# datasource-bearing Grafana tool to this resource, carrying uid+name attrs.
+# Do NOT add tools/kinds here to permit them; that belongs in the gateway allowlist.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: grafana_datasource
+  rules:
+    - name: deny-opensearch
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            (has(request.resource.attr.uid) && request.resource.attr.uid in ["fess5o6x6evb4b"])
+            ||
+            (has(request.resource.attr.name) && request.resource.attr.name in ["dev-opensearch-datasource"])
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

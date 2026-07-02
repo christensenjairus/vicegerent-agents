@@ -1,0 +1,74 @@
+---
+name: grafana_opensearch_block_test
+description: OpenSearch datasource reads are denied (by uid or name); other datasources
+  are allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  opensearch_by_uid:
+    id: fess5o6x6evb4b
+    kind: grafana_datasource
+    attr:
+      uid: fess5o6x6evb4b
+      name: ''
+  opensearch_by_name:
+    id: dev-opensearch-datasource
+    kind: grafana_datasource
+    attr:
+      uid: ''
+      name: dev-opensearch-datasource
+  prometheus_ds:
+    id: prom-abc123
+    kind: grafana_datasource
+    attr:
+      uid: prom-abc123
+      name: ''
+  unidentified_ds:
+    id: '*'
+    kind: grafana_datasource
+    attr:
+      uid: ''
+      name: ''
+tests:
+  - name: reading the OpenSearch datasource by uid is denied for every action
+    input:
+      principals: [hermes]
+      resources: [opensearch_by_uid]
+      actions: [read, query, listResources]
+    expected:
+      - principal: hermes
+        resource: opensearch_by_uid
+        actions:
+          read: EFFECT_DENY
+          query: EFFECT_DENY
+          listResources: EFFECT_DENY
+  - name: reading the OpenSearch datasource by name is denied
+    input:
+      principals: [hermes]
+      resources: [opensearch_by_name]
+      actions: [read]
+    expected:
+      - principal: hermes
+        resource: opensearch_by_name
+        actions:
+          read: EFFECT_DENY
+  - name: reads against a non-OpenSearch datasource are allowed (guardrail is scoped)
+    input:
+      principals: [hermes]
+      resources: [prometheus_ds, unidentified_ds]
+      actions: [read, query]
+    expected:
+      - principal: hermes
+        resource: prometheus_ds
+        actions:
+          read: EFFECT_ALLOW
+          query: EFFECT_ALLOW
+      - principal: hermes
+        resource: unidentified_ds
+        actions:
+          read: EFFECT_ALLOW
+          query: EFFECT_ALLOW

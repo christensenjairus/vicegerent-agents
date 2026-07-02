@@ -10,26 +10,29 @@ reads of non-secret resources.
 
 There is **no per-tool allowlist**: every tool the host vMCP exposes passes through
 agentgateway to the agent. This shim + Cerbos are the only instance-level control, and
-they block exactly one thing — reading Kubernetes Secrets. They are a confidentiality
-guardrail, not a tool gate.
+they block confidential reads — currently Kubernetes Secrets and the OpenSearch Grafana
+datasources. They are a confidentiality guardrail, not a tool gate.
 
 | Layer | Job | What it is NOT |
 | --- | --- | --- |
 | **agentgateway** | Single MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. | NOT a per-tool allowlist — it does not decide *which* tools an agent may call. |
-| **mcp-cerbos-shim** (this) | Extract the resource a *kind-bearing* tool targets and ask Cerbos about it. | NOT a list of allowed tools or kinds. `defaultAction: allow`; only the tools that can name a Secret are mapped. |
-| **Cerbos policy** | Make every deny decision: block instances that touch Secrets, and reject a kind-bearing call whose kind can't be resolved. | NOT a list of allowed tools/kinds, and NOT a principal gate. Rule is allow-all for all roles + DENY overrides for Secrets and empty-kind. |
+| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, or a Grafana datasource id) and ask Cerbos about it. | NOT a list of allowed tools or kinds. `defaultAction: allow`; only the tools that can name a protected resource are mapped. |
+| **Cerbos policy** | Make every deny decision: block instances that touch Secrets or OpenSearch datasources, and reject a kind-bearing call whose kind can't be resolved. | NOT a list of allowed tools/kinds, and NOT a principal gate. Rule is allow-all for all roles + DENY overrides for the protected resources and empty-kind. |
 
 Consequences:
-- A new read-only tool exposed by the vMCP needs **no** shim/Cerbos change; it
-  passes, because it isn't a Secret.
+- A new read-only tool exposed by the vMCP needs **no** shim/Cerbos change unless it
+  can name a protected resource; otherwise it passes.
 - An unknown/arbitrary Kubernetes kind (e.g. a CRD) is **allowed**, not denied;
   the shim blocks Secrets, it does not enumerate readable kinds.
-- The only tools mapped in the shim are the ones that take a `kind`/resource
-  selector (`kubernetes_resources_get`, `kubernetes_resources_list`), because
-  those are the only ones that can name a Secret. Everything else passes untouched.
+- The mapped tools are only the ones that name a protected resource: the k8s
+  `kind`/resource selectors (`kubernetes_resources_get`, `kubernetes_resources_list`)
+  and the Grafana datasource-bearing tools (`grafana_get_datasource*`,
+  `grafana_query_prometheus*`, `grafana_list_prometheus_*`,
+  `grafana_check_datasources_health`). Everything else passes untouched.
 
 Do not add a tool or kind name to the shim mapping or Cerbos `allow` rule to permit
-something — permitting a tool is not this layer's job; it exists only to deny Secret reads.
+something — permitting a tool is not this layer's job; it exists only to deny reads of
+protected resources.
 
 ### Guardrail Attachment
 

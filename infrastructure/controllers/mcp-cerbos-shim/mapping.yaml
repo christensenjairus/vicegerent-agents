@@ -1,7 +1,9 @@
 ---
 # mcp-cerbos-shim mapping. See mapping.example.yaml + shim README for full docs.
-# Only kind-bearing tools are mapped; unmapped tools pass (defaultAction: allow).
-# Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
+# Only resource-bearing tools are mapped (k8s kind, or a Grafana datasource id);
+# unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads and
+# OpenSearch-datasource reads. Adding a tool here to permit it is wrong; that
+# belongs in the gateway allowlist.
 backends:
   vmcp:
     defaultAction: allow
@@ -17,3 +19,22 @@ backends:
         action: listResources
         id: "''"
         attrFrom: canonicalK8s(args)
+      # Grafana datasource-bearing tools -> grafana_datasource; Cerbos denies
+      # OpenSearch datasources by uid/name. Same body for every tool: capture the
+      # datasource id from whichever arg the tool uses (datasourceUid | uid | name).
+      grafana_get_datasource: &grafana_ds
+        resourceType: grafana_datasource
+        action: read
+        id: get(args,'datasourceUid', get(args,'uid', get(args,'name','')))
+        attr:
+          uid: get(args,'datasourceUid', get(args,'uid',''))
+          name: get(args,'name','')
+      grafana_get_datasource_by_uid: *grafana_ds
+      grafana_get_datasource_by_name: *grafana_ds
+      grafana_check_datasources_health: *grafana_ds
+      grafana_query_prometheus: *grafana_ds
+      grafana_query_prometheus_histogram: *grafana_ds
+      grafana_list_prometheus_metric_metadata: *grafana_ds
+      grafana_list_prometheus_metric_names: *grafana_ds
+      grafana_list_prometheus_label_names: *grafana_ds
+      grafana_list_prometheus_label_values: *grafana_ds

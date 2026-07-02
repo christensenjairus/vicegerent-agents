@@ -245,7 +245,7 @@ def build_thv_run_argv(
     stype = server["type"]
     if stype == "npx":
         positional = f"npx://{server['package']}"
-    elif stype == "remote":
+    elif stype in ("remote", "registry"):
         positional = server["registry"]
     else:
         raise SystemExit(f"server {name!r}: unknown type {stype!r}")
@@ -476,10 +476,11 @@ def generate_vmcp_config(
 ) -> Path:
     """Run `thv vmcp init`, post-process, write JSON (valid YAML), and validate.
 
-    Post-processing intentionally exposes ALL tools: no optimizer, no per-workload
-    filter, no Cedar/authz. Authorization stays in the cluster (agentgateway +
-    Cerbos). Backends whose URL is a legacy `/sse` endpoint are fixed to
-    transport: sse (init mislabels them streamable-http).
+    Tool scoping uses the native vMCP `aggregation.tools` primitive: any server
+    with a `tools` allowlist in the config emits a `{workload, filter}` entry, so
+    the vMCP exposes only those tools (raw, unprefixed names). Servers without a
+    `tools` field expose everything. Backends whose URL is a legacy `/sse`
+    endpoint are fixed to transport: sse (init mislabels them streamable-http).
     """
     group = group_name(config)
     paths = runtime_paths(runtime_dir)
@@ -496,21 +497,33 @@ def generate_vmcp_config(
         if "/sse" in b["url"]:
             b["transport"] = "sse"
 
+    present = {b["name"] for b in backends}
+    tool_filters = [
+        {"workload": s["name"], "filter": s["tools"]}
+        for s in config.get("servers", [])
+        if s.get("tools") and s["name"] in present
+    ]
+    aggregation = {
+        "conflictResolution": "prefix",
+        "conflictResolutionConfig": {"prefixFormat": "{workload}_"},
+    }
+    if tool_filters:
+        aggregation["tools"] = tool_filters
+
     cfg = {
         "name": _init_scalar(text, "name") or f"{group}-vmcp",
         "groupRef": _init_scalar(text, "groupRef") or group,
         "incomingAuth": {"type": "anonymous"},
         "outgoingAuth": {"source": "inline"},
-        "aggregation": {
-            "conflictResolution": "prefix",
-            "conflictResolutionConfig": {"prefixFormat": "{workload}_"},
-        },
+        "aggregation": aggregation,
         "backends": backends,
     }
     out_path.write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
     for b in backends:
         print(f"  backend {b['name']:14} transport={b['transport']}")
+    for tf in tool_filters:
+        print(f"  tool-filter {tf['workload']:11} {len(tf['filter'])} tools")
 
     if validate:
         vr = thv("vmcp", "validate", "--config", str(out_path))
