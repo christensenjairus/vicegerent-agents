@@ -56,6 +56,12 @@ type Tool struct {
 	// When both Attr and AttrFrom are set, AttrFrom is evaluated first and Attr
 	// overrides individual keys.
 	AttrFrom string `yaml:"attrFrom"`
+	// Force is a set of literal key/value overrides applied to the call's
+	// arguments before forwarding, when Cerbos allows the call. Unlike
+	// id/attr/attrFrom these are NOT CEL expressions — always-the-same
+	// constants (e.g. forcing draft: true on PR creation), not derived from
+	// the caller's args. Only applied on allow; a denied call is never mutated.
+	Force map[string]any `yaml:"force"`
 }
 
 // Load reads and structurally validates a mapping file. CEL compilation happens

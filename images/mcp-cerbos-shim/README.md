@@ -8,31 +8,64 @@ reads of non-secret resources.
 
 ## Authorization Layers
 
-There is **no per-tool allowlist**: every tool the host vMCP exposes passes through
-agentgateway to the agent. This shim + Cerbos are the only instance-level control, and
-they block confidential reads — currently Kubernetes Secrets and the OpenSearch Grafana
-datasources. They are a confidentiality guardrail, not a tool gate.
+Tool *selection* (which tools an agent can see and call) and argument-level
+*authorization* are separate concerns, handled by separate layers.
 
-| Layer | Job | What it is NOT |
-| --- | --- | --- |
-| **agentgateway** | Single MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. | NOT a per-tool allowlist — it does not decide *which* tools an agent may call. |
-| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, or a Grafana datasource id) and ask Cerbos about it. | NOT a list of allowed tools or kinds. `defaultAction: allow`; only the tools that can name a protected resource are mapped. |
-| **Cerbos policy** | Make every deny decision: block instances that touch Secrets or OpenSearch datasources, and reject a kind-bearing call whose kind can't be resolved. | NOT a list of allowed tools/kinds, and NOT a principal gate. Rule is allow-all for all roles + DENY overrides for the protected resources and empty-kind. |
+Tool selection here is done upstream in ToolHive's vMCP (`aggregation.tools` in
+`toolhive-servers.json`): an operator scopes a backend's tools by editing that file
+and restarting the host stack — no cluster round-trip. agentgateway can also enforce a
+per-tool allowlist itself (its MCP tool-filtering feature); a corporate/centralized
+deployment would put the allowlist there, version-controlled at the gateway. Which
+place owns it is a policy choice — this platform keeps it in ToolHive for developer
+flexibility.
+
+This shim + Cerbos are an orthogonal layer: argument-level authorization that denies by
+*resource* whatever the exposed tool set is — currently Kubernetes Secret reads,
+OpenSearch Grafana datasource reads, Jira calls targeting a project other than CHANGE,
+GitHub calls targeting a repo outside an allowlist or writing directly to a protected
+branch, GitLab calls writing directly to a protected branch, and Linear `create_issue`
+calls targeting a team other than DEVOPS. (Notion `create-pages` is also mapped, but as
+a `force` rewrite of its `parent` to the Scratchpad folder — a mutation, not a deny;
+see "How it works".)
+
+| Layer | Job |
+| --- | --- |
+| **agentgateway** | MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup that's left to ToolHive. |
+| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, a Jira project/issue key, a GitHub owner/repo/branch, a GitLab branch, or a Linear teamId) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
+| **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a GitLab protected-branch write, or a non-DEVOPS Linear team, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
 
 Consequences:
-- A new read-only tool exposed by the vMCP needs **no** shim/Cerbos change unless it
-  can name a protected resource; otherwise it passes.
-- An unknown/arbitrary Kubernetes kind (e.g. a CRD) is **allowed**, not denied;
+- A new tool exposed by the vMCP needs **no** shim/Cerbos change unless it can name a
+  protected resource; otherwise it passes the guardrail. (Whether it's *exposed* is the
+  separate tool-selection choice above.)
+- An unknown/arbitrary Kubernetes kind (e.g. a CRD) passes the guardrail, not denied;
   the shim blocks Secrets, it does not enumerate readable kinds.
 - The mapped tools are only the ones that name a protected resource: the k8s
-  `kind`/resource selectors (`kubernetes_resources_get`, `kubernetes_resources_list`)
-  and the Grafana datasource-bearing tools (`grafana_get_datasource*`,
+  `kind`/resource selectors (`kubernetes_resources_get`, `kubernetes_resources_list`),
+  the Grafana datasource-bearing tools (`grafana_get_datasource*`,
   `grafana_query_prometheus*`, `grafana_list_prometheus_*`,
-  `grafana_check_datasources_health`). Everything else passes untouched.
+  `grafana_check_datasources_health`), the project/issue-bearing Jira tools
+  (`jira_jira_create_issue`, `jira_jira_get_issue`, `jira_jira_update_issue`,
+  `jira_jira_transition_issue`, `jira_jira_add_comment`, `jira_jira_get_transitions`,
+  `jira_jira_get_project_issues`, `jira_jira_create_issue_link`,
+  `jira_jira_link_to_epic`), every repo-bearing GitHub tool in the vMCP allowlist
+  (`github_issue_read`, `github_issue_write`, `github_create_pull_request`,
+  `github_push_files`, `github_create_branch`, etc. — full list in mapping.yaml;
+  `github_get_me` is the one exception, since it names no repo), GitLab's three
+  branch-writing tools (`gitlab_push_files`, `gitlab_create_or_update_file`,
+  `gitlab_create_branch` — GitLab's issue/MR tools carry no branch arg and are
+  unmapped), and Linear's `linear_create_issue` (`teamId` is required and
+  verifiable; `linear_update_issue`/`linear_create_comment` target an existing
+  issue by id and carry no team the shim can check, so they're unmapped).
+  `notion_notion-create-pages` is also mapped, but only to carry a `force`
+  parent-rewrite (allow-all Cerbos policy); its siblings
+  `notion_notion-update-page`/`notion_notion-create-comment` are unmapped (they
+  target an existing page by id, not a folder). Everything else passes untouched.
 
-Do not add a tool or kind name to the shim mapping or Cerbos `allow` rule to permit
-something — permitting a tool is not this layer's job; it exists only to deny reads of
-protected resources.
+The shim mapping and Cerbos rules exist to *deny* protected resources, not to permit
+tools. To allow or disallow a tool outright, change the exposed tool set (ToolHive's
+`aggregation.tools` today, or an agentgateway per-tool allowlist in a centralized
+setup) — not the mapping or an `allow` rule here.
 
 ### Guardrail Attachment
 
@@ -63,6 +96,11 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
 
 1. Resolves the backend from `service_names` (exactly one mapped backend, else deny).
 2. Parses the JSON-RPC params (`{name, arguments}`); unparseable/missing denies.
+   If `name` is `call_tool` (the vMCP optimizer's meta-tool — see
+   `host/mcp/README.md` "Tool discovery optimizer"), unwraps
+   `arguments.{tool_name,parameters}` into the real tool/args first; a missing
+   or non-string `tool_name` denies. Without this, every optimizer-routed call
+   would look identical (`call_tool`) to every other, defeating step 3 below.
 3. Looks up `(backend, tool)` in the mapping. The `vmcp` backend is `defaultAction:
    allow`, so an unmapped tool **passes** (it can't name a Secret); only the
    kind-bearing tools are mapped.
@@ -70,17 +108,26 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
    method}` to build a Cerbos resource (standardizing kind/apiResource via the
    `canonicalK8s` helper). A CEL eval failure denies (the shim's own
    malfunction; never send a half-built resource).
-5. Calls Cerbos `IsAllowed`. Allowed returns `Pass{}`; denied or Cerbos error returns `AuthorizationError`.
+5. Calls Cerbos `IsAllowed`. Denied or Cerbos error returns `AuthorizationError`. Allowed
+   returns `Pass{}` — unless the tool's mapping carries a `force` block (literal key/value
+   overrides, e.g. GitHub PR create/update forcing `draft: true`), in which case it returns
+   `Mutated{}` with those keys rewritten into the call's arguments (re-wrapped into
+   `call_tool{tool_name,parameters}` first if the call arrived that way). `force` only ever
+   applies on an allowed call — a denied call is never mutated.
 
-It **never** returns `mutated`, `header_mutation`, or `metadata`; only `pass` or `error`
-(the gateway applies `metadata` even on `Pass`, so leaving it empty is part of the contract).
+It never returns `header_mutation` or `metadata` (the gateway applies `metadata` even on
+`Pass`, so leaving it empty is part of the contract); `mutated` is set only for a `force`-mapped
+tool on allow, otherwise it's `pass` or `error`.
 
 The shim makes **no policy decisions**; it standardizes fields and delegates
-the verdict. Every *deny* is Cerbos's (Secrets, and a kind-bearing call whose
-kind can't be resolved as `kind==""`/`deny-no-kind`); everything else is permitted
-by default — there is no per-tool allowlist. The shim only fails closed on its own malfunction
-(unparseable params, unknown/multiple backend, CEL eval error, Cerbos
-unreachable). See `internal/server/server_test.go` for the full matrix.
+the verdict, with one narrow exception: a `force` block is a fixed, unconditional rewrite
+(never derived from the call's own args), not a judgment call. Every *deny* is Cerbos's
+(Secrets, and a kind-bearing call whose kind can't be resolved as `kind==""`/`deny-no-kind`);
+everything else passes the guardrail by default — tool selection is handled upstream
+(ToolHive, or an agentgateway allowlist in a centralized setup), not here. The shim only
+fails closed on its own malfunction (unparseable params, unknown/multiple backend, CEL eval
+error, Cerbos unreachable, or a force-mapped tool's args failing to re-serialize).
+See `internal/server/server_test.go` for the full matrix.
 
 ## Config
 

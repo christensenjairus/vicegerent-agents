@@ -9,6 +9,17 @@ else
   B=""; C=""; N=""
 fi
 
+# Guard against a bare (context-less) kubectl/cilium call silently hitting whatever
+# cluster the ambient kubeconfig happens to point at.
+require_kube_context() {
+  local want="$1" have
+  have="$(kubectl config current-context 2>/dev/null || true)"
+  [[ "$have" == "$want" ]] || {
+    echo "ERROR: current kubectl context is '${have:-<none>}', expected '$want'. Run: kubectl config use-context $want" >&2
+    exit 1
+  }
+}
+
 usage() {
   cat <<EOF
 ${B}vicegerent${N} — operational CLI for the vicegerent infra-agent platform
@@ -46,61 +57,34 @@ ${B}vicegerent cluster${N} — Kind cluster lifecycle
 EOF
 }
 
-# Patch in-cluster CoreDNS for two Kind/Docker-Desktop DNS gaps. Idempotent — each
-# entry is added only if absent (re-run to pick up a newly-needed one).
-#
-# 1. host.docker.internal: Kind's CoreDNS forwards to the pod's own loopback, not
-#    Docker's embedded resolver, so pods otherwise can't resolve it (that's how
-#    agentgateway reaches the host ghostunnel). Pin it to the detected host gateway IP.
-#
-# 2. Flatten the git host's CNAME. Cilium's DNS proxy (which powers toFQDNs) returns an
-#    EMPTY answer for a toFQDNs-allowlisted name that resolves via a CNAME to a target
-#    outside the allowlist — so the agent pod gets EAI_NODATA for git-over-SSH even though
-#    the :22 egress is allowed. A CoreDNS `rewrite` to the (per-query-resolved) CNAME
-#    target returns a direct A under the original name, which Cilium's matchName accepts.
-#    The IP stays dynamic, so the DDNS address can change without re-running setup. The
-#    CNAME target is detected from the host resolver; GIT_HOST overrides the git host.
+# Patch in-cluster CoreDNS to resolve host.docker.internal: Kind's CoreDNS forwards
+# to the pod's own loopback, not Docker's embedded resolver, so pods otherwise can't
+# resolve it (that's how agentgateway reaches the host ghostunnel). Pin it to the
+# detected host gateway IP. Idempotent — skipped if already present.
 patch_coredns() {
   local cluster_name="$1" docker_network="$2"
   local ctx="kind-${cluster_name}"
-  local git_host="${GIT_HOST:-gitlab.hahomelabs.com}"
 
-  local corefile new changed
+  local corefile new
   corefile="$(kubectl --context "$ctx" -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
-  new="$corefile"; changed=0
 
-  if ! grep -q 'host.docker.internal' <<<"$new"; then
-    local host_ip
-    host_ip="$(docker run --rm --network "$docker_network" alpine \
-      sh -c 'getent hosts host.docker.internal 2>/dev/null | awk "{print \$1; exit}"' 2>/dev/null || true)"
-    [[ -n "$host_ip" ]] || host_ip="192.168.65.254"
-    echo "${B}CoreDNS: resolve host.docker.internal → ${host_ip}${N}"
-    new="$(awk -v ip="$host_ip" '{print} /^\.:53 \{/ && !d {
-      print "    hosts {"; print "        " ip " host.docker.internal"; print "        fallthrough"; print "    }"; d=1}' <<<"$new")"
-    changed=1
+  if grep -q 'host.docker.internal' <<<"$corefile"; then
+    echo "${B}CoreDNS already patched (host.docker.internal); skipping.${N}"
+    return
   fi
 
-  if ! grep -q "rewrite name exact ${git_host} " <<<"$new"; then
-    local git_cname
-    git_cname="$(dscacheutil -q host -a name "$git_host" 2>/dev/null | awk '/^name:/{print $2}' | grep -vx "$git_host" | head -1 || true)"
-    if [[ -n "$git_cname" ]]; then
-      echo "${B}CoreDNS: rewrite ${git_host} → ${git_cname} (flatten CNAME for Cilium toFQDNs)${N}"
-      new="$(awk -v h="$git_host" -v t="$git_cname" '{print} /^\.:53 \{/ && !d {
-        print "    rewrite name exact " h " " t " answer auto"; d=1}' <<<"$new")"
-      changed=1
-    else
-      echo "${B}CoreDNS: ${git_host} is a direct A (no CNAME); no rewrite needed.${N}"
-    fi
-  fi
+  local host_ip
+  host_ip="$(docker run --rm --network "$docker_network" alpine \
+    sh -c 'getent hosts host.docker.internal 2>/dev/null | awk "{print \$1; exit}"' 2>/dev/null || true)"
+  [[ -n "$host_ip" ]] || host_ip="192.168.65.254"
+  echo "${B}CoreDNS: resolve host.docker.internal → ${host_ip}${N}"
+  new="$(awk -v ip="$host_ip" '{print} /^\.:53 \{/ && !d {
+    print "    hosts {"; print "        " ip " host.docker.internal"; print "        fallthrough"; print "    }"; d=1}' <<<"$corefile")"
 
-  if [[ "$changed" == "1" ]]; then
-    kubectl --context "$ctx" -n kube-system create configmap coredns \
-      --from-literal=Corefile="$new" --dry-run=client -o yaml \
-      | kubectl --context "$ctx" -n kube-system apply -f -
-    kubectl --context "$ctx" -n kube-system rollout restart deployment/coredns
-  else
-    echo "${B}CoreDNS already patched (host.docker.internal + ${git_host}); skipping.${N}"
-  fi
+  kubectl --context "$ctx" -n kube-system create configmap coredns \
+    --from-literal=Corefile="$new" --dry-run=client -o yaml \
+    | kubectl --context "$ctx" -n kube-system apply -f -
+  kubectl --context "$ctx" -n kube-system rollout restart deployment/coredns
 }
 
 # Create the Kind cluster (Kind's default CNI disabled) and install Cilium so it
@@ -131,6 +115,8 @@ cluster_setup() {
       kind create cluster --name "$cluster_name" --config "$kind_config"
   fi
 
+  require_kube_context "kind-${cluster_name}"
+
   echo "${B}Installing Cilium ${cilium_version} as the CNI…${N}"
   cilium install --version "$cilium_version" --context "kind-${cluster_name}" 2>/dev/null \
     || echo "${B}Cilium already installed or install skipped; checking status…${N}"
@@ -149,6 +135,8 @@ run_with_portforward() {
     echo "ERROR: vicegerent-mcp is not running. Start it first: ./vicegerent-mcp start" >&2
     exit 1
   fi
+
+  require_kube_context "kind-vicegerent"
 
   # Port-forward agentgateway. PF_PID is global on purpose: the EXIT trap fires at
   # script scope, after this function returns, where a `local` would be unset (and
@@ -228,6 +216,7 @@ case "${1:-}" in
       status)
         shift
         [[ "${1:-}" == "--help" ]] && { echo "kubectl --context kind-vicegerent get nodes"; exit 0; }
+        require_kube_context "kind-vicegerent"
         exec kubectl --context kind-vicegerent get nodes "$@"
         ;;
       --help|-h|"")

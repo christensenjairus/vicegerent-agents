@@ -12,11 +12,16 @@
 #   -h, --help          show this help
 #
 # Env overrides: KUBE_CONTEXT, REPO_URL, BRANCH, CLUSTER_PATH, PRIVATE_KEY_FILE
+# REPO_URL defaults to this checkout's 'origin' remote, so a fork bootstraps
+# against itself without any override.
 
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
-REPO_URL="${REPO_URL:-ssh://git@gitlab.hahomelabs.com/jchristensen/vicegerent-agents.git}"
+REPO_URL="${REPO_URL:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)}"
 BRANCH="${BRANCH:-main}"
 CLUSTER_PATH="${CLUSTER_PATH:-./clusters/vicegerent}"
 PRIVATE_KEY_FILE="${PRIVATE_KEY_FILE:-$HOME/.ssh/id_rsa}"
@@ -62,6 +67,11 @@ for cmd in kubectl flux; do
 done
 kubectl config get-contexts "$KUBE_CONTEXT" >/dev/null 2>&1 \
   || die "kubectl context '$KUBE_CONTEXT' does not exist"
+current_ctx="$(kubectl config current-context 2>/dev/null || true)"
+[[ "$current_ctx" == "$KUBE_CONTEXT" ]] \
+  || die "current kubectl context is '${current_ctx:-<none>}', expected '$KUBE_CONTEXT' (run: kubectl config use-context $KUBE_CONTEXT)"
+[[ -n "$REPO_URL" ]] \
+  || die "REPO_URL not set and '$REPO_ROOT' has no 'origin' git remote; set REPO_URL to your fork's SSH URL"
 [[ -f "$PRIVATE_KEY_FILE" ]] || die "private key not found: $PRIVATE_KEY_FILE"
 info "All required tools present; context '$KUBE_CONTEXT' exists."
 

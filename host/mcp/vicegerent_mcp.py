@@ -3,11 +3,12 @@
 
 Owns the full local ToolHive stack that backs the cluster's MCP access:
 
-  ToolHive workloads   6 MCP backends (kubernetes, gitlab, tavily, firecrawl,
-                       notion, linear) run by `thv run` into the group
-                       `vicegerent`. Managed by ToolHive's own daemon (Docker
-                       containers), NOT by supervisord — they persist across
-                       stack restarts so OAuth tokens are not re-prompted.
+  ToolHive workloads   11 MCP backends (kubernetes, gitlab, github, tavily,
+                       firecrawl, notion, linear, jira, grafana, alertmanager,
+                       pagerduty) run by `thv run` into the group `vicegerent`.
+                       Managed by ToolHive's own daemon (Docker containers),
+                       NOT by supervisord — they persist across stack restarts
+                       so OAuth tokens are not re-prompted.
   vMCP                 `thv vmcp serve` aggregates the group behind one
                        loopback endpoint on 127.0.0.1:4483, prefixing every
                        backend's tools with `{workload}_`.
@@ -33,6 +34,7 @@ import shutil
 import subprocess
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -354,6 +356,59 @@ def ensure_group(group: str) -> None:
     thv("group", "create", group)  # idempotent; errors if it already exists
 
 
+def _apply_workload(
+    server: dict[str, Any],
+    group: str,
+    runtime_dir: Path,
+    in_group: dict[str, str],
+    all_names: set[str],
+    dry_run: bool,
+) -> list[tuple[bool, str]]:
+    """Bring one workload to the desired state; return [(is_warning, message), …].
+
+    Safe to run concurrently: `thv` locks are per-workload, and each server touches
+    only its own workload (and, for a kind_cluster server, its own kubeconfig file).
+    """
+    name = server["name"]
+    state = in_group.get(name)
+    # A kind_cluster workload with a stale kubeconfig (cluster CA rotated) must be
+    # recreated so it remounts a fresh internal kubeconfig — restart won't remount.
+    stale = kind_kubeconfig_stale(server, runtime_dir)
+    if state == "running" and not stale:
+        return [(False, f"  workload {name}: already running")]
+    if stale and name in all_names:
+        action = "recreate"
+    elif name in in_group:
+        action = "restart"
+    elif name in all_names:
+        action = "recreate"  # exists in another group; must be rebuilt in ours
+    else:
+        action = "run"
+    if dry_run:
+        return [(False, f"  would {action} workload {name}")]
+    msgs: list[tuple[bool, str]] = []
+    if action == "restart":
+        msgs.append((False, f"  restarting workload {name} …"))
+        result = thv("restart", name)
+        if result.returncode != 0:
+            msgs.append((True, f"  warning: `thv restart {name}` failed: {result.stderr.strip()}"))
+        return msgs
+    if action == "recreate":
+        reason = "kubeconfig changed" if stale else f"exists outside group '{group}'"
+        msgs.append((False, f"  recreating workload {name} ({reason}) …"))
+        thv("rm", name)  # names are global; OAuth tokens persist via the secrets provider
+    msgs.append((False, f"  starting workload {name} …"))
+    # capture_output so concurrent workloads don't interleave on the terminal; the
+    # browser-based OAuth flow for remote servers is handled by the detached proxy
+    # (logs to thv's own file), so nothing interactive is lost by not streaming here.
+    result = subprocess.run(
+        build_thv_run_argv(server, group, runtime_dir), capture_output=True, text=True
+    )
+    if result.returncode != 0:
+        msgs.append((True, f"  warning: `thv run {name}` exited {result.returncode}: {result.stderr.strip()}"))
+    return msgs
+
+
 def run_workloads(
     config: dict[str, Any],
     runtime_dir: Path,
@@ -366,46 +421,27 @@ def run_workloads(
     - exists in our group but stopped -> restart (don't `thv run`, which errors "already exists")
     - exists OUTSIDE our group (orphan / name collision) -> remove and recreate in-group
     - absent -> `thv run`
+
+    Enabled workloads are brought up concurrently (per-workload `thv` locks make
+    this safe) so npx/image pulls overlap instead of serializing.
     """
     group = group_name(config)
     ensure_group(group)
     in_group = list_workloads(group)
     all_names = list_all_workload_names()
 
-    for server in enabled_servers(config, runtime_dir):
-        name = server["name"]
-        state = in_group.get(name)
-        # A kind_cluster workload with a stale kubeconfig (cluster CA rotated) must be
-        # recreated so it remounts a fresh internal kubeconfig — restart won't remount.
-        stale = kind_kubeconfig_stale(server, runtime_dir)
-        if state == "running" and not stale:
-            print(f"  workload {name}: already running")
-            continue
-        if stale and name in all_names:
-            action = "recreate"
-        elif name in in_group:
-            action = "restart"
-        elif name in all_names:
-            action = "recreate"  # exists in another group; must be rebuilt in ours
-        else:
-            action = "run"
-        if dry_run:
-            print(f"  would {action} workload {name}")
-            continue
-        if action == "restart":
-            print(f"  restarting workload {name} …")
-            result = thv("restart", name)
-            if result.returncode != 0:
-                print(f"  warning: `thv restart {name}` failed: {result.stderr.strip()}", file=sys.stderr)
-            continue
-        if action == "recreate":
-            reason = "kubeconfig changed" if stale else f"exists outside group '{group}'"
-            print(f"  recreating workload {name} ({reason}) …")
-            thv("rm", name)  # names are global; OAuth tokens persist via the secrets provider
-        print(f"  starting workload {name} …")
-        result = subprocess.run(build_thv_run_argv(server, group, runtime_dir), text=True)
-        if result.returncode != 0:
-            print(f"  warning: `thv run {name}` exited {result.returncode}", file=sys.stderr)
+    targets = enabled_servers(config, runtime_dir)
+    if not targets:
+        return 0
+    with ThreadPoolExecutor(max_workers=len(targets)) as pool:
+        results = pool.map(
+            lambda s: _apply_workload(s, group, runtime_dir, in_group, all_names, dry_run),
+            targets,
+        )
+        # pool.map preserves input order, so messages print in server order.
+        for msgs in results:
+            for is_warning, msg in msgs:
+                print(msg, file=sys.stderr if is_warning else sys.stdout)
     return 0
 
 
@@ -762,6 +798,18 @@ def ensure_ghostunnel_material() -> None:
     missing = [f for f in GHOSTUNNEL_FILES if not (hd / f).is_file() or (hd / f).stat().st_size == 0]
     if not missing:
         return
+    current_ctx = subprocess.run(
+        ["kubectl", "config", "current-context"], capture_output=True, text=True,
+    ).stdout.strip()
+    if current_ctx != GHOSTUNNEL_KUBE_CONTEXT:
+        print(
+            f"ghostunnel material missing {missing}, but current kubectl context is "
+            f"'{current_ctx or '<none>'}', expected '{GHOSTUNNEL_KUBE_CONTEXT}'. "
+            f"Run: kubectl config use-context {GHOSTUNNEL_KUBE_CONTEXT}",
+            file=sys.stderr,
+        )
+        return
+
     print(f"ghostunnel material missing {missing}; recovering from kind Secret {GHOSTUNNEL_SECRET} …")
     hd.mkdir(parents=True, exist_ok=True)
     hd.chmod(0o700)
@@ -825,7 +873,13 @@ def start_stack(
 
     port = vmcp_port(config)
     thv_bin = _thv_path()
-    vmcp_command = f'{thv_bin} vmcp serve --config {vmcp_cfg} --port {port}'
+    # Tier 1 FTS5 keyword optimizer: collapses every backend's tools down to
+    # find_tool/call_tool, cutting the tokens spent on tool definitions as more
+    # servers are enabled. Requires mcp-cerbos-shim to unwrap call_tool (it does —
+    # see server.go callToolMeta) or Cerbos-guarded tools would silently bypass
+    # authorization. Set VMCP_OPTIMIZER=0 to fall back to exposing all tools raw.
+    optimizer_flag = "" if os.environ.get("VMCP_OPTIMIZER", "1") == "0" else " --optimizer"
+    vmcp_command = f'{thv_bin} vmcp serve --config {vmcp_cfg} --port {port}{optimizer_flag}'
     # Ensure thv's dir (and Homebrew) are on PATH for the supervised process.
     path_env = os.pathsep.join(
         dict.fromkeys([str(Path(thv_bin).parent), "/opt/homebrew/bin", os.environ.get("PATH", "")])
@@ -894,10 +948,12 @@ def stop_stack(
     """
     if stop_workloads:
         group = group_name(load_servers_config(servers_config))
-        for name, st in list_workloads(group).items():
-            if st == "running":
-                print(f"  stopping workload {name} …")
-                thv("stop", name)
+        running = [name for name, st in list_workloads(group).items() if st == "running"]
+        if running:
+            print(f"  stopping {len(running)} workloads: {', '.join(running)} …")
+            # Concurrent: per-workload `thv` locks make parallel stops safe.
+            with ThreadPoolExecutor(max_workers=len(running)) as pool:
+                list(pool.map(lambda n: thv("stop", n), running))
 
     if not is_supervisor_running(runtime_dir):
         print("supervisord is not running")

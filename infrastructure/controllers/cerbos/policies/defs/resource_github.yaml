@@ -1,0 +1,39 @@
+---
+# github_repo policy: deny any GitHub call whose owner/repo isn't in the allowed
+# list, or whose branch arg names a protected branch (main/master/production);
+# allow everything else. The shim maps every repo-bearing GitHub tool to this
+# resource, carrying owner+repo (always populated) and branch (populated only
+# for push_files/create_or_update_file/create_branch — the tools that write or
+# name a branch directly; everything else, including create_pull_request's
+# base/head, resolves to ''). Opening a PR against main is not blocked here —
+# that's normal and doesn't write to the branch. Do NOT add tools here to
+# permit them; that belongs in the vMCP tools allowlist.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: github_repo
+  rules:
+    - name: deny-non-allowed-repo
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            !(request.resource.attr.owner + "/" + request.resource.attr.repo in
+            ["moveworks-emu/moveworks", "moveworks-emu/k8s-manifests",
+            "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
+            "christensenjairus/vicegerent-agents"])
+    - name: deny-protected-branch
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.branch) && request.resource.attr.branch != ""
+            && request.resource.attr.branch in ["main", "master", "production"]
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

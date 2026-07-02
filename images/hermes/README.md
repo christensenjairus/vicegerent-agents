@@ -14,11 +14,15 @@ relies on. Verified against the upstream arm64 image (`v2026.6.19`):
 
 | Needed | In stock image? |
 | --- | --- |
-| mnemosyne plugin + MiniCPM embedding gguf | no |
+| mnemosyne plugin | no |
 | hermes-lcm context engine | no |
 | LSP servers (pyright, yaml-language-server, terraform-ls, bash-language-server) | no |
 | `ddgs` Python package (web search backend) | no — only the plugin glue is present |
 | netdebug tools (ss, dig, nc) for egress diagnostics | no |
+
+mnemosyne's embedding model and local LLM are not baked — it downloads them from
+Hugging Face on first use, via the `huggingface.co`/`*.aws.cdn.hf.co` allowlist in
+`apps/base/egress-proxy/networkpolicy.yaml`.
 
 ## Build & push
 
@@ -44,9 +48,6 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 
 ## Bakes
 
-- mnemosyne + MiniCPM `MiniCPM5-1B-Q4_K_M.gguf` (bake outside `/opt/data`; the
-  data PVC shadows `/opt/data` at runtime, so first-boot seeding is an
-  init-container concern, not a Dockerfile one).
 - hermes-lcm context engine — extracted from its pinned GitHub release into
   Hermes' bundled `plugins/context_engine/lcm/` (resolved from the installed
   package, not a hardcoded path). Loaded by the dedicated context-engine

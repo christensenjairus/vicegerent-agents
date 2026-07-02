@@ -4,7 +4,7 @@
   "servers": [
     {
       "name": "kubernetes",
-      "description": "Read-only Kubernetes access (resources, pods, logs). Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary').",
+      "description": "Read-only Kubernetes access (resources, pods, logs). --read-only means only readOnlyHint=true tools are exposed at the source at all (write/exec/helm/tekton tools aren't just blocked, they don't exist in this process); the tools list below just pins the exact live set explicitly so a future package bump can't silently add to it. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary').",
       "enabled": false,
       "type": "npx",
       "package": "kubernetes-mcp-server@0.0.63",
@@ -17,11 +17,16 @@
           "prompt": "Kubeconfig path for the target cluster (blank = auto-generate from the kind 'vicegerent' cluster)",
           "apply": "kubeconfig"
         }
+      ],
+      "tools": [
+        "configuration_contexts_list", "configuration_view", "events_list", "namespaces_list",
+        "nodes_log", "nodes_stats_summary", "nodes_top", "pods_get", "pods_list",
+        "pods_list_in_namespace", "pods_log", "pods_top", "resources_get", "resources_list"
       ]
     },
     {
       "name": "gitlab",
-      "description": "GitLab MCP (merge requests, pipelines, repos).",
+      "description": "GitLab MCP, scoped to issue read+write and the full merge-request lifecycle short of merging (branch/file/commit ops, create/update/review/comment) plus label lookups. No repo/group/project allowlist — the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, all CI/CD variable and pipeline-trigger tools, execute_graphql (arbitrary API access — would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded. The Cerbos guardrail (defs/resource_gitlab.yaml) additionally blocks push_files/create_or_update_file/create_branch from targeting a protected branch (main/master/production).",
       "enabled": false,
       "type": "npx",
       "package": "@zereight/mcp-gitlab@2.1.8",
@@ -34,39 +39,124 @@
           "template": "--api-url={value}",
           "required": true
         }
+      ],
+      "tools": [
+        "create_issue", "get_issue", "update_issue", "update_issue_description_patch",
+        "list_issues", "my_issues", "list_issue_discussions", "list_issue_links",
+        "get_issue_link", "create_issue_link", "update_issue_note", "create_issue_note",
+        "list_todos", "mark_todo_done", "mark_all_todos_done",
+        "list_labels", "get_label",
+        "create_merge_request", "get_merge_request", "get_merge_request_diffs",
+        "list_merge_request_diffs", "get_merge_request_conflicts", "list_merge_request_changed_files",
+        "get_merge_request_file_diff", "list_merge_request_versions", "get_merge_request_version",
+        "get_branch_diffs", "update_merge_request", "create_note", "create_merge_request_thread",
+        "mr_discussions", "resolve_merge_request_thread", "update_merge_request_note",
+        "create_merge_request_note", "delete_merge_request_discussion_note",
+        "update_merge_request_discussion_note", "create_merge_request_discussion_note",
+        "delete_merge_request_note", "get_merge_request_note", "get_merge_request_notes",
+        "get_draft_note", "list_draft_notes", "create_draft_note", "update_draft_note",
+        "delete_draft_note", "publish_draft_note", "bulk_publish_draft_notes",
+        "list_merge_requests", "approve_merge_request", "unapprove_merge_request",
+        "get_merge_request_approval_state",
+        "create_or_update_file", "push_files", "create_branch"
+      ]
+    },
+    {
+      "name": "github",
+      "description": "GitHub MCP, scoped to issue read+write and the full pull-request lifecycle short of merging (branch/file/commit ops, create/update/review/comment) plus get_me/get_label lookups. create_repository, fork_repository, delete_file, merge_pull_request, and general repo/code browsing (get_file_contents, search_code, etc.) are excluded. Scoped at the source via GITHUB_TOOLS and again via the vMCP tools allowlist. The Cerbos guardrail (defs/resource_github.yaml) additionally hard-enforces which owner/repo and branch the mapped tools may target, regardless of what the token itself can reach, and forces every create/update_pull_request to draft: true.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "io.github.stacklok/github",
+      "env": {
+        "GITHUB_TOOLS": "issue_read,issue_write,add_issue_comment,list_issues,list_issue_types,search_issues,sub_issue_write,assign_copilot_to_issue,get_label,get_me,pull_request_read,pull_request_review_write,add_reply_to_pull_request_comment,add_comment_to_pending_review,create_pull_request,update_pull_request,list_pull_requests,search_pull_requests,request_copilot_review,create_branch,create_or_update_file,push_files,update_pull_request_branch"
+      },
+      "secrets": [{"name": "github_token", "target": "GITHUB_PERSONAL_ACCESS_TOKEN"}],
+      "tools": [
+        "issue_read", "issue_write", "add_issue_comment", "list_issues", "list_issue_types",
+        "search_issues", "sub_issue_write", "assign_copilot_to_issue", "get_label", "get_me",
+        "pull_request_read", "pull_request_review_write", "add_reply_to_pull_request_comment",
+        "add_comment_to_pending_review", "create_pull_request", "update_pull_request",
+        "list_pull_requests", "search_pull_requests", "request_copilot_review",
+        "create_branch", "create_or_update_file", "push_files", "update_pull_request_branch"
       ]
     },
     {
       "name": "tavily",
-      "description": "Tavily web search and content extraction.",
+      "description": "Tavily web search and content extraction. No write capability exists (search/extract/crawl/map/research against arbitrary public URLs, nothing that touches anything this platform owns), so the tools list below is the full live set pinned explicitly rather than a restriction.",
       "enabled": false,
       "type": "npx",
       "package": "tavily-mcp@0.2.20",
-      "secrets": [{"name": "tavily_api_key", "target": "TAVILY_API_KEY"}]
+      "secrets": [{"name": "tavily_api_key", "target": "TAVILY_API_KEY"}],
+      "tools": ["tavily-search", "tavily-extract", "tavily-crawl", "tavily-map", "tavily-research"]
     },
     {
       "name": "firecrawl",
-      "description": "Firecrawl web scraping, crawling, and extraction.",
+      "description": "Firecrawl web scraping, crawling, and extraction. No write capability exists (every tool reads/scrapes/monitors an arbitrary public URL you supply; nothing touches anything this platform owns), so the tools list below is the full live set pinned explicitly rather than a restriction.",
       "enabled": false,
       "type": "npx",
       "package": "firecrawl-mcp@3.22.1",
-      "secrets": [{"name": "firecrawl_api_key", "target": "FIRECRAWL_API_KEY"}]
+      "secrets": [{"name": "firecrawl_api_key", "target": "FIRECRAWL_API_KEY"}],
+      "tools": [
+        "firecrawl_scrape", "firecrawl_map", "firecrawl_search", "firecrawl_search_feedback",
+        "firecrawl_feedback", "firecrawl_crawl", "firecrawl_check_crawl_status", "firecrawl_extract",
+        "firecrawl_agent", "firecrawl_agent_status", "firecrawl_interact", "firecrawl_interact_stop",
+        "firecrawl_parse", "firecrawl_monitor_create", "firecrawl_monitor_list", "firecrawl_monitor_get",
+        "firecrawl_monitor_update", "firecrawl_monitor_delete", "firecrawl_monitor_run",
+        "firecrawl_monitor_checks", "firecrawl_monitor_check", "firecrawl_research_search_papers",
+        "firecrawl_research_inspect_paper", "firecrawl_research_related_papers",
+        "firecrawl_research_read_paper", "firecrawl_research_search_github"
+      ]
     },
     {
       "name": "notion",
-      "description": "Notion workspace search and fetch (OAuth; browser consent on first start).",
+      "description": "Notion workspace (official remote MCP; OAuth, browser consent on first start), shared broadly for read. The vMCP allowlist exposes 7 read tools (search, fetch, comments, users/teams, self) plus 3 content-write tools (create-pages, update-page, create-comment); database/move/duplicate mutations excluded. create-pages is folder-pinned by the mcp-cerbos-shim `force` override (mapping.yaml): rather than deny an off-folder parent, it rewrites `parent` to the Scratchpad page on every call, so the agent never sees an error or retries and every new page lands under Scratchpad. NB update-page and create-comment target an EXISTING page by id and are left unconstrained (the shim can't verify a page's folder without an ancestry lookup). A hard separate-integration split (read broad / write narrow) was infeasible — the org blocks creating internal-integration tokens.",
       "enabled": false,
       "type": "remote",
       "registry": "notion-remote",
-      "run_flags": ["--remote-auth-callback-port", "8777", "--remote-auth-timeout", "3m"]
+      "run_flags": ["--remote-auth-callback-port", "8777", "--remote-auth-timeout", "3m"],
+      "tools": [
+        "notion-search", "notion-fetch", "notion-get-comments", "notion-get-teams",
+        "notion-get-users", "notion-get-user", "notion-get-self",
+        "notion-create-pages", "notion-update-page", "notion-create-comment"
+      ]
     },
     {
       "name": "linear",
-      "description": "Linear issues and projects (OAuth; browser consent on first start).",
+      "description": "Linear issues and projects (OAuth; browser consent on first start). No destructive tools exist in Linear's official remote MCP server's 23-tool surface, so all of them are exposed. The Cerbos guardrail (defs/resource_linear.yaml) confines new-issue creation to the DEVOPS team: create_issue's teamId is denied unless it's DEVOPS. update_issue/create_comment target an existing issue by id and carry no teamId of their own, so the shim can't verify their team without an ancestry lookup — they're intentionally unmapped; the enforceable boundary is 'new issues land in DEVOPS', not 'every call touches only DEVOPS'.",
       "enabled": false,
       "type": "remote",
       "registry": "linear",
-      "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"]
+      "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"],
+      "tools": [
+        "list_comments", "create_comment", "list_cycles", "get_document", "list_documents",
+        "get_issue", "list_issues", "create_issue", "update_issue", "list_issue_statuses",
+        "get_issue_status", "list_issue_labels", "create_issue_label", "list_projects",
+        "get_project", "create_project", "update_project", "list_project_labels",
+        "list_teams", "get_team", "list_users", "get_user", "search_documentation"
+      ]
+    },
+    {
+      "name": "jira",
+      "description": "Jira (sooperset/mcp-atlassian container), confined to the CHANGE (Change Management) project. Jira-only: only JIRA_* creds are supplied so Confluence tools stay disabled. JIRA_PROJECTS_FILTER=CHANGE scopes search/discovery to that project; jira_get_all_projects and jira_get_project_versions are dropped to remove cross-project enumeration. Read+write (issues, JQL search, transitions, comments) scoped at the source via ENABLED_TOOLS and again via the vMCP tools allowlist; destructive deletes are excluded. The CHANGE boundary is hard-enforced by the Cerbos guardrail (defs/resource_jira.yaml): the mcp-cerbos-shim maps every project/issue-bearing tool and Cerbos denies any call whose project_key — or the project prefix of an issue/epic key — isn't CHANGE; JIRA_PROJECTS_FILTER additionally confines free-form search server-side. jira_batch_get_changelogs is dropped because its list-of-keys arg can't be shim-inspected. NB the official remote (io.github.stacklok/atlassian-remote) does NOT work through our vMCP — it advertises the resources capability but returns method-not-found for resources/list, so the vMCP health probe drops it from aggregation.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "io.github.stacklok/atlassian",
+      "env": {
+        "READ_ONLY_MODE": "false",
+        "JIRA_PROJECTS_FILTER": "CHANGE",
+        "ENABLED_TOOLS": "jira_get_issue,jira_search,jira_search_fields,jira_get_project_issues,jira_get_transitions,jira_get_link_types,jira_create_issue,jira_update_issue,jira_add_comment,jira_transition_issue,jira_create_issue_link,jira_link_to_epic"
+      },
+      "secrets": [
+        {"name": "jira_url", "target": "JIRA_URL"},
+        {"name": "jira_username", "target": "JIRA_USERNAME"},
+        {"name": "jira_api_token", "target": "JIRA_API_TOKEN"}
+      ],
+      "tools": [
+        "jira_get_issue", "jira_search", "jira_search_fields", "jira_get_project_issues",
+        "jira_get_transitions", "jira_get_link_types",
+        "jira_create_issue", "jira_update_issue", "jira_add_comment", "jira_transition_issue",
+        "jira_create_issue_link", "jira_link_to_epic"
+      ]
     },
     {
       "name": "grafana",
@@ -90,7 +180,7 @@
     },
     {
       "name": "alertmanager",
-      "description": "Prometheus Alertmanager (alerts, silences, alert groups, status).",
+      "description": "Prometheus Alertmanager (alerts, silences, alert groups, status). Full read+write, including createSilence/deleteSilence — the tools list below is the full live 12-tool set pinned explicitly rather than a restriction.",
       "enabled": false,
       "type": "npx",
       "package": "mcp-alertmanager@2.1.1",
@@ -102,6 +192,12 @@
           "template": "--url={value}",
           "required": true
         }
+      ],
+      "tools": [
+        "getAlerts", "getAlertGroups", "getCriticalAlerts", "getAlertingSummary",
+        "getSilences", "createSilence", "deleteSilence",
+        "getAlertmanagerStatus", "getReceivers",
+        "investigateAlert", "getAlertHistory", "correlateAlerts"
       ]
     },
     {

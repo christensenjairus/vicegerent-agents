@@ -1,0 +1,129 @@
+---
+name: jira_change_project_block_test
+description: Jira calls targeting a project other than CHANGE are denied (by project_key,
+  or by the project prefix of an issue/inward/outward/epic key); calls confined to
+  CHANGE are allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  create_in_change:
+    id: CHANGE
+    kind: jira_project
+    attr:
+      projectKey: CHANGE
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+  create_in_other:
+    id: FOO
+    kind: jira_project
+    attr:
+      projectKey: FOO
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+  get_change_issue:
+    id: CHANGE-123
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-123
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+  get_other_issue:
+    id: FOO-9
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: FOO-9
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+  link_mixed_projects:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: ''
+      inwardKey: CHANGE-1
+      outwardKey: FOO-2
+      epicKey: ''
+  link_to_change_epic:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-1
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: CHANGE-9
+  link_to_other_epic:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-1
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: FOO-9
+  no_keys:
+    id: '*'
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+tests:
+  - name: calls confined to CHANGE are allowed
+    input:
+      principals: [hermes]
+      resources:
+        - create_in_change
+        - get_change_issue
+        - link_to_change_epic
+        - no_keys
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_in_change
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: get_change_issue
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: link_to_change_epic
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: no_keys
+        actions: {access: EFFECT_ALLOW}
+  - name: calls targeting another project are denied
+    input:
+      principals: [hermes]
+      resources:
+        - create_in_other
+        - get_other_issue
+        - link_mixed_projects
+        - link_to_other_epic
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_in_other
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: get_other_issue
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: link_mixed_projects
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: link_to_other_epic
+        actions: {access: EFFECT_DENY}

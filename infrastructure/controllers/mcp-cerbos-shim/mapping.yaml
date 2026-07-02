@@ -1,9 +1,17 @@
 ---
 # mcp-cerbos-shim mapping. See mapping.example.yaml + shim README for full docs.
-# Only resource-bearing tools are mapped (k8s kind, or a Grafana datasource id);
-# unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads and
-# OpenSearch-datasource reads. Adding a tool here to permit it is wrong; that
-# belongs in the gateway allowlist.
+# Only resource-bearing tools are mapped (k8s kind, a Grafana datasource id, a
+# Jira project/issue key, a GitHub owner/repo[/branch], a GitLab branch, or a
+# Linear teamId); unmapped tools pass (defaultAction: allow). Cerbos denies
+# Secret reads, OpenSearch-datasource reads, Jira calls targeting a project
+# other than CHANGE, GitHub calls targeting a repo outside the allowlist or
+# writing directly to a protected branch, GitLab calls writing directly to a
+# protected branch (main/master/production; no repo allowlist — the bot's
+# GitLab PAT is already project-scoped), and Linear calls targeting a team
+# other than DEVOPS. A `force` block instead allows-with-rewritten-args — that's
+# a mutation, not a deny (see server.go): GitHub PR create/update force
+# draft: true, and Notion create-pages force `parent` to the Scratchpad folder.
+# Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
 backends:
   vmcp:
     defaultAction: allow
@@ -19,6 +27,20 @@ backends:
         action: listResources
         id: "''"
         attrFrom: canonicalK8s(args)
+      # GitLab branch-writing tools -> gitlab_repo; Cerbos denies a branch arg
+      # naming a protected branch. No project-id allowlist — the bot's GitLab
+      # PAT is already scoped to a specific project on gitlab.hahomelabs.com.
+      # Only these three tools carry a literal 'branch' arg (mirrors GitLab's
+      # own REST API field name for the commits/files/branches endpoints);
+      # everything else (issue/MR read+write, comments, notes) is unmapped.
+      gitlab_push_files: &gitlab_branch
+        resourceType: gitlab_repo
+        action: access
+        id: get(args,'project_id','')
+        attr:
+          branch: get(args,'branch','')
+      gitlab_create_or_update_file: *gitlab_branch
+      gitlab_create_branch: *gitlab_branch
       # Grafana datasource-bearing tools -> grafana_datasource; Cerbos denies
       # OpenSearch datasources by uid/name. Same body for every tool: capture the
       # datasource id from whichever arg the tool uses (datasourceUid | uid | name).
@@ -38,3 +60,101 @@ backends:
       grafana_list_prometheus_metric_names: *grafana_ds
       grafana_list_prometheus_label_names: *grafana_ds
       grafana_list_prometheus_label_values: *grafana_ds
+      # Jira project/issue-bearing tools -> jira_project; Cerbos denies any call
+      # targeting a project other than CHANGE. Tool names are double-prefixed
+      # ({workload}_{tool} = jira_ + jira_*). Same body for every tool: capture
+      # whichever project/issue-key args it carries (absent args resolve to "").
+      # jira_jira_search is intentionally unmapped — JIRA_PROJECTS_FILTER=CHANGE
+      # confines search server-side, and its free-form jql can't be checked here.
+      jira_jira_create_issue: &jira_proj
+        resourceType: jira_project
+        action: access
+        id: get(args,'project_key', get(args,'issue_key',''))
+        attr:
+          projectKey: get(args,'project_key','')
+          issueKey: get(args,'issue_key','')
+          inwardKey: get(args,'inward_issue_key','')
+          outwardKey: get(args,'outward_issue_key','')
+          epicKey: get(args,'epic_key','')
+      jira_jira_get_project_issues: *jira_proj
+      jira_jira_get_issue: *jira_proj
+      jira_jira_update_issue: *jira_proj
+      jira_jira_transition_issue: *jira_proj
+      jira_jira_add_comment: *jira_proj
+      jira_jira_get_transitions: *jira_proj
+      jira_jira_create_issue_link: *jira_proj
+      jira_jira_link_to_epic: *jira_proj
+      # GitHub repo-bearing tools -> github_repo; Cerbos denies any call whose
+      # owner/repo isn't in the allowlist, or whose branch arg (only
+      # push_files/create_or_update_file/create_branch carry one — everything
+      # else resolves to '') names a protected branch. github_get_me is
+      # intentionally unmapped — it identifies the caller, not a repo.
+      github_issue_read: &github_repo
+        resourceType: github_repo
+        action: access
+        id: get(args,'owner','') + '/' + get(args,'repo','')
+        attr:
+          owner: get(args,'owner','')
+          repo: get(args,'repo','')
+          branch: get(args,'branch','')
+      github_issue_write: *github_repo
+      github_add_issue_comment: *github_repo
+      github_list_issues: *github_repo
+      github_list_issue_types: *github_repo
+      github_search_issues: *github_repo
+      github_sub_issue_write: *github_repo
+      github_assign_copilot_to_issue: *github_repo
+      github_get_label: *github_repo
+      github_pull_request_read: *github_repo
+      github_pull_request_review_write: *github_repo
+      github_add_reply_to_pull_request_comment: *github_repo
+      github_add_comment_to_pending_review: *github_repo
+      # create/update_pull_request force draft: true regardless of what's sent —
+      # every PR the agent opens (or un-drafts via update) stays a draft. This is
+      # a mutation (allow-with-rewritten-args), not a deny: see server.go's Force
+      # handling. Applied only after the repo/branch checks above already passed.
+      github_create_pull_request:
+        <<: *github_repo
+        force: {draft: true}
+      github_update_pull_request:
+        <<: *github_repo
+        force: {draft: true}
+      github_list_pull_requests: *github_repo
+      github_search_pull_requests: *github_repo
+      github_request_copilot_review: *github_repo
+      github_create_branch: *github_repo
+      github_create_or_update_file: *github_repo
+      github_push_files: *github_repo
+      github_update_pull_request_branch: *github_repo
+      # Linear create_issue -> linear_team; Cerbos denies any teamId other than
+      # DEVOPS. teamId is a required field on create_issue (matches Linear's own
+      # API convention), so this is verifiable. update_issue/create_comment
+      # target an existing issue by id, which carries no teamId of its own in
+      # the call args — the shim can't verify their team without an ancestry
+      # lookup (same limitation as Notion's update-page), so they're
+      # intentionally unmapped and pass; the enforceable boundary is
+      # "new issues land in DEVOPS", not "every call touches only DEVOPS".
+      linear_create_issue:
+        resourceType: linear_team
+        action: create
+        id: get(args,'teamId','')
+        attr:
+          teamId: get(args,'teamId','')
+      # Notion create-pages -> always created under the Scratchpad folder. Rather
+      # than DENY an off-folder parent (which the agent sees as an error and retries,
+      # or silently drops), a `force` override unconditionally rewrites `parent` to
+      # the Scratchpad page on every call — whatever parent the agent sent (or none)
+      # is replaced, so the page always lands under Scratchpad, no error. notion_page
+      # has an allow-all Cerbos policy (defs/resource_notion.yaml); `force` applies
+      # only after that allow. update-page/create-comment target existing pages by id
+      # and are unmapped (see toolhive-servers.json's notion entry).
+      notion_notion-create-pages:
+        resourceType: notion_page
+        action: create
+        id: "'notion-create-pages'"
+        attr:
+          forcedParent: "'scratchpad'"
+        force:
+          parent:
+            type: page_id
+            page_id: 1ea588d8909f80edb0cef38d0aeaf64f  # pragma: allowlist secret (Notion page id)

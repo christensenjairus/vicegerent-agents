@@ -16,6 +16,15 @@
 #   GATEWAY_URL=http://localhost:8080 MY_KEY=hermes bash scripts/test-mcp-policies.sh
 set -uo pipefail
 
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
+if command -v kubectl >/dev/null 2>&1; then
+  current_ctx="$(kubectl config current-context 2>/dev/null || true)"
+  [[ "$current_ctx" == "$KUBE_CONTEXT" ]] || {
+    echo "ERROR: current kubectl context is '${current_ctx:-<none>}', expected '$KUBE_CONTEXT'. Run: kubectl config use-context $KUBE_CONTEXT" >&2
+    exit 1
+  }
+fi
+
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 API_KEY="${MY_KEY:-hermes}"
 # Random secret name so the test is self-describing in k8s audit logs
@@ -153,16 +162,18 @@ VMCP_URL="${GATEWAY_URL}/mcp/vmcp"
 
 # ── Section 1: vMCP tool surface ──────────────────────────────────────────────
 
-section "1. vMCP tool surface — aggregated, no allowlist"
+section "1. vMCP tool surface — aggregated at the gateway"
 
 open_session "$VMCP_URL"
 TOOLS=$(get_tools "$VMCP_URL")
 
-# All tools pass through the vMCP now (no gateway allowlist). Just confirm the
-# vMCP is aggregating and exposing tools, prefixed by workload ({workload}_<tool>).
+# Tool selection is done in the vMCP (aggregation.tools, per backend); agentgateway
+# adds no per-tool allowlist in this setup (it could in a centralized one). Just
+# confirm the vMCP is aggregating and exposing tools, prefixed by workload
+# ({workload}_<tool>).
 TOOL_COUNT=$(echo "$TOOLS" | grep -c . || true)
 if [[ "$TOOL_COUNT" -gt 0 ]]; then
-  pass "vMCP exposes ${TOOL_COUNT} aggregated tools (no allowlist gate)"
+  pass "vMCP exposes ${TOOL_COUNT} aggregated tools"
 else
   fail "vMCP exposed no tools — backends down or vMCP not aggregating?"
 fi
@@ -245,7 +256,7 @@ fi
 # A missing guardrail silently fails open (FailClosed only covers shim failures, not absence).
 echo -e "  ${YELLOW}verifying guardrail attached to vmcp-mcp-tools policy ...${NC}"
 if command -v kubectl &>/dev/null; then
-  GUARDRAIL=$(kubectl -n agentgateway-system get agentgatewaypolicy vmcp-mcp-tools \
+  GUARDRAIL=$(kubectl --context "$KUBE_CONTEXT" -n agentgateway-system get agentgatewaypolicy vmcp-mcp-tools \
     -o jsonpath='{.spec.backend.mcp.guardrails.processors[0].remote.backendRef.name}' 2>/dev/null || true)
   if [[ "$GUARDRAIL" == "mcp-cerbos-shim" ]]; then
     pass "guardrail attached: mcp-cerbos-shim (FailClosed)"

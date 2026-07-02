@@ -1,0 +1,26 @@
+---
+# linear_team policy: deny create_issue calls targeting a team other than
+# DEVOPS; allow everything else. teamId must be the DEVOPS team's actual
+# Linear team ID (a UUID, or its short key if Linear's API accepts that for
+# this field) — REPLACE_WITH_DEVOPS_TEAM_ID is a placeholder that fails closed
+# (denies every create_issue) until swapped for the real value. Only
+# create_issue is mapped; update_issue/create_comment target an existing issue
+# by id and carry no teamId the shim can verify (see mapping.yaml).
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: linear_team
+  rules:
+    - name: deny-non-devops-team
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.teamId) && request.resource.attr.teamId
+            != "REPLACE_WITH_DEVOPS_TEAM_ID"
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

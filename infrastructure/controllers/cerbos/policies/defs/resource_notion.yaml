@@ -1,0 +1,16 @@
+---
+# notion_page policy: allow-all. notion-create-pages is NOT denied here — the shim's
+# `force` override (mapping.yaml) unconditionally rewrites its `parent` to the Scratchpad
+# folder on every call, so the page always lands under Scratchpad without the agent
+# seeing an error or retrying. This policy exists only so the mapped tool passes the
+# Cerbos gate (an unmatched resource kind would default-deny) before that mutation is
+# applied. To retarget the folder, change the forced parent id in mapping.yaml.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: notion_page
+  rules:
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']
