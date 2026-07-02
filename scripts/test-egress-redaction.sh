@@ -2,7 +2,7 @@
 # test-egress-redaction.sh
 # Validate that the egress-proxy scrubs secrets from outbound requests before
 # they leave the cluster, by driving real HTTP calls FROM a running agent
-# sandbox pod against httpbin.org (a public echo service allowlisted for this
+# sandbox pod against httpbin.io (a public echo service allowlisted for this
 # purpose — see apps/base/egress-proxy/networkpolicy.yaml and
 # addon-configmap.yaml). httpbin echoes back exactly what it received, so a
 # response missing the raw secret proves the proxy redacted it before
@@ -74,25 +74,25 @@ echo -e "${CYAN}Pod: ${NAMESPACE}/${POD} (container: ${CONTAINER})${NC}"
 
 # ── Section 1: baseline reachability ────────────────────────────────────────
 
-section "1. httpbin.org reachable through the egress proxy"
+section "1. httpbin.io reachable through the egress proxy"
 
-echo -e "  ${YELLOW}probing GET https://httpbin.org/get ...${NC}"
-run "https://httpbin.org/get"
+echo -e "  ${YELLOW}probing GET https://httpbin.io/get ...${NC}"
+run "https://httpbin.io/get"
 if [[ "$STATUS" == "200" ]]; then
-  pass "GET https://httpbin.org/get -> 200 (FQDN allowlist + proxy path OK)"
+  pass "GET https://httpbin.io/get -> 200 (FQDN allowlist + proxy path OK)"
 else
-  fail "GET https://httpbin.org/get -> ${STATUS} (expected 200)"
+  fail "GET https://httpbin.io/get -> ${STATUS} (expected 200)"
   echo "    body: ${BODY:0:200}"
 fi
 
 # ── Section 2: header secret redaction ──────────────────────────────────────
-# httpbin.org/headers echoes back exactly the headers it received, as JSON.
+# httpbin.io/headers echoes back exactly the headers it received, as JSON.
 
 section "2. secrets in request headers are redacted before forwarding"
 
 SLACK_BOT_TOKEN="xoxb-1234567890-abcdefghijklmnopqrstuvwx"  # pragma: allowlist secret
 echo -e "  ${YELLOW}probing Slack bot token in custom header ...${NC}"
-run "https://httpbin.org/headers" -H "X-Test-Secret: ${SLACK_BOT_TOKEN}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${SLACK_BOT_TOKEN}"
 if [[ "$BODY" == *"$SLACK_BOT_TOKEN"* ]]; then
   fail "Slack bot token reached httpbin unredacted"
 elif [[ "$BODY" == *'[REDACTED]'* ]]; then
@@ -104,7 +104,7 @@ fi
 
 SLACK_APP_TOKEN="xapp-1-A012345-6789012345-abcdefghijklmnop"  # pragma: allowlist secret
 echo -e "  ${YELLOW}probing Slack app-level token in custom header ...${NC}"
-run "https://httpbin.org/headers" -H "X-Test-Secret: ${SLACK_APP_TOKEN}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${SLACK_APP_TOKEN}"
 if [[ "$BODY" == *"$SLACK_APP_TOKEN"* ]]; then
   fail "Slack app-level token reached httpbin unredacted"
 elif [[ "$BODY" == *'[REDACTED]'* ]]; then
@@ -116,7 +116,7 @@ fi
 
 BEARER_SECRET="sk-fake-bearer-secret-0000000000000000"  # pragma: allowlist secret
 echo -e "  ${YELLOW}probing Authorization: Bearer header ...${NC}"
-run "https://httpbin.org/headers" -H "Authorization: Bearer ${BEARER_SECRET}"
+run "https://httpbin.io/headers" -H "Authorization: Bearer ${BEARER_SECRET}"
 if [[ "$BODY" == *"$BEARER_SECRET"* ]]; then
   fail "Bearer token reached httpbin unredacted"
 elif [[ "$BODY" == *'Bearer [REDACTED]'* ]]; then
@@ -128,7 +128,7 @@ fi
 
 BASIC_CREDS="dGVzdHVzZXI6dGVzdHBhc3N3b3Jk" # base64("testuser:testpassword") — fake
 echo -e "  ${YELLOW}probing Authorization: Basic header ...${NC}"
-run "https://httpbin.org/headers" -H "Authorization: Basic ${BASIC_CREDS}"
+run "https://httpbin.io/headers" -H "Authorization: Basic ${BASIC_CREDS}"
 if [[ "$BODY" == *"$BASIC_CREDS"* ]]; then
   fail "Basic auth credentials reached httpbin unredacted"
 elif [[ "$BODY" == *'Basic [REDACTED]'* ]]; then
@@ -140,7 +140,7 @@ fi
 
 API_KEY_SECRET="test-fake-api-key-0000000000000000"  # pragma: allowlist secret
 echo -e "  ${YELLOW}probing x-api-key header ...${NC}"
-run "https://httpbin.org/headers" -H "x-api-key: ${API_KEY_SECRET}"
+run "https://httpbin.io/headers" -H "x-api-key: ${API_KEY_SECRET}"
 if [[ "$BODY" == *"$API_KEY_SECRET"* ]]; then
   fail "x-api-key header reached httpbin unredacted"
 elif [[ "$BODY" == *'[REDACTED]'* ]]; then
@@ -152,13 +152,13 @@ fi
 
 # ── Section 3: URL path/query redaction ─────────────────────────────────────
 # The proxy scrubs flow.request.path (path + query string) before forwarding,
-# so httpbin.org/get's echoed "url"/"args" fields reflect the redacted value.
+# so httpbin.io/get's echoed "url"/"args" fields reflect the redacted value.
 
 section "3. secrets in the request URL query string are redacted"
 
 QUERY_TOKEN="xoxb-9999999999-fakequerytokenvalue"
 echo -e "  ${YELLOW}probing Slack token in query string ...${NC}"
-run "https://httpbin.org/get?token=${QUERY_TOKEN}"
+run "https://httpbin.io/get?token=${QUERY_TOKEN}"
 if [[ "$BODY" == *"$QUERY_TOKEN"* ]]; then
   fail "Slack token in query string reached httpbin unredacted"
 elif [[ "$BODY" == *'[REDACTED]'* ]]; then
@@ -174,21 +174,30 @@ fi
 
 section "4. method + FQDN enforcement unaffected by the httpbin allowlist entry"
 
-echo -e "  ${YELLOW}probing POST https://httpbin.org/post — expect blocked ...${NC}"
-run "https://httpbin.org/post" -X POST -d 'x=1'
+echo -e "  ${YELLOW}probing POST https://httpbin.io/post — expect blocked ...${NC}"
+run "https://httpbin.io/post" -X POST -d 'x=1'
 if [[ "$STATUS" == "403" ]]; then
-  pass "POST https://httpbin.org/post -> 403 (external POST still blocked)"
+  pass "POST https://httpbin.io/post -> 403 (external POST still blocked)"
 else
-  fail "POST https://httpbin.org/post -> ${STATUS} (expected 403 — method enforcement regression?)"
+  fail "POST https://httpbin.io/post -> ${STATUS} (expected 403 — method enforcement regression?)"
   echo "    body: ${BODY:0:200}"
 fi
 
+# A non-allowlisted HTTPS host is blocked at the CONNECT stage (http_connect()
+# hook), not inside a tunnel like the POST check above (request() hook) — there
+# is no tunnel to carry an in-band 403 back for the original GET, so curl's
+# `-w "%{http_code}"` reports 000 (transfer never completed) even though the
+# proxy DID respond 403 to the CONNECT itself (confirmed via proxy logs: "BLOCKED
+# connect-fqdn-not-allowlisted host=example.com", and via `curl -v` showing
+# "CONNECT tunnel failed, response 403"). A real allowlist-wildcard regression
+# would show up as 200 with a real response body, not 000 — so this still
+# catches that failure mode.
 echo -e "  ${YELLOW}probing GET https://example.com/ — expect blocked ...${NC}"
 run "https://example.com/"
-if [[ "$STATUS" == "403" ]]; then
-  pass "GET https://example.com/ -> 403 (non-allowlisted FQDN still blocked)"
+if [[ "$STATUS" == "403" || "$STATUS" == "000" ]]; then
+  pass "GET https://example.com/ -> ${STATUS} (non-allowlisted FQDN still blocked)"
 else
-  fail "GET https://example.com/ -> ${STATUS} (expected 403 — is the allowlist a wildcard?)"
+  fail "GET https://example.com/ -> ${STATUS} (expected 403 or 000 — is the allowlist a wildcard?)"
   echo "    body: ${BODY:0:200}"
 fi
 

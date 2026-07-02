@@ -38,6 +38,7 @@ ${B}Usage:${N}
   ${C}vicegerent agent creds <name>${N}      show agent dashboard credentials and URL
   ${C}vicegerent test gateway${N}            run MCP gateway tests
   ${C}vicegerent test policies${N}           run MCP policy enforcement tests
+  ${C}vicegerent test egress <name>${N}      run egress-proxy redaction/enforcement tests
   ${C}vicegerent mcp setup${N}               set up host-side MCP prerequisites
   ${C}vicegerent mcp configure${N}           enable/skip each MCP server + set secrets
   ${C}vicegerent mcp tui${N}                 open the host stack TUI dashboard
@@ -330,9 +331,20 @@ case "${1:-}" in
         fi
         run_with_portforward "$REPO_ROOT/scripts/test-mcp-policies.sh" "$@"
         ;;
+      egress)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent test egress <agent-name> — run the egress-proxy redaction/enforcement tests against a running agent sandbox"
+          exit 0
+        fi
+        [[ $# -ge 1 ]] || { echo "usage: vicegerent test egress <agent-name>" >&2; exit 2; }
+        AGENT="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; shift
+        AGENT_LABEL="$AGENT" exec "$REPO_ROOT/scripts/test-egress-redaction.sh" "$@"
+        ;;
       --help|-h|"")
-        echo "vicegerent test gateway   →  scripts/test-mcp-gateway.sh"
-        echo "vicegerent test policies  →  scripts/test-mcp-policies.sh"
+        echo "vicegerent test gateway              →  scripts/test-mcp-gateway.sh"
+        echo "vicegerent test policies             →  scripts/test-mcp-policies.sh"
+        echo "vicegerent test egress <agent-name>  →  scripts/test-egress-redaction.sh"
         exit 0
         ;;
       *)

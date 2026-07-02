@@ -53,7 +53,7 @@ data:
         "github.com",
         "githubusercontent.com",
         "huggingface.co",
-        "httpbin.org",  # echo service — used by the redaction test suite only.
+        "httpbin.io",  # echo service — used by the redaction test suite only.
     }
     EXTERNAL_FQDN_WILDCARD_SUFFIXES = (
         ".github.com",
