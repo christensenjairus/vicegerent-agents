@@ -1,0 +1,61 @@
+---
+# Upstream default values:
+# https://github.com/VictoriaMetrics/helm-charts/blob/master/charts/victoria-logs-single/values.yaml
+nameOverride: victoria-logs
+server:
+  retentionPeriod: 7d
+  persistentVolume:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: 50m
+      memory: 256Mi
+  podAnnotations:
+    reloader.stakater.com/auto: 'false' # reloads automatically
+vector:
+  enabled: true
+  role: Agent
+  image:
+    repository: timberio/vector
+    tag: 0.56.0-debian
+  resources:
+    requests:
+      cpu: 50m
+      memory: 128Mi
+  tolerations:
+    - key: node-role.kubernetes.io/control-plane
+      effect: NoSchedule
+  customConfig:
+    data_dir: /vector-data-dir
+    api:
+      enabled: false
+      address: 0.0.0.0:8686
+    sources:
+      k8s:
+        type: kubernetes_logs
+        pod_annotation_fields:
+          # Disable "pod_ips" as "pod_ip" already includes required info
+          pod_ips: ''
+    transforms:
+      parser:
+        type: remap
+        inputs: [k8s]
+        source: |
+          .log = parse_json(.message) ?? .message
+          del(.message)
+    sinks:
+      vlogs:
+        type: elasticsearch
+        inputs: [parser]
+        mode: bulk
+        api_version: v8
+        compression: gzip
+        healthcheck:
+          enabled: false
+        request:
+          headers:
+            VL-Time-Field: timestamp
+            VL-Stream-Fields: stream,kubernetes.pod_name,kubernetes.container_name,kubernetes.pod_namespace
+            VL-Msg-Field: message,msg,_msg,log.msg,log.message,log
+            AccountID: '0'
+            ProjectID: '0'
