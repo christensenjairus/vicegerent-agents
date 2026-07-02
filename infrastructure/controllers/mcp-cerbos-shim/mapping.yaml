@@ -15,7 +15,7 @@
 backends:
   vmcp:
     defaultAction: allow
-    helpers: [canonicalK8s]
+    helpers: [canonicalK8s, linearIssueAttr]
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -132,20 +132,24 @@ backends:
       # every call falls through to defaultAction: allow (this happened for
       # months under the previous key, linear_create_issue, which no longer
       # exists — the tool was renamed upstream to linear_save_issue).
-      # `team` (name/key/uuid; required when creating) is captured directly.
-      # On an update (an `id` arg names an existing issue) the caller doesn't
-      # send `team` at all, so the shim can't verify the existing issue's team
-      # without a live Linear lookup (same limitation as Notion's
-      # update-page) — updates are mapped straight to the DEVOPS id so they
-      # pass; the enforceable boundary is "new issues land in DEVOPS", not
-      # "every call touches only DEVOPS".
+      # `team` is required when creating (no `id` arg) and optional when
+      # updating an existing issue. A plain `attr: {teamId: get(args,'team',
+      # '')}` would put an empty-but-present teamId on every ordinary update
+      # (team omitted) and Cerbos's has()-based check would trip on all of
+      # them — so attrFrom calls the linearIssueAttr helper instead: it
+      # surfaces teamId on every create, and on update only when the call
+      # itself sets `team` (a deliberate reassignment); an ordinary update
+      # with no team arg gets no teamId key at all and falls through to
+      # allow-all. save_comment/save_project target an existing comment/
+      # project by id and carry no team of their own in the call args — the
+      # shim can't verify their team without an ancestry lookup (same
+      # limitation as Notion's update-page), so they're intentionally
+      # unmapped and pass.
       linear_save_issue:
         resourceType: linear_team
         action: access
-        id: "get(args,'id','') != '' ? '*' : get(args,'team','')"
-        attr:
-          teamId: "get(args,'id','') != '' ? '6deab0c5-9bda-4f82-b552-41f4aa9e449b'\
-            \ : get(args,'team','')"
+        id: get(args,'id', get(args,'team',''))
+        attrFrom: linearIssueAttr(args)
       # Notion create-pages -> always created under the Scratchpad folder. Rather
       # than DENY an off-folder parent (which the agent sees as an error and retries,
       # or silently drops), a `force` override unconditionally rewrites `parent` to

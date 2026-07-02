@@ -71,8 +71,13 @@ silences). The rest genuinely restrict:
   pipeline-trigger tools, `execute_graphql` (an arbitrary API-access escape hatch
   that would make every other exclusion here meaningless), and wiki/release/tag/
   milestone/webhook management are excluded.
-- `linear` — no destructive tools exist in its 23-tool surface, so everything's
-  exposed; the Cerbos guardrail below confines new-issue creation to one team instead.
+- `linear` — Linear's real surface has grown to 55 tools, including 5 destructive
+  deletes and several newer feature categories (attachments, releases, milestones,
+  customers, initiatives, status updates); this allowlist keeps the original
+  functional scope (issues/comments/projects/labels/statuses/teams/users/docs,
+  read+write, no deletes) via the renamed save_issue/save_comment/save_project
+  tools, and excludes the rest pending a deliberate follow-up. The Cerbos
+  guardrail below confines save_issue's team to one team instead.
 - `notion` — 7 read tools plus create-pages/update-page/create-comment.
 
 Doing tool selection here (rather than as a per-tool allowlist in agentgateway,
@@ -95,13 +100,15 @@ guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
   No project allowlist — the bot's GitLab PAT is already scoped to a single
   project on gitlab.hahomelabs.com, so the token itself is the repo boundary
   (deliberately different from GitHub, whose token is broader).
-- **Linear** (`defs/resource_linear.yaml`) denies `create_issue` calls whose
-  `teamId` isn't the DEVOPS team. `update_issue`/`create_comment` target an
-  existing issue by id and carry no verifiable team of their own, so they're
-  unmapped and pass; the enforced boundary is "new issues land in DEVOPS," not
-  "every call touches only DEVOPS." **The DEVOPS team ID in the policy is a
-  placeholder (`REPLACE_WITH_DEVOPS_TEAM_ID`) that fails closed (denies every
-  create_issue) until swapped for Linear's real team ID.**
+- **Linear** (`defs/resource_linear.yaml`) denies a `save_issue` call that
+  supplies a `team` other than DEVOPS (matched by uuid, display name, or issue-key
+  prefix). `save_issue` merges Linear's old create_issue/update_issue into one
+  tool (an `id` arg picks update vs create); `team` is required on create and
+  optional on update, so an ordinary update that omits it isn't checked — the
+  enforced boundary is "new issues land in DEVOPS, and no issue can be
+  reassigned off it," not "every call touches only DEVOPS."
+  `save_comment`/`save_project` target an existing comment/project by id and
+  carry no verifiable team of their own, so they're unmapped and pass.
 - **Notion** (`defs/resource_notion.yaml`) folder-pins `create-pages` via a
   shim-side `force` override — it rewrites `parent` to the Scratchpad page on
   every call rather than denying an off-folder parent, so the agent never sees
@@ -114,12 +121,12 @@ guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
 `kubernetes`'s Secret-read block (`defs/resource_k8s.yaml`) and `grafana`'s
 OpenSearch-datasource block (`defs/resource_grafana.yaml`) are the other two guardrails.
 
-Two field-name assumptions in the GitLab and Linear mappings aren't verified
-against a live call yet (unlike GitHub/Jira, where a real schema dump was
-available): GitLab's `branch` field on push_files/create_or_update_file/
-create_branch is inferred from GitLab's own REST API convention (which this
-wrapper mirrors directly), and Linear's `teamId` on create_issue matches
-Linear's well-documented GraphQL API. Confirm both once the servers are enabled.
+One field-name assumption in the GitLab mapping isn't verified against a live
+call yet (unlike GitHub/Jira, where a real schema dump was available): GitLab's
+`branch` field on push_files/create_or_update_file/create_branch is inferred
+from GitLab's own REST API convention (which this wrapper mirrors directly).
+Confirm it once the server is enabled. Linear's `save_issue` schema (`team`,
+not `teamId`) was confirmed against a live `tools/list` call.
 
 ### Tool discovery optimizer
 

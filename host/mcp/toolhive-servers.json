@@ -125,16 +125,16 @@
     },
     {
       "name": "linear",
-      "description": "Linear issues and projects (OAuth; browser consent on first start). No destructive tools exist in Linear's official remote MCP server's 23-tool surface, so all of them are exposed. The Cerbos guardrail (defs/resource_linear.yaml) confines new-issue creation to the DEVOPS team: create_issue's teamId is denied unless it's DEVOPS. update_issue/create_comment target an existing issue by id and carry no teamId of their own, so the shim can't verify their team without an ancestry lookup — they're intentionally unmapped; the enforceable boundary is 'new issues land in DEVOPS', not 'every call touches only DEVOPS'.",
+      "description": "Linear issues and projects (OAuth; browser consent on first start). Linear's official remote MCP server has grown to a 55-tool surface, including 5 destructive delete_* tools (attachments/comments/customers/status-updates) and newer feature categories (attachments, agent skills, releases, milestones, customers, initiatives, status updates). This allowlist keeps the platform's original functional scope instead: issues/comments/projects/labels/statuses/teams/users/docs, read+write, no deletes. Linear merged its old create_issue/update_issue, create_comment, and create_project/update_project pairs into single save_issue/save_comment/save_project tools (an `id` arg picks update vs create) — those are the names below. The Cerbos guardrail (defs/resource_linear.yaml) confines save_issue calls that supply a team to the DEVOPS team; save_comment/save_project target an existing entity by id and carry no team the shim can verify, so they're unmapped. The newer feature categories and destructive deletes are deliberately excluded pending a follow-up decision on whether to expose them.",
       "enabled": false,
       "type": "remote",
       "registry": "linear",
       "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"],
       "tools": [
-        "list_comments", "create_comment", "list_cycles", "get_document", "list_documents",
-        "get_issue", "list_issues", "create_issue", "update_issue", "list_issue_statuses",
+        "list_comments", "save_comment", "list_cycles", "get_document", "list_documents",
+        "get_issue", "list_issues", "save_issue", "list_issue_statuses",
         "get_issue_status", "list_issue_labels", "create_issue_label", "list_projects",
-        "get_project", "create_project", "update_project", "list_project_labels",
+        "get_project", "save_project", "list_project_labels",
         "list_teams", "get_team", "list_users", "get_user", "search_documentation"
       ]
     },

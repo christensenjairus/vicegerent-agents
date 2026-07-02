@@ -55,10 +55,12 @@ Consequences:
   branch-writing tools (`gitlab_push_files`, `gitlab_create_or_update_file`,
   `gitlab_create_branch` — GitLab's issue/MR tools carry no branch arg and are
   unmapped), and Linear's `linear_save_issue` (`team` is required on create and
-  verifiable; on update the caller sends no `team` for the existing issue, so
-  the shim maps the call straight to the DEVOPS id instead of leaving it
-  unmapped — a bad-team update still can't be caught, but a create can't slip
-  past by omitting `team`).
+  always verifiable; on update the caller usually sends no `team` for the
+  existing issue, so the shim leaves that call unmapped — but a call that
+  DOES set `team` on an update, i.e. a deliberate reassignment, is checked
+  exactly like a create). `linear_save_comment`/`linear_save_project` target
+  an existing comment/project by id and carry no team of their own, so
+  they're unmapped.
   `notion_notion-create-pages` is also mapped, but only to carry a `force`
   parent-rewrite (allow-all Cerbos policy); its siblings
   `notion_notion-update-page`/`notion_notion-create-comment` are unmapped (they
@@ -161,6 +163,7 @@ Built-in:
 | --- | --- | --- |
 | `get(map, key, default)` | core (always in scope) | case-insensitive arg lookup |
 | `canonicalK8s(args)` | `helpers_k8s.go` | reads `kind`/`Kind` case-insensitively and normalizes a **Secret** reference (plural, `v1/secrets`, etc.) to `{kind:Secret, apiResource:secrets}` so Cerbos's deny-secrets rule catches every spelling; any other kind is passed through unchanged (no per-kind allowlist) |
+| `linearIssueAttr(args)` | `helpers_linear.go` | surfaces `teamId` from `save_issue`'s `team` arg only when it's verifiable — always on create (no `id` arg), or on update only if the call itself sets `team` — otherwise omits the key entirely so an ordinary update falls through to allow-all instead of tripping Cerbos's `has()`-based deny on an empty value |
 
 To add a helper for a new MCP server, drop an `internal/eval/helpers_<backend>.go`
 whose `init()` calls `registerHelper("<name>", <ctor>)` and defines the CEL function;
