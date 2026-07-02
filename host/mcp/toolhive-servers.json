@@ -26,10 +26,11 @@
     },
     {
       "name": "gitlab",
-      "description": "GitLab MCP, scoped to issue read+write and the full merge-request lifecycle short of merging (branch/file/commit ops, create/update/review/comment) plus label lookups. No repo/group/project allowlist — the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, all CI/CD variable and pipeline-trigger tools, execute_graphql (arbitrary API access — would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded. The Cerbos guardrail (defs/resource_gitlab.yaml) additionally blocks push_files/create_or_update_file/create_branch from targeting a protected branch (main/master/production).",
+      "description": "GitLab MCP, scoped to issue read+write and the full merge-request lifecycle short of merging (branch/file/commit ops, create/update/review/comment) plus label lookups, plus read-only pipeline status/log tools. No repo/group/project allowlist — the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, create_pipeline/retry_pipeline/cancel_pipeline (the mutating pipeline tools USE_PIPELINE also unlocks — only the 5 read ones are allowlisted below), all CI/CD variable tools, execute_graphql (arbitrary API access — would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded. The Cerbos guardrail (defs/resource_gitlab.yaml) additionally blocks push_files/create_or_update_file/create_branch from targeting a protected branch (main/master/production).",
       "enabled": false,
       "type": "npx",
       "package": "@zereight/mcp-gitlab@2.1.8",
+      "env": {"USE_PIPELINE": "true"},
       "secrets": [{"name": "gitlab_token", "target": "GITLAB_PERSONAL_ACCESS_TOKEN"}],
       "params": [
         {
@@ -58,7 +59,9 @@
         "delete_draft_note", "publish_draft_note", "bulk_publish_draft_notes",
         "list_merge_requests", "approve_merge_request", "unapprove_merge_request",
         "get_merge_request_approval_state",
-        "create_or_update_file", "push_files", "create_branch"
+        "create_or_update_file", "push_files", "create_branch",
+        "list_pipelines", "get_pipeline", "list_pipeline_jobs", "get_pipeline_job",
+        "get_pipeline_job_output"
       ]
     },
     {
