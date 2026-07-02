@@ -201,6 +201,20 @@ else
   echo "    body: ${BODY:0:200}"
 fi
 
+# ── Section 5: git-upload-pack exception is narrow, not a github.com POST bypass ──
+# Guards against the exception widening into "any POST to github.com is fine".
+
+section "5. git-upload-pack exception is narrow (other POSTs to github.com still blocked)"
+
+echo -e "  ${YELLOW}probing POST https://github.com/ (wrong path/content-type) — expect blocked ...${NC}"
+run "https://github.com/" -X POST -d 'x=1'
+if [[ "$STATUS" == "403" ]]; then
+  pass "POST https://github.com/ -> 403 (git-upload-pack exception does not widen to all POSTs)"
+else
+  fail "POST https://github.com/ -> ${STATUS} (expected 403 — git-upload-pack exception may be too broad)"
+  echo "    body: ${BODY:0:200}"
+fi
+
 # ── Summary ──────────────────────────────────────────────────────────────────
 
 echo ""

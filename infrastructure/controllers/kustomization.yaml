@@ -10,3 +10,4 @@ resources:
   - cerbos
   - mcp-cerbos-shim
   - host-firewall
+  - victoria-logs

@@ -1,0 +1,9 @@
+---
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: HelmRepository
+metadata:
+  name: vm-victoria-logs
+  namespace: victoria-logs
+spec:
+  interval: 24h
+  url: https://victoriametrics.github.io/helm-charts/

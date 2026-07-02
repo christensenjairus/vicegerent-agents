@@ -31,7 +31,8 @@ The request **URL path and query** are also scrubbed against the body patterns o
 ### Method enforcement
 GET and HEAD only for external destinations. POST, PUT, PATCH, DELETE → 403.
 Internal cluster services (agentgateway, searxng) may use any method — they require
-POST and hold no sandbox secrets.
+POST and hold no sandbox secrets. Exception: `git-upload-pack` (smart-HTTP clone/fetch,
+read-only) is allowed through so `pre-commit` can install hook repos.
 
 ### URL length limit
 External URLs over 2048 characters → 403. Blocks naive base64/hex query-string

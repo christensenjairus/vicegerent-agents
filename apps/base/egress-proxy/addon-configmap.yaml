@@ -16,7 +16,7 @@
 #
 # Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
 # Internal cluster services (*.svc.cluster.local) need POST and are passed through
-# after scrubbing.
+# after scrubbing. One exception: git's smart-HTTP git-upload-pack (clone/fetch).
 #
 # Response scrubbing: applied to text responses to guard against echo attacks
 # (a malicious service echoing back request content including secrets).
@@ -95,6 +95,10 @@ data:
         ipaddress.ip_network("fe80::/10"),
     ]
 
+    # git smart-HTTP clone/fetch content-type — read-only, push (git-receive-pack)
+    # goes over SSH instead and is not matched here.
+    GIT_UPLOAD_PACK_CONTENT_TYPE = "application/x-git-upload-pack-request"
+
     # Content types safe to scrub as text; skip binary (images, archives, protobuf, etc.).
     TEXT_CONTENT_TYPES = (
         "text/",
@@ -115,6 +119,11 @@ data:
     def _is_text(content_type: str) -> bool:
         ct = content_type.split(";")[0].strip().lower()
         return any(ct.startswith(t) for t in TEXT_CONTENT_TYPES)
+    def _is_git_upload_pack(flow: http.HTTPFlow) -> bool:
+        if flow.request.method != "POST" or not flow.request.path.endswith("/git-upload-pack"):
+            return False
+        ct = flow.request.headers.get("content-type", "").split(";")[0].strip().lower()
+        return ct == GIT_UPLOAD_PACK_CONTENT_TYPE
     def _redact(text: str) -> tuple[str, int]:
         total = 0
         for pat in REDACT_PATTERNS:
@@ -229,8 +238,9 @@ data:
         if redacted:
             log.warning("REDACTED count=%d method=%s url=%s", redacted, method, url)
 
-        # Method enforcement — external destinations only.
-        if not internal and method not in ALLOWED_METHODS:
+        # Method enforcement — external destinations only. Exception: git-upload-pack
+        # (smart-HTTP clone/fetch, read-only) — needed for pre-commit hook installs.
+        if not internal and method not in ALLOWED_METHODS and not _is_git_upload_pack(flow):
             log.warning("BLOCKED method=%s url=%s", method, url)
             flow.response = http.Response.make(
                 403,
