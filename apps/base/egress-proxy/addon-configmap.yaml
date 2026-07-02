@@ -50,6 +50,7 @@ data:
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
     EXTERNAL_FQDN_ALLOWLIST = {
         "pypi.org",
+        "files.pythonhosted.org",
         "github.com",
         "githubusercontent.com",
         "huggingface.co",
