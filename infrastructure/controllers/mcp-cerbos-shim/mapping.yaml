@@ -126,20 +126,26 @@ backends:
       github_create_or_update_file: *github_repo
       github_push_files: *github_repo
       github_update_pull_request_branch: *github_repo
-      # Linear create_issue -> linear_team; Cerbos denies any teamId other than
-      # DEVOPS. teamId is a required field on create_issue (matches Linear's own
-      # API convention), so this is verifiable. update_issue/create_comment
-      # target an existing issue by id, which carries no teamId of its own in
-      # the call args — the shim can't verify their team without an ancestry
-      # lookup (same limitation as Notion's update-page), so they're
-      # intentionally unmapped and pass; the enforceable boundary is
-      # "new issues land in DEVOPS", not "every call touches only DEVOPS".
-      linear_create_issue:
+      # Linear save_issue (create+update in one tool) -> linear_team; Cerbos
+      # denies any team other than DEVOPS. IMPORTANT: this key must be the
+      # live vMCP tool name exactly, or the mapping silently never fires and
+      # every call falls through to defaultAction: allow (this happened for
+      # months under the previous key, linear_create_issue, which no longer
+      # exists — the tool was renamed upstream to linear_save_issue).
+      # `team` (name/key/uuid; required when creating) is captured directly.
+      # On an update (an `id` arg names an existing issue) the caller doesn't
+      # send `team` at all, so the shim can't verify the existing issue's team
+      # without a live Linear lookup (same limitation as Notion's
+      # update-page) — updates are mapped straight to the DEVOPS id so they
+      # pass; the enforceable boundary is "new issues land in DEVOPS", not
+      # "every call touches only DEVOPS".
+      linear_save_issue:
         resourceType: linear_team
-        action: create
-        id: get(args,'teamId','')
+        action: access
+        id: "get(args,'id','') != '' ? '*' : get(args,'team','')"
         attr:
-          teamId: get(args,'teamId','')
+          teamId: "get(args,'id','') != '' ? '6deab0c5-9bda-4f82-b552-41f4aa9e449b'\
+            \ : get(args,'team','')"
       # Notion create-pages -> always created under the Scratchpad folder. Rather
       # than DENY an off-folder parent (which the agent sees as an error and retries,
       # or silently drops), a `force` override unconditionally rewrites `parent` to
