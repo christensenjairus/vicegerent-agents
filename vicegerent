@@ -36,6 +36,7 @@ ${B}Usage:${N}
   ${C}vicegerent bootstrap${N}               bootstrap Flux against this repo
   ${C}vicegerent agent dashboard <name>${N}  open an agent dashboard in browser
   ${C}vicegerent agent creds <name>${N}      show agent dashboard credentials and URL
+  ${C}vicegerent logs dashboard${N}          open the VictoriaLogs dashboard (auto port-forward)
   ${C}vicegerent test gateway${N}            run MCP gateway tests
   ${C}vicegerent test policies${N}           run MCP policy enforcement tests
   ${C}vicegerent test egress <name>${N}      run egress-proxy redaction/enforcement tests
@@ -308,6 +309,27 @@ case "${1:-}" in
         ;;
       *)
         echo "unknown agent subcommand: $1" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  logs)
+    shift
+    case "${1:-}" in
+      dashboard)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent logs dashboard — port-forward and open the VictoriaLogs web UI (vmui)"
+          exit 0
+        fi
+        exec "$REPO_ROOT/scripts/dashboard/open-victoria-logs.sh" "$@"
+        ;;
+      --help|-h|"")
+        echo "vicegerent logs dashboard  →  scripts/dashboard/open-victoria-logs.sh"
+        exit 0
+        ;;
+      *)
+        echo "unknown logs subcommand: $1" >&2
         exit 1
         ;;
     esac

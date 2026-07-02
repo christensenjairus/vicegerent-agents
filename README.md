@@ -268,6 +268,13 @@ mapped to the host via kind `extraPortMappings`) and reachable directly at
 ./vicegerent agent dashboard hermes   # open in a browser
 ```
 
+VictoriaLogs (cluster-wide log aggregation) has no NodePort — it's opened via an
+auto-torn-down port-forward instead:
+
+```bash
+./vicegerent logs dashboard   # port-forward + open the VictoriaLogs web UI (vmui)
+```
+
 ## Development
 
 Install and run the repo hooks before committing:
