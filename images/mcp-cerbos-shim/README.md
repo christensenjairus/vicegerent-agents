@@ -23,8 +23,8 @@ This shim + Cerbos are an orthogonal layer: argument-level authorization that de
 *resource* whatever the exposed tool set is — currently Kubernetes Secret reads,
 OpenSearch Grafana datasource reads, Jira calls targeting a project other than CHANGE,
 GitHub calls targeting a repo outside an allowlist or writing directly to a protected
-branch, GitLab calls writing directly to a protected branch, and Linear `create_issue`
-calls targeting a team other than DEVOPS. (Notion `create-pages` is also mapped, but as
+branch, GitLab calls writing directly to a protected branch, and Linear `save_issue`
+calls (create or update) targeting a team other than DEVOPS. (Notion `create-pages` is also mapped, but as
 a `force` rewrite of its `parent` to the Scratchpad folder — a mutation, not a deny;
 see "How it works".)
 
@@ -54,9 +54,11 @@ Consequences:
   `github_get_me` is the one exception, since it names no repo), GitLab's three
   branch-writing tools (`gitlab_push_files`, `gitlab_create_or_update_file`,
   `gitlab_create_branch` — GitLab's issue/MR tools carry no branch arg and are
-  unmapped), and Linear's `linear_create_issue` (`teamId` is required and
-  verifiable; `linear_update_issue`/`linear_create_comment` target an existing
-  issue by id and carry no team the shim can check, so they're unmapped).
+  unmapped), and Linear's `linear_save_issue` (`team` is required on create and
+  verifiable; on update the caller sends no `team` for the existing issue, so
+  the shim maps the call straight to the DEVOPS id instead of leaving it
+  unmapped — a bad-team update still can't be caught, but a create can't slip
+  past by omitting `team`).
   `notion_notion-create-pages` is also mapped, but only to carry a `force`
   parent-rewrite (allow-all Cerbos policy); its siblings
   `notion_notion-update-page`/`notion_notion-create-comment` are unmapped (they
