@@ -1,0 +1,11 @@
+---
+# https://github.com/cilium/cilium/blob/v1.17.5/install/kubernetes/cilium/values.yaml
+# Captured from the live cilium-cli install so Flux adoption is non-disruptive.
+cluster:
+  name: kind-vicegerent
+ipam:
+  mode: kubernetes
+operator:
+  replicas: 1
+routingMode: tunnel
+tunnelProtocol: vxlan

@@ -88,7 +88,7 @@ validate:agentgateway-crds:
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       changes:
-        - apps/vicegerent/**/*
+        - apps/base/**/*
         - infrastructure/controllers/agentgateway/**/*
         - scripts/validate-agentgateway*.{sh,py}
       when: on_success

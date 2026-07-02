@@ -6,19 +6,12 @@ repos:
       - id: check-merge-conflict
       - id: check-yaml
         args: [--allow-multiple-documents]
-        exclude: >-
-          (?x)^(
-            charts/.+/templates/.+\.ya?ml$|
-            host/mcp-proxy-server/
-          )
+        exclude: ^charts/.+/templates/.+\.ya?ml$
       - id: trailing-whitespace
-        exclude: ^host/mcp-proxy-server/
       - id: end-of-file-fixer
-        exclude: ^host/mcp-proxy-server/
       - id: check-added-large-files
         exclude: (?i)\.png$
       - id: detect-private-key
-        exclude: ^host/mcp-proxy-server/
   - repo: https://github.com/lyz-code/yamlfix/
     rev: 1.19.1
     hooks:
@@ -27,8 +20,7 @@ repos:
           (?x)^(
             \.gitlab-ci\.yml|
             charts/.+/templates/.+\.ya?ml|
-            clusters/[^/]+/flux-system/gotk-(components|sync)\.yaml|
-            host/mcp-proxy-server/.+
+            clusters/[^/]+/flux-system/gotk-(components|sync)\.yaml
           )$
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
@@ -36,7 +28,6 @@ repos:
       - id: detect-secrets  # pragma: allowlist secret
         name: detect secrets
         args: [--baseline, .secrets.baseline]
-        exclude: ^host/mcp-proxy-server/
   - repo: local
     hooks:
       - id: validate-flux-manifests

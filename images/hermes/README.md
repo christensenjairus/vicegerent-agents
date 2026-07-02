@@ -27,7 +27,7 @@ egress-locked cluster only ever pulls.
 
 ```sh
 docker login harbor.hahomelabs.com
-make image PLATFORM=linux/arm64      # minikube on Apple Silicon
+make image PLATFORM=linux/arm64      # Kind on Apple Silicon
 make push
 # or: make release PLATFORM=linux/arm64 TAG=v2026.6.19
 ```
@@ -39,7 +39,7 @@ the bakes change what the image contains.
 
 `FROM` is pinned by **tag + digest**. The tag keeps the reference
 Renovate-trackable (an upstream bump opens an MR); the digest makes the build
-reproducible. The `apps/vicegerent/agents/felix/sandbox.yaml` `Sandbox` is
+reproducible. The `apps/base/agents/hermes/sandbox.yaml` `Sandbox` is
 repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 
 ## Bakes

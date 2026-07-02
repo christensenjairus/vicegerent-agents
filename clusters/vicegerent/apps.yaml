@@ -13,6 +13,6 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./apps/vicegerent
+  path: ./apps/base
   prune: true
   wait: true

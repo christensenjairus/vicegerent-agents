@@ -4,7 +4,7 @@ Patch: configurable Slack slash command name via HERMES_SLACK_COMMAND_NAME env v
 By default Hermes registers /hermes as its catch-all Slack slash command.
 This patch replaces that hardcoded name with the value of
 HERMES_SLACK_COMMAND_NAME (default: "hermes"), so the bot can be deployed
-as /felix, /aria, or any other name without touching upstream source.
+as /hermes, /aria, or any other name without touching upstream source.
 
 Three sites are patched:
   1. hermes_cli/commands.py :: slack_native_slashes()
@@ -137,12 +137,12 @@ assert first_name == "hermes", f"Expected 'hermes', got {first_name!r}"
 print(f"  ok  slack_native_slashes()[0] = {slashes[0]!r}")
 
 # Verify the env var is actually honoured
-os.environ["HERMES_SLACK_COMMAND_NAME"] = "felix"
+os.environ["HERMES_SLACK_COMMAND_NAME"] = "hermes"
 importlib.reload(_cmd_mod)
 slashes2 = _cmd_mod.slack_native_slashes()
 first_name2 = slashes2[0][0] if slashes2 else None
-assert first_name2 == "felix", f"Expected 'felix', got {first_name2!r}"
-print(f"  ok  HERMES_SLACK_COMMAND_NAME=felix → {slashes2[0]!r}")
+assert first_name2 == "hermes", f"Expected 'hermes', got {first_name2!r}"
+print(f"  ok  HERMES_SLACK_COMMAND_NAME=hermes → {slashes2[0]!r}")
 
 # Restore to default for subsequent patch verification steps
 os.environ["HERMES_SLACK_COMMAND_NAME"] = "hermes"

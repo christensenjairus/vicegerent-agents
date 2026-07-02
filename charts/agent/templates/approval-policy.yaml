@@ -1,0 +1,55 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vicegerent-agent.name" . }}-approval-policy
+  namespace: agent-sandbox
+data:
+  approval-policy.yaml: |-
+    # Approval silence list — patterns dropped before haiku pre-screening.
+    # Tirith findings and uncancellable patterns are always kept.
+    # Edit in git and redeploy to change.
+    pattern_silence:
+      # --- Script execution (constant false positives) ---
+      - script execution via -e/-c flag
+      - shell command via -c/-lc flag
+      - script execution via heredoc
+      # --- Silenced by approval policy only (no kernel sandbox on Kind) ---
+      - format filesystem
+      - disk copy
+      - write to block device
+      - fork bomb
+      - stop/restart system service
+      - kill all processes
+      - force kill processes
+      - force kill processes (killall -kill)
+      - force kill processes (killall -s kill)
+      - kill processes by regex (killall -r)
+      - world/other-writable permissions
+      - recursive world/other-writable (long flag)
+      - recursive chown to root
+      - recursive chown to root (long flag)
+      # --- No Docker socket ---
+      - docker compose restart/stop/kill/down (container lifecycle)
+      - docker restart/stop/kill (container lifecycle)
+      # --- SQL ops (Cilium blocks DB egress) ---
+      - sql drop
+      - sql delete without where
+      - sql truncate
+      # --- Normal git workflow ---
+      - git reset --hard (destroys uncommitted changes)
+      - git force push (rewrites remote history)
+      - git force push short flag (rewrites remote history)
+      - git clean with force (deletes untracked files)
+      - git branch force delete
+      # --- Workspace cleanup ---
+      - delete in root path
+      - recursive delete
+      - recursive delete (long flag)
+      - xargs with rm
+      - find -exec/-execdir rm
+      - find -delete
+      - chmod +x followed by immediate execution
+      # --- Remote execution (tirith covers) ---
+      - pipe remote content to shell
+      - execute remote script via process substitution

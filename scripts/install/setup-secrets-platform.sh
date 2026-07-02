@@ -1,71 +1,59 @@
 #!/usr/bin/env bash
-# Idempotent 1Password + ghostunnel setup for the vicegerent platform.
+# Idempotent secret setup for the vicegerent platform, using Kubernetes Secrets
+# directly (no 1Password). The Kind cluster's etcd is the source of truth for cluster
+# material; the host ghostunnel material lives on the laptop filesystem.
 #
-# Platform-wide material only. Per-agent items ("Agent - <name>",
-# "Agent - <name> SSH Key", "Agent - <name> agentgateway API key") are provisioned
-# separately by setup-secrets-agent.sh.
+# Secrets are treated as disposable/recreatable: re-run this script to reseed a
+# fresh cluster. Generated material (CAs, certs, random keys) is reused when it
+# already exists and regenerated when absent (or with --force); user-supplied API
+# keys are read from the environment or prompted for, and you are expected to keep
+# your own copy of them elsewhere.
 #
-# Provisions, in 1Password vault "Vicegerent":
-#   - the vault itself
-#   - a Connect server + its credentials file (item "Connect Credentials")
-#   - a Connect operator token (item "Connect Token")
-#   - ghostunnel mTLS certificates split across four items:
-#       Agentgateway - Host MCP   tls.crt, tls.key              (→ agentgateway-system)
-#       Agentgateway - Host MCP CA  ca.cert                      (→ agentgateway-system)
-#       Host - MCP Tunnel  server.crt, server.key, ca.cert, ca.key  (host-only, never synced)
-#       Agentgateway - Anthropic  Authorization                  (→ agentgateway-system)
-#   - a SearXNG secret key (item "SearXNG") synced into the cluster
-#     (auto-generated ed25519 key; never uses one of the user's existing keys)
-
-# Properties:
-#   - Idempotent: anything already present in 1Password is reused, never regenerated.
-#     The CA private key is kept in "Host - MCP Tunnel" so a missing leaf cert can be
-#     re-issued from the existing CA without rebuilding the whole chain.
-#   - Self-cleaning: all key material is written only inside a private tmpdir that is
-#     removed on any exit (including Ctrl-C). Nothing is left on disk.
-#   - Verbose: every mutating step is announced and confirmed before it runs.
-#     Steps that change nothing run silently (just an "already present" note).
+# Applies these Kubernetes Secrets (and one ConfigMap):
+#   agentgateway-system  vicegerent-secrets           Authorization        (Anthropic API key)
+#   agentgateway-system  vicegerent-openai-secrets    Authorization        (OpenAI API key, optional)
+#   agentgateway-system  vicegerent-mcp-client        tls.crt, tls.key     (ghostunnel client cert)
+#   agentgateway-system  ghostunnel-ca (ConfigMap)    ca.crt               (ghostunnel CA cert)
+#   agentgateway-system  ghostunnel-server            server.crt/key,ca.crt (host recovery copy)
+#   searxng              searxng-secret               secret_key           (generated)
+#   egress-proxy         egress-proxy-ca              ca.crt, ca.key       (MITM proxy CA)
+#   agent-sandbox        egress-proxy-ca-cert         ca.crt               (MITM proxy CA cert only)
+#
+# MCP server API keys (tavily/firecrawl/gitlab) are NOT Kubernetes Secrets — those
+# servers run host-side under ToolHive and read their keys from `thv` secrets.
+#
+# The host ghostunnel material (ca.cert, ca.key, server.crt, server.key,
+# client.crt, client.key) is written to $GHOSTUNNEL_HOST_DIR (default
+# ~/.vicegerent/ghostunnel). The server key never enters Kubernetes; the CA key
+# stays host-only so leaf certs can be re-issued without rebuilding the chain.
 #
 # Flags:
 #   -y, --yes     auto-approve every change (non-interactive)
-#   --force       rebuild the entire CA + leaf certs even if they already exist
+#   --force       rebuild the ghostunnel CA + leaf certs even if they already exist
 #   -h, --help    show this help
+#
+# Env overrides: KUBE_CONTEXT, GHOSTUNNEL_HOST_DIR, SERVER_IP, SERVER_CN,
+#   CLIENT_CN, ANTHROPIC_API_KEY, OPENAI_API_KEY, TAVILY_API_KEY,
+#   FIRECRAWL_API_KEY, GITLAB_PERSONAL_ACCESS_TOKEN
 
 set -euo pipefail
 
-VAULT="${VAULT:-Vicegerent}"
-SERVER_NAME="${OP_CONNECT_SERVER:-Vicegerent}"
-TOKEN_NAME="${OP_CONNECT_TOKEN_NAME:-Vicegerent Operator}"
+KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
+GHOSTUNNEL_HOST_DIR="${GHOSTUNNEL_HOST_DIR:-$HOME/.vicegerent/ghostunnel}"
 
-RUNTIME_ITEM="Agentgateway - Anthropic"
-CLIENT_ITEM="Agentgateway - Host MCP"
-CA_ITEM="Agentgateway - Host MCP CA"
-HOST_ITEM="Host - MCP Tunnel"
-CRED_ITEM="Connect Credentials"
-OPENAI_ITEM="Agentgateway - OpenAI"
-SEARXNG_ITEM="SearXNG"
-TAVILY_ITEM="MCP - Tavily"
-FIRECRAWL_ITEM="MCP - Firecrawl"
-PROXY_CA_ITEM="Egress Proxy CA"
-PROXY_CA_CERT_ITEM="Egress Proxy CA Cert"
-TOKEN_ITEM="Connect Token"
-
-HOST_ONLY_IP="${HOST_ONLY_IP:-192.168.64.1}"
-SERVER_CN="${SERVER_CN:-host.minikube.internal}"
+# The cluster reaches the host ghostunnel server via host.docker.internal; the
+# server cert's SAN must match it. SERVER_IP is the loopback SAN for local tests.
+SERVER_IP="${SERVER_IP:-127.0.0.1}"
+SERVER_CN="${SERVER_CN:-host.docker.internal}"
 CLIENT_CN="${CLIENT_CN:-agent-client}"
-
-# Leaf certs are issued for 825 days. Warn and offer to re-issue once a stored
-# leaf has less than this many days of validity left, so the chain never lapses.
-EXPIRY_THRESHOLD_DAYS="${EXPIRY_THRESHOLD_DAYS:-180}"
 
 ASSUME_YES=0
 FORCE=0
-
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) ASSUME_YES=1 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -81,7 +69,6 @@ step()  { echo; echo "${B}== $* ==${N}"; }
 warn()  { echo "${Y}!${N} $*" >&2; }
 die()   { echo "${R}ERROR:${N} $*" >&2; exit 1; }
 
-# Announce a pending change and ask before doing it. Returns 0 to proceed.
 confirm() {
   echo
   echo "${Y}CHANGE:${N} $*"
@@ -94,463 +81,224 @@ confirm() {
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
-op_item_exists()  { op item get "$1" --vault "$VAULT" >/dev/null 2>&1; }
-op_field_exists() { op read "op://$VAULT/$1/$2" >/dev/null 2>&1; }
+kc() { kubectl --context "$KUBE_CONTEXT" "$@"; }
+ensure_ns() { kc create namespace "$1" --dry-run=client -o yaml | kc apply -f - >/dev/null; }
 
-# leaf_expiring_soon <item> <crt-field> — true (0) when the stored cert expires
-# within EXPIRY_THRESHOLD_DAYS. Returns 1 (false) when it is valid beyond the
-# threshold or cannot be read (a read failure is handled by the reuse branch).
-leaf_expiring_soon() {
-  local item="$1" field="$2" tmp
-  tmp="$(mktemp "$CERTS/expiry.XXXXXX")"
-  if ! op read "op://$VAULT/$item/$field" >"$tmp" 2>/dev/null; then
-    rm -f "$tmp"; return 1
+# secret_b64 <name> <ns> <key> — base64 value of a secret key (empty if absent).
+secret_b64() {
+  local json
+  json="$(kc -n "$2" get secret "$1" -o json 2>/dev/null)" || return 0
+  printf '%s' "$json" | jq -r --arg k "$3" '.data[$k] // empty'
+}
+secret_has() { [[ -n "$(secret_b64 "$1" "$2" "$3")" ]]; }
+
+# apply_secret <name> <ns> <create-args...> — create/update a Secret idempotently.
+apply_secret() {
+  local name="$1" ns="$2"; shift 2
+  kc -n "$ns" create secret generic "$name" "$@" --dry-run=client -o yaml | kc apply -f - >/dev/null
+}
+
+# ensure_literal_secret <name> <ns> <key> <envvar> <prompt> <required(0|1)>
+# Reuses an existing non-empty value; otherwise takes it from $envvar or a prompt,
+# then applies the Secret (empty value allowed so the resource always exists).
+ensure_literal_secret() {
+  local name="$1" ns="$2" key="$3" envvar="$4" prompt="$5" required="$6"
+  if secret_has "$name" "$ns" "$key" && [[ -z "${!envvar:-}" ]]; then
+    info "$ns/$name ($key) already set; reusing."
+    return 0
   fi
-  local secs=$(( EXPIRY_THRESHOLD_DAYS * 86400 ))
-  if openssl x509 -checkend "$secs" -noout -in "$tmp" >/dev/null 2>&1; then
-    rm -f "$tmp"; return 1   # valid beyond the threshold
+  local val="${!envvar:-}"
+  if [[ -z "$val" ]]; then
+    if [[ "$ASSUME_YES" == "1" ]]; then
+      warn "No $envvar in environment and --yes is set; leaving $ns/$name ($key) empty."
+    else
+      echo
+      echo "${Y}CHANGE:${N} Set $ns/$name ($key). $prompt"
+      read -r -s -p "  value (empty to skip): " val; echo
+    fi
   fi
-  rm -f "$tmp"; return 0     # expires within the threshold
-}
-
-ensure_item() {
-  local title="$1"
-  if ! op_item_exists "$title"; then
-    op item create --category "Secure Note" --vault "$VAULT" --title "$title" >/dev/null
+  apply_secret "$name" "$ns" --from-literal="$key=$val"
+  if [[ -n "$val" ]]; then
+    info "Set $ns/$name ($key)."
+  elif [[ "$required" == "1" ]]; then
+    warn "$ns/$name ($key) left empty — set it before this credential will work."
+  else
+    warn "$ns/$name ($key) left empty (optional)."
   fi
-}
-
-# set_field <item> <field> <file> [concealed|text]
-set_field() {
-  local title="$1" field="$2" file="$3" type="${4:-concealed}"
-  # Use op item get + jq --rawfile to safely encode multi-line file content
-  # (e.g. PEM private keys). Shell argument interpolation with $(cat) strips
-  # trailing newlines and op may misparse embedded newlines in argument values.
-  # jq --rawfile reads bytes verbatim and JSON-encodes them; op item edit reads
-  # the full item JSON from stdin and applies the update cleanly.
-  local json_type="${type^^}"
-  op item get "$title" --vault "$VAULT" --format json \
-    | jq --arg label "$field" --arg type "$json_type" --rawfile value "$file" \
-        '.fields |= (map(select(.label != $label))
-          + [{"id": $label, "label": $label, "type": $type, "value": $value}])' \
-    | op item edit "$title" --vault "$VAULT" >/dev/null
-}
-
-set_value_field() {
-  local title="$1" field="$2" value="$3" type="${4:-concealed}"
-  local tmp
-  tmp="$(mktemp "$CERTS/field.XXXXXX")"
-  printf %s "$value" > "$tmp"
-  set_field "$title" "$field" "$tmp" "$type"
-}
-
-connect_server_exists() {
-  op connect server list --format json 2>/dev/null \
-    | jq -e --arg n "$SERVER_NAME" '.[]? | select(.name==$n)' >/dev/null 2>&1
+  unset val
 }
 
 # --- prerequisites ---------------------------------------------------------
-for cmd in op openssl ssh-keygen jq; do
+for cmd in kubectl openssl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
 done
-op account get >/dev/null 2>&1 || die "1Password CLI is not signed in. Run: op signin"
+kubectl config get-contexts "$KUBE_CONTEXT" >/dev/null 2>&1 \
+  || die "kubectl context '$KUBE_CONTEXT' does not exist"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vicegerent-setup.XXXXXX")"
 chmod 700 "$WORK"
-CERTS="$WORK/certs"
-mkdir -p "$CERTS"
 cleanup() { rm -rf "$WORK"; }
 trap cleanup EXIT INT TERM
 
-echo "${B}vicegerent secret setup${N}  (vault: $VAULT)"
-echo "Scratch dir: $WORK  — removed automatically on exit."
-[[ "$FORCE" == "1" ]] && warn "--force: the CA and all leaf certificates will be rebuilt."
+echo "${B}vicegerent platform secret setup${N}  (context: $KUBE_CONTEXT)"
+[[ "$FORCE" == "1" ]] && warn "--force: the ghostunnel CA and all leaf certificates will be rebuilt."
 
-# --- vault -----------------------------------------------------------------
-step "1Password vault"
-if op vault get "$VAULT" >/dev/null 2>&1; then
-  info "Vault '$VAULT' already exists; nothing to do."
-else
-  confirm "Create 1Password vault '$VAULT' (Connect cannot use Personal/Private/Employee vaults)." \
-    || die "Vault is required; aborting."
-  op vault create "$VAULT" >/dev/null
-  info "Created vault '$VAULT'."
-fi
+# Ensure target namespaces exist so Secrets can be applied before Flux creates them.
+step "Namespaces"
+for ns in agentgateway-system searxng egress-proxy agent-sandbox; do
+  ensure_ns "$ns"
+done
+info "Target namespaces present."
 
-# --- Connect server + credentials ------------------------------------------
-step "1Password Connect credentials"
-creds_present=0
-op_item_exists "$CRED_ITEM" && op_field_exists "$CRED_ITEM" "1password-credentials.json" && creds_present=1
+# --- ghostunnel mTLS -------------------------------------------------------
+# Host-only CA + server cert (laptop) and a client cert (cluster). The cluster
+# never sees the server or CA private key.
+step "Ghostunnel mTLS material"
+mkdir -p "$GHOSTUNNEL_HOST_DIR"
+chmod 700 "$GHOSTUNNEL_HOST_DIR"
+HD="$GHOSTUNNEL_HOST_DIR"
 
-if [[ $creds_present -eq 1 ]] && connect_server_exists; then
-  info "Connect credentials already in 1Password ('$CRED_ITEM') and server '$SERVER_NAME' exists; nothing to do."
-else
-  if [[ $creds_present -eq 1 ]]; then
-    # Creds in 1Password but the Connect server is gone. A deleted server cannot
-    # be reattached: its credentials file and every token it signed are dead.
-    # Discard both so they are reissued against a fresh server below.
-    warn "Connect credentials exist in '$CRED_ITEM' but no Connect server named '$SERVER_NAME' exists."
-    warn "A deleted Connect server cannot be reattached; the stored credentials and token are unusable."
-    confirm "Delete the stale '$CRED_ITEM' + '$TOKEN_ITEM' items and create a fresh Connect server." \
-      || die "Cannot proceed with credentials for a Connect server that no longer exists."
-    op item delete "$CRED_ITEM" --vault "$VAULT" >/dev/null 2>&1 || true
-    op item delete "$TOKEN_ITEM" --vault "$VAULT" >/dev/null 2>&1 || true
-  elif connect_server_exists; then
-    warn "A Connect server named '$SERVER_NAME' exists, but its credentials are NOT in 1Password."
-    warn "The credentials file is emitted only at creation time and cannot be recovered."
-    confirm "Delete the orphaned Connect server '$SERVER_NAME' and recreate it." \
-      || die "Cannot proceed without usable Connect credentials."
-    op connect server delete "$SERVER_NAME" >/dev/null
-  fi
-  confirm "Create Connect server '$SERVER_NAME' for vault '$VAULT' and store its credentials as item '$CRED_ITEM'." \
-    || die "Connect server is required; aborting."
-  ( cd "$WORK" && op connect server create "$SERVER_NAME" --vaults "$VAULT" >/dev/null )
-  [[ -s "$WORK/1password-credentials.json" ]] || die "Connect server created but no credentials file was emitted."
-  ensure_item "$CRED_ITEM"
-  set_field "$CRED_ITEM" "1password-credentials.json" "$WORK/1password-credentials.json" concealed
-  info "Stored Connect credentials in '$CRED_ITEM'."
-fi
-
-# --- Connect token ---------------------------------------------------------
-step "1Password Connect token"
-if op_item_exists "$TOKEN_ITEM" && op_field_exists "$TOKEN_ITEM" "token"; then
-  info "Connect token already in 1Password ('$TOKEN_ITEM'); nothing to do."
-else
-  confirm "Create a Connect operator token and store it as item '$TOKEN_ITEM'." \
-    || die "Connect token is required; aborting."
-  TOKEN="$(op connect token create "$TOKEN_NAME" --server "$SERVER_NAME" --vault "$VAULT")"
-  [[ -n "$TOKEN" ]] || die "Connect token creation returned empty (does the server exist?)."
-  ensure_item "$TOKEN_ITEM"
-  op item edit "$TOKEN_ITEM" --vault "$VAULT" "token[concealed]=$TOKEN" >/dev/null
-  unset TOKEN
-  info "Stored Connect token in '$TOKEN_ITEM'."
-fi
-
-# --- certificate authority -------------------------------------------------
-step "Ghostunnel mTLS certificate authority"
-have_ca_cert=0; have_ca_key=0
-op_field_exists "$HOST_ITEM" "ca.cert" && have_ca_cert=1
-op_field_exists "$HOST_ITEM" "ca.key"  && have_ca_key=1
-
-# Detect an unrecoverable split: leaf certs exist but the CA key to re-sign is gone.
-leaf_present=0
-op_field_exists "$CLIENT_ITEM" "tls.crt" && leaf_present=1
-op_field_exists "$HOST_ITEM" "server.crt" && leaf_present=1
-
-NEW_CA=0
+new_ca=0
 if [[ "$FORCE" == "1" ]]; then
-  confirm "Rebuild the ghostunnel CA from scratch (invalidates any previously issued certs)." \
-    || die "Aborted."
-  NEW_CA=1
-elif [[ $have_ca_cert -eq 1 && $have_ca_key -eq 1 ]]; then
-  info "CA already in 1Password ('$HOST_ITEM' ca.cert + ca.key); reusing it."
-  op read "op://$VAULT/$HOST_ITEM/ca.cert" > "$CERTS/ca.crt"
-  op read "op://$VAULT/$HOST_ITEM/ca.key"  > "$CERTS/ca.key"
-elif [[ $leaf_present -eq 1 ]]; then
-  die "Leaf certificates exist but the CA private key is missing from op://$VAULT/$HOST_ITEM/ca.key.
-The CA cannot be reconstructed, so certs cannot be re-issued idempotently.
-Rerun with --force to rebuild the entire chain (this regenerates all certs)."
+  confirm "Rebuild the ghostunnel CA in $HD (invalidates any previously issued certs)." || die "Aborted."
+  new_ca=1
+elif [[ -s "$HD/ca.cert" && -s "$HD/ca.key" ]]; then
+  info "Ghostunnel CA already in $HD; reusing."
 else
-  confirm "Generate a new ghostunnel CA (4096-bit, 10y); the private key is stored host-only in '$HOST_ITEM'." \
-    || die "CA is required; aborting."
-  NEW_CA=1
+  confirm "Generate a ghostunnel CA (4096-bit, 10y) in $HD (private key stays host-only)." || die "CA is required; aborting."
+  new_ca=1
 fi
 
-if [[ $NEW_CA -eq 1 ]]; then
-  openssl genrsa -out "$CERTS/ca.key" 4096 >/dev/null 2>&1
-  # keyUsage=keyCertSign is required: OpenSSL 3 / Python reject a CA without it
-  # ("CA cert does not include key usage extension") when validating the chain.
-  openssl req -x509 -new -nodes -key "$CERTS/ca.key" -sha256 -days 3650 \
+if [[ $new_ca -eq 1 ]]; then
+  openssl genrsa -out "$HD/ca.key" 4096 >/dev/null 2>&1
+  # keyUsage=keyCertSign is required: OpenSSL 3 / Python reject a CA without it.
+  openssl req -x509 -new -nodes -key "$HD/ca.key" -sha256 -days 3650 \
     -subj "/CN=vicegerent-ghostunnel-ca" \
     -addext "basicConstraints=critical,CA:TRUE" \
     -addext "keyUsage=critical,keyCertSign,cRLSign" \
-    -out "$CERTS/ca.crt" >/dev/null 2>&1
-  info "Generated a new CA."
+    -out "$HD/ca.cert" >/dev/null 2>&1
+  info "Generated a new ghostunnel CA."
 fi
 
-# Decide which leaves to issue. A new CA forces both leaves to be re-issued.
-need_server=0; need_client=0
-if [[ $NEW_CA -eq 1 ]]; then
-  need_server=1; need_client=1
+if [[ $new_ca -eq 1 || ! -s "$HD/server.crt" || ! -s "$HD/server.key" ]]; then
+  openssl genrsa -out "$HD/server.key" 2048 >/dev/null 2>&1
+  openssl req -new -key "$HD/server.key" -subj "/CN=${SERVER_CN}" -out "$WORK/server.csr" >/dev/null 2>&1
+  printf 'subjectAltName=DNS:%s,IP:%s\nextendedKeyUsage=serverAuth\n' "$SERVER_CN" "$SERVER_IP" > "$WORK/server.ext"
+  openssl x509 -req -in "$WORK/server.csr" -CA "$HD/ca.cert" -CAkey "$HD/ca.key" \
+    -CAcreateserial -days 825 -sha256 -extfile "$WORK/server.ext" -out "$HD/server.crt" >/dev/null 2>&1
+  info "Issued ghostunnel server certificate (host-only)."
 else
-  if op_field_exists "$HOST_ITEM" "server.crt" && op_field_exists "$HOST_ITEM" "server.key"; then
-    if leaf_expiring_soon "$HOST_ITEM" "server.crt"; then
-      warn "Server certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
-      if confirm "Re-issue the server cert from the existing CA (resets validity to 825 days)."; then
-        need_server=1
-      else
-        info "Keeping the existing server certificate."
-      fi
-    else
-      info "Server certificate already present; reusing it."
-    fi
-  else
-    need_server=1
-  fi
-  if op_field_exists "$CLIENT_ITEM" "tls.crt" && op_field_exists "$CLIENT_ITEM" "tls.key"; then
-    if leaf_expiring_soon "$CLIENT_ITEM" "tls.crt"; then
-      warn "Client certificate expires within ${EXPIRY_THRESHOLD_DAYS} days."
-      if confirm "Re-issue the client cert from the existing CA (resets validity to 825 days)."; then
-        need_client=1
-      else
-        info "Keeping the existing client certificate."
-      fi
-    else
-      info "Client certificate already present; reusing it."
-    fi
-  else
-    need_client=1
-  fi
+  info "Ghostunnel server certificate already present; reusing."
 fi
 
-# --- server certificate ----------------------------------------------------
-if [[ $need_server -eq 1 ]]; then
-  step "Server certificate"
-  confirm "Issue a server cert for CN=$SERVER_CN (SAN: DNS:$SERVER_CN, IP:$HOST_ONLY_IP)." \
-    || die "Aborted."
-  openssl genrsa -out "$CERTS/server.key" 2048 >/dev/null 2>&1
-  openssl req -new -key "$CERTS/server.key" -subj "/CN=${SERVER_CN}" -out "$CERTS/server.csr" >/dev/null 2>&1
-  printf 'subjectAltName=DNS:%s,IP:%s\nextendedKeyUsage=serverAuth\n' "$SERVER_CN" "$HOST_ONLY_IP" > "$CERTS/server.ext"
-  openssl x509 -req -in "$CERTS/server.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
-    -CAcreateserial -days 825 -sha256 -extfile "$CERTS/server.ext" -out "$CERTS/server.crt" >/dev/null 2>&1
-  info "Issued server certificate."
+if [[ $new_ca -eq 1 || ! -s "$HD/client.crt" || ! -s "$HD/client.key" ]]; then
+  openssl genrsa -out "$HD/client.key" 2048 >/dev/null 2>&1
+  openssl req -new -key "$HD/client.key" -subj "/CN=${CLIENT_CN}" -out "$WORK/client.csr" >/dev/null 2>&1
+  printf 'extendedKeyUsage=clientAuth\n' > "$WORK/client.ext"
+  openssl x509 -req -in "$WORK/client.csr" -CA "$HD/ca.cert" -CAkey "$HD/ca.key" \
+    -CAcreateserial -days 825 -sha256 -extfile "$WORK/client.ext" -out "$HD/client.crt" >/dev/null 2>&1
+  info "Issued ghostunnel client certificate."
+else
+  info "Ghostunnel client certificate already present; reusing."
 fi
+chmod 600 "$HD"/* 2>/dev/null || true
 
-# --- client certificate ----------------------------------------------------
-if [[ $need_client -eq 1 ]]; then
-  step "Client certificate"
-  confirm "Issue a client cert for CN=$CLIENT_CN (this is the --allow-cn the host ghostunnel enforces)." \
-    || die "Aborted."
-  openssl genrsa -out "$CERTS/client.key" 2048 >/dev/null 2>&1
-  openssl req -new -key "$CERTS/client.key" -subj "/CN=${CLIENT_CN}" -out "$CERTS/client.csr" >/dev/null 2>&1
-  printf 'extendedKeyUsage=clientAuth\n' > "$CERTS/client.ext"
-  openssl x509 -req -in "$CERTS/client.csr" -CA "$CERTS/ca.crt" -CAkey "$CERTS/ca.key" \
-    -CAcreateserial -days 825 -sha256 -extfile "$CERTS/client.ext" -out "$CERTS/client.crt" >/dev/null 2>&1
-  info "Issued client certificate."
-fi
+# The cluster gets the client identity as a Secret and the CA cert as a ConfigMap
+# (agentgateway caCertificateRefs resolves to a ConfigMap keyed ca.crt).
+apply_secret vicegerent-mcp-client agentgateway-system \
+  --from-file=tls.crt="$HD/client.crt" --from-file=tls.key="$HD/client.key"
+kc -n agentgateway-system create configmap ghostunnel-ca \
+  --from-file=ca.crt="$HD/ca.cert" --dry-run=client -o yaml | kc apply -f - >/dev/null
+info "Applied vicegerent-mcp-client Secret + ghostunnel-ca ConfigMap."
 
-# --- populate items --------------------------------------------------------
-step "Populate 1Password items"
+# Mirror the ghostunnel SERVER material (cert + key + CA cert) into the cluster so a
+# host missing ~/.vicegerent/ghostunnel can recover it before ghostunnel starts
+# (vicegerent-mcp start -> ensure_ghostunnel_material). The CA *key* is NOT mirrored —
+# it only signs new certs, so a full rebuild still means re-running this script.
+apply_secret ghostunnel-server agentgateway-system \
+  --from-file=server.crt="$HD/server.crt" --from-file=server.key="$HD/server.key" \
+  --from-file=ca.crt="$HD/ca.cert"
+info "Applied ghostunnel-server Secret (server cert/key + CA for host recovery)."
 
-if [[ $NEW_CA -eq 1 ]] || ! op_field_exists "$CA_ITEM" "ca.cert"; then
-  ensure_item "$CA_ITEM"
-  set_field "$CA_ITEM" "ca.cert" "$CERTS/ca.crt" text
-  info "Set '$CA_ITEM' ca.cert (public CA, synced into the cluster)."
-fi
-
-if [[ $NEW_CA -eq 1 ]] || [[ $have_ca_key -eq 0 ]]; then
-  ensure_item "$HOST_ITEM"
-  set_field "$HOST_ITEM" "ca.cert" "$CERTS/ca.crt" text
-  set_field "$HOST_ITEM" "ca.key"  "$CERTS/ca.key" concealed
-  info "Set '$HOST_ITEM' ca.cert + ca.key (CA authority, host-only)."
-fi
-
-if [[ $need_server -eq 1 ]]; then
-  ensure_item "$HOST_ITEM"
-  set_field "$HOST_ITEM" "server.crt" "$CERTS/server.crt" text
-  set_field "$HOST_ITEM" "server.key" "$CERTS/server.key" concealed
-  info "Set '$HOST_ITEM' server.crt + server.key (host-only)."
-fi
-
-if [[ $need_client -eq 1 ]]; then
-  ensure_item "$CLIENT_ITEM"
-  set_field "$CLIENT_ITEM" "tls.crt" "$CERTS/client.crt" text
-  set_field "$CLIENT_ITEM" "tls.key" "$CERTS/client.key" concealed
-  info "Set '$CLIENT_ITEM' tls.crt + tls.key (client identity, synced to agentgateway-system only)."
-fi
-
-# --- Anthropic API key -----------------------------------------------------
+# --- model API keys --------------------------------------------------------
 step "Anthropic API key"
-if op_field_exists "$RUNTIME_ITEM" "Authorization"; then
-  info "Anthropic key already set in '$RUNTIME_ITEM' (Authorization); nothing to do."
-else
-  KEY="${ANTHROPIC_API_KEY:-}"
-  if [[ -z "$KEY" ]]; then
-    if [[ "$ASSUME_YES" == "1" ]]; then
-      warn "No ANTHROPIC_API_KEY in environment and --yes is set; leaving Authorization unset."
-    else
-      echo
-      echo "${Y}CHANGE:${N} Store the Anthropic API key in '$RUNTIME_ITEM' (Authorization)."
-      read -r -s -p "  Anthropic API key (sk-ant-..., empty to skip): " KEY; echo
-    fi
-  fi
-  if [[ -n "$KEY" ]]; then
-    ensure_item "$RUNTIME_ITEM"
-    op item edit "$RUNTIME_ITEM" --vault "$VAULT" "Authorization[concealed]=$KEY" >/dev/null
-    unset KEY
-    info "Stored Anthropic key in '$RUNTIME_ITEM'."
-  else
-    warn "Authorization left unset — set it later before the agent can route to Anthropic."
-  fi
-fi
+ensure_literal_secret vicegerent-secrets agentgateway-system Authorization \
+  ANTHROPIC_API_KEY "Anthropic API key (sk-ant-...)." 1
 
-# --- OpenAI API key (optional) ---------------------------------------------
-step "OpenAI API key"
-if op_field_exists "$OPENAI_ITEM" "Authorization"; then
-  info "OpenAI key already set in '$OPENAI_ITEM' (Authorization); nothing to do."
-else
-  KEY="${OPENAI_API_KEY:-}"
-  if [[ -z "$KEY" ]]; then
-    if [[ "$ASSUME_YES" == "1" ]]; then
-      warn "No OPENAI_API_KEY in environment and --yes is set; leaving it unset (optional)."
-    else
-      echo
-      echo "${Y}CHANGE:${N} Store the OpenAI API key in '$OPENAI_ITEM' (Authorization)."
-      echo "  Optional — the GPT models simply won't route until it is set."
-      read -r -s -p "  OpenAI API key (sk-..., empty to skip): " KEY; echo
-    fi
-  fi
-  ensure_item "$OPENAI_ITEM"
-  if [[ -n "$KEY" ]]; then
-    op item edit "$OPENAI_ITEM" --vault "$VAULT" "Authorization[concealed]=$KEY" >/dev/null
-    unset KEY
-    info "Stored OpenAI key in '$OPENAI_ITEM'."
-  else
-    op item edit "$OPENAI_ITEM" --vault "$VAULT" "Authorization[concealed]=" >/dev/null
-    warn "OpenAI Authorization left empty — GPT models are unavailable until set."
-  fi
-fi
+step "OpenAI API key (optional)"
+ensure_literal_secret vicegerent-openai-secrets agentgateway-system Authorization \
+  OPENAI_API_KEY "OpenAI API key (sk-...) — GPT models stay unavailable until set." 0
 
 # --- SearXNG secret key ----------------------------------------------------
 # Signs SearXNG session/limiter tokens. Generated once and reused so the value
-# stays stable across pod restarts (a changed key invalidates SearXNG's cache
-# tables and breaks limiter tokens across replicas). Never regenerated unless
-# the field is absent.
+# stays stable across restarts (a changed key breaks limiter tokens and cache).
 step "SearXNG secret key"
-if op_field_exists "$SEARXNG_ITEM" "secret_key"; then
-  info "SearXNG secret key already set in '$SEARXNG_ITEM' (secret_key); nothing to do."
+if secret_has searxng-secret searxng secret_key; then
+  info "searxng/searxng-secret (secret_key) already set; reusing."
 else
-  confirm "Generate a SearXNG secret key and store it as item '$SEARXNG_ITEM' (secret_key)." \
-    || die "SearXNG secret key is required; aborting."
-  SEARXNG_KEY="$(openssl rand -hex 32)"
-  ensure_item "$SEARXNG_ITEM"
-  op item edit "$SEARXNG_ITEM" --vault "$VAULT" "secret_key[concealed]=$SEARXNG_KEY" >/dev/null
-  unset SEARXNG_KEY
-  info "Stored SearXNG secret key in '$SEARXNG_ITEM'."
+  confirm "Generate a SearXNG secret key (searxng/searxng-secret)." || die "SearXNG secret key is required; aborting."
+  apply_secret searxng-secret searxng --from-literal="secret_key=$(openssl rand -hex 32)"
+  info "Generated searxng/searxng-secret."
 fi
 
-# --- Tavily API key ---------------------------------------------------------
-# Read by the Tavily kmcp MCPServer (npx tavily-mcp). The OnePasswordItem syncs
-# every field of this item into the Secret as a data key, and kmcp mounts that
-# Secret via envFrom, so the field MUST be named exactly TAVILY_API_KEY to land
-# as the env var the server reads.
-step "Tavily API key"
-if op_field_exists "$TAVILY_ITEM" "TAVILY_API_KEY"; then
-  info "Tavily key already set in '$TAVILY_ITEM' (TAVILY_API_KEY); nothing to do."
-else
-  KEY="${TAVILY_API_KEY:-}"
-  if [[ -z "$KEY" ]]; then
-    if [[ "$ASSUME_YES" == "1" ]]; then
-      warn "No TAVILY_API_KEY in environment and --yes is set; leaving it unset (web search/extract via Tavily unavailable until set)."
-    else
-      echo
-      echo "${Y}CHANGE:${N} Store the Tavily API key in '$TAVILY_ITEM' (TAVILY_API_KEY)."
-      read -r -s -p "  Tavily API key (tvly-..., empty to skip): " KEY; echo
-    fi
-  fi
-  ensure_item "$TAVILY_ITEM"
-  if [[ -n "$KEY" ]]; then
-    op item edit "$TAVILY_ITEM" --vault "$VAULT" "TAVILY_API_KEY[concealed]=$KEY" >/dev/null
-    unset KEY
-    info "Stored Tavily key in '$TAVILY_ITEM'."
-  else
-    warn "Tavily TAVILY_API_KEY left unset — the Tavily MCP server will not authenticate until set."
-  fi
-fi
-
-# --- Firecrawl API key ------------------------------------------------------
-# Read by the Firecrawl kmcp MCPServer (npx firecrawl-mcp). Same envFrom rule as
-# Tavily: the field MUST be named exactly FIRECRAWL_API_KEY.
-step "Firecrawl API key"
-if op_field_exists "$FIRECRAWL_ITEM" "FIRECRAWL_API_KEY"; then
-  info "Firecrawl key already set in '$FIRECRAWL_ITEM' (FIRECRAWL_API_KEY); nothing to do."
-else
-  KEY="${FIRECRAWL_API_KEY:-}"
-  if [[ -z "$KEY" ]]; then
-    if [[ "$ASSUME_YES" == "1" ]]; then
-      warn "No FIRECRAWL_API_KEY in environment and --yes is set; leaving it unset (web extract via Firecrawl unavailable until set)."
-    else
-      echo
-      echo "${Y}CHANGE:${N} Store the Firecrawl API key in '$FIRECRAWL_ITEM' (FIRECRAWL_API_KEY)."
-      read -r -s -p "  Firecrawl API key (fc-..., empty to skip): " KEY; echo
-    fi
-  fi
-  ensure_item "$FIRECRAWL_ITEM"
-  if [[ -n "$KEY" ]]; then
-    op item edit "$FIRECRAWL_ITEM" --vault "$VAULT" "FIRECRAWL_API_KEY[concealed]=$KEY" >/dev/null
-    unset KEY
-    info "Stored Firecrawl key in '$FIRECRAWL_ITEM'."
-  else
-    warn "Firecrawl FIRECRAWL_API_KEY left unset — the Firecrawl MCP server will not authenticate until set."
-  fi
-fi
-
-# --- Egress proxy CA -------------------------------------------------------
-# Generates a dedicated CA for the MITM egress proxy (generate-once).
-# Two 1Password items:
-#   - "Egress Proxy CA"      ca.crt + ca.key  → synced into egress-proxy ns only
-#   - "Egress Proxy CA Cert" ca.crt only       → synced into agent-sandbox + searxng
-# The CA private key never leaves the egress-proxy namespace.
+# --- egress proxy CA -------------------------------------------------------
+# Dedicated CA for the MITM egress proxy (generate-once). The private key lives
+# only in the egress-proxy Secret; agent-sandbox gets the cert only.
 step "Egress proxy CA"
-ensure_item "$PROXY_CA_ITEM"
-ensure_item "$PROXY_CA_CERT_ITEM"
-if op_field_exists "$PROXY_CA_ITEM" "ca.key"; then
-  info "Egress proxy CA already in '$PROXY_CA_ITEM' (ca.key); reusing."
-  op read "op://$VAULT/$PROXY_CA_ITEM/ca.crt" > "$CERTS/proxy-ca.crt" 2>/dev/null || true
+if secret_has egress-proxy-ca egress-proxy ca.key && [[ "$FORCE" != "1" ]]; then
+  info "egress-proxy/egress-proxy-ca already present; reusing."
+  secret_b64 egress-proxy-ca egress-proxy ca.crt | base64 -d > "$WORK/proxy-ca.crt"
 else
-  confirm "Generate a new CA for the egress MITM proxy and store it in '$PROXY_CA_ITEM'." \
-    || die "Egress proxy CA is required for the sandbox to have outbound HTTPS; aborting."
-  openssl genrsa -out "$CERTS/proxy-ca.key" 4096 >/dev/null 2>&1
-  # keyUsage=keyCertSign is required: OpenSSL 3 / Python reject a CA without it
-  # ("CA cert does not include key usage extension") when validating the MITM chain.
-  openssl req -x509 -new -nodes -key "$CERTS/proxy-ca.key" -sha256 -days 3650 \
+  confirm "Generate a new CA for the egress MITM proxy (egress-proxy/egress-proxy-ca)." \
+    || die "Egress proxy CA is required for sandbox outbound HTTPS; aborting."
+  openssl genrsa -out "$WORK/proxy-ca.key" 4096 >/dev/null 2>&1
+  openssl req -x509 -new -nodes -key "$WORK/proxy-ca.key" -sha256 -days 3650 \
     -subj "/CN=vicegerent-egress-proxy-ca" \
     -addext "basicConstraints=critical,CA:TRUE" \
     -addext "keyUsage=critical,keyCertSign,cRLSign" \
-    -out "$CERTS/proxy-ca.crt" >/dev/null 2>&1
-  set_field "$PROXY_CA_ITEM" "ca.crt" "$CERTS/proxy-ca.crt" text
-  set_field "$PROXY_CA_ITEM" "ca.key" "$CERTS/proxy-ca.key" concealed
-  info "Generated egress proxy CA and stored it in '$PROXY_CA_ITEM'."
+    -out "$WORK/proxy-ca.crt" >/dev/null 2>&1
+  apply_secret egress-proxy-ca egress-proxy \
+    --from-file=ca.crt="$WORK/proxy-ca.crt" --from-file=ca.key="$WORK/proxy-ca.key"
+  info "Generated egress proxy CA (egress-proxy/egress-proxy-ca)."
 fi
-# Sync the cert-only item from the cert we have on disk (idempotent overwrite is fine —
-# it's public material). This is what agent-sandbox and searxng get.
-if [[ -s "$CERTS/proxy-ca.crt" ]]; then
-  set_field "$PROXY_CA_CERT_ITEM" "ca.crt" "$CERTS/proxy-ca.crt" text
-  info "Synced ca.crt into cert-only item '$PROXY_CA_CERT_ITEM'."
-else
-  warn "Could not read proxy CA cert — '$PROXY_CA_CERT_ITEM' not updated."
-fi
+# The cert-only copy consumed by agent-sandbox (idempotent — public material).
+apply_secret egress-proxy-ca-cert agent-sandbox --from-file=ca.crt="$WORK/proxy-ca.crt"
+info "Applied agent-sandbox/egress-proxy-ca-cert (cert only)."
+
+# --- MCP credentials -------------------------------------------------------
+# The tavily/firecrawl/gitlab MCP servers now run host-side under ToolHive, so
+# their API keys are `thv` secrets on the laptop (see scripts/host/setup-host-mcp),
+# not Kubernetes Secrets. Nothing MCP-credential-related is applied to the cluster.
 
 # --- verify ----------------------------------------------------------------
 step "Verify"
 missing=0
 check() {
-  if op_field_exists "$1" "$2"; then
-    echo "  ${G}ok${N}   $1/$2"
-  else
-    echo "  ${R}MISS${N} $1/$2"
-    missing=1
-  fi
+  if secret_has "$1" "$2" "$3"; then echo "  ${G}ok${N}   $2/$1 ($3)"; else echo "  ${R}MISS${N} $2/$1 ($3)"; missing=1; fi
 }
-check "$CRED_ITEM" "1password-credentials.json"
-check "$TOKEN_ITEM" "token"
-check "$CA_ITEM" "ca.cert"
-check "$CLIENT_ITEM" "tls.crt"
-check "$CLIENT_ITEM" "tls.key"
-check "$RUNTIME_ITEM" "Authorization"
-check "$HOST_ITEM" "server.crt"
-check "$HOST_ITEM" "server.key"
-check "$HOST_ITEM" "ca.cert"
-check "$HOST_ITEM" "ca.key"
-check "$SEARXNG_ITEM" "secret_key"
-check "$PROXY_CA_ITEM" "ca.crt"
-check "$PROXY_CA_ITEM" "ca.key"
-check "$PROXY_CA_CERT_ITEM" "ca.crt"
+check_optional() {
+  if secret_has "$1" "$2" "$3"; then echo "  ${G}ok${N}   $2/$1 ($3)"; else echo "  ${Y}empty${N} $2/$1 ($3)  (optional)"; fi
+}
+check vicegerent-mcp-client agentgateway-system tls.crt
+check vicegerent-mcp-client agentgateway-system tls.key
+check ghostunnel-server agentgateway-system server.crt
+check ghostunnel-server agentgateway-system server.key
+check vicegerent-secrets agentgateway-system Authorization
+check searxng-secret searxng secret_key
+check egress-proxy-ca egress-proxy ca.crt
+check egress-proxy-ca egress-proxy ca.key
+check egress-proxy-ca-cert agent-sandbox ca.crt
+check_optional vicegerent-openai-secrets agentgateway-system Authorization
+if [[ -s "$HD/server.crt" && -s "$HD/server.key" && -s "$HD/ca.cert" ]]; then
+  echo "  ${G}ok${N}   $HD (host ghostunnel server + CA material)"
+else
+  echo "  ${R}MISS${N} $HD (host ghostunnel material)"; missing=1
+fi
 
 echo
 if [[ $missing -eq 0 ]]; then
-  info "All required secret material is present in 1Password."
+  info "All required platform secret material is present."
 else
-  warn "Some fields are still missing (see above). Re-run to complete them."
+  warn "Some required material is missing (see above). Re-run to complete it."
   exit 1
 fi

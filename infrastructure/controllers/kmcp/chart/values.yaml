@@ -1,5 +1,0 @@
----
-# https://github.com/kagent-dev/kmcp/blob/main/helm/kmcp/values.yaml
-image:
-  repository: ghcr.io/kagent-dev/kmcp/controller
-  tag: 0.3.0

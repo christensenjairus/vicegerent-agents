@@ -216,7 +216,7 @@ RUN rm -f /tmp/0004-agentburn.py
 
 # Patch Hermes Slack adapter so the catch-all slash command name is configurable
 # via HERMES_SLACK_COMMAND_NAME (default: "hermes"). Set in sandbox.yaml to rename
-# the bot's slash command (e.g. /felix). Remove once upstream supports this.
+# the bot's slash command (e.g. /hermes). Remove once upstream supports this.
 COPY patches/0006-slack-command-name.py /tmp/0006-slack-command-name.py
 RUN /opt/hermes/.venv/bin/python /tmp/0006-slack-command-name.py
 RUN rm -f /tmp/0006-slack-command-name.py

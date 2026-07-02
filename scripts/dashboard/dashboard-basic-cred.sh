@@ -1,15 +1,23 @@
 #!/usr/bin/env bash
 # Print the dashboard basic-auth username + password for an agent.
 #
-# Each agent has its OWN 1Password item ("Dashboard Auth - <agent>") holding a
-# random password, mounted only into that agent's pod. No salt, no derivation,
-# no shared secret — one agent cannot read or compute another's credentials.
+# Each agent's random password lives in its own Kubernetes Secret
+# (<agent>-secrets, key `password`) in the agent-sandbox namespace, mounted only
+# into that agent's pod. No salt, no derivation, no shared secret — one agent
+# cannot read or compute another's credentials.
 #
 #   username = <agent name>
-#   password = op://<vault>/Dashboard Auth - <agent>/password
+#   password = Secret agent-sandbox/<agent>-secrets key `password`
 set -euo pipefail
 
-OP_VAULT="${OP_VAULT:-Vicegerent}"
+NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
+DEFAULT_NODEPORT="${HERMES_DASHBOARD_NODEPORT:-30119}"
+CONTEXT_ARG=()
+if [[ -n "${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-}}" ]]; then
+  CONTEXT_ARG=(--context "${KUBECONFIG_CONTEXT:-${KUBE_CONTEXT:-}}")
+elif kubectl config get-contexts kind-vicegerent >/dev/null 2>&1; then
+  CONTEXT_ARG=(--context kind-vicegerent)
+fi
 
 usage() {
   echo "usage: $0 <agent-name>" >&2
@@ -22,21 +30,18 @@ name="$1"
 [ -n "$name" ] || usage
 name="$(echo "$name" | tr '[:upper:]' '[:lower:]')"
 
-command -v op >/dev/null 2>&1 || {
-  echo "1Password CLI not found. brew install 1password-cli." >&2
-  exit 1
-}
-op account get >/dev/null 2>&1 || {
-  echo "1Password CLI is not signed in. Run: op signin" >&2
+command -v kubectl >/dev/null 2>&1 || { echo "kubectl is required" >&2; exit 1; }
+
+password="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get secret "${name}-secrets" -o jsonpath='{.data.password}' 2>/dev/null | base64 -d)"
+[ -n "$password" ] || {
+  echo "No password in Secret ${NAMESPACE}/${name}-secrets. Run: ./vicegerent secrets setup agent ${name}" >&2
   exit 1
 }
 
-item="Agent - ${name}"
-password="$(op read "op://${OP_VAULT}/${item}/password")"
-[ -n "$password" ] || {
-  echo "No password in 1Password item '${item}'. Run: ./vicegerent secrets setup agent ${name}" >&2
-  exit 1
-}
+SERVICE="${HERMES_DASHBOARD_SERVICE:-${name}-dashboard}"
+node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
+[ -n "$node_port" ] || node_port="$DEFAULT_NODEPORT"
 
 echo "username: ${name}"
 echo "password: ${password}"
+echo "url:      http://127.0.0.1:${node_port}/"

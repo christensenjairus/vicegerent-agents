@@ -1,6 +1,6 @@
 # Vicegerent Agents
 
-GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local minikube cluster, managed by Flux.
+GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local Kind cluster (Cilium CNI), managed by Flux.
 
 ![Architecture of Vicegerent Agents (Excalidraw)](./architecture.png)
 
@@ -8,7 +8,7 @@ GitOps repository for the **vicegerent** infra agent platform — credential-iso
 
 #### What it provides
 
-Every agent runs as its own `agent-sandbox` pod: non-root, gVisor-isolated, with its own 1Password-issued credentials (SSH key, dashboard auth, agentgateway bearer token) that are never shared with another agent. The sandbox has no direct internet or cluster access — every model call goes through agentgateway, every tool call goes through an allowlisted MCP route, and every shell command passes through a layered approval pipeline (hardline block → operator silence list → tirith static scan → LLM-assessed smart approval) before it executes. MCP tool authorization is itself split into two independent layers (agentgateway's tool allowlist decides *what an agent may call at all*; Cerbos decides *which arguments/instances of an allowed tool are blocked*, e.g. reading Kubernetes Secrets) so a single misconfigured allowlist can't silently become a security hole. Because the containment is structural, agents can run genuinely autonomously — unattended, on schedules, reacting to events — without needing a human in the loop for every action; the boundary is what makes autonomy safe to grant. The whole platform — agents, models, MCP servers, secrets policy, approval rules — is Flux-reconciled from this git repo: standing it up, changing it, or reproducing it on another machine is `git clone` + `flux bootstrap`, not a pile of manual laptop setup steps.
+Every agent runs as its own `agent-sandbox` pod: non-root and pod-hardened, with its own generated credentials (SSH key, dashboard auth, agentgateway bearer token) that are never shared with another agent. The sandbox has no direct internet or cluster access — Cilium egress-locks it to a scrubbing egress proxy, git-over-SSH, Slack, and DNS; every model call and every MCP tool call goes through agentgateway; and every shell command passes through a layered approval pipeline (hardline block → operator silence list → tirith static scan → LLM-assessed smart approval) before it executes. MCP tool calls also pass a Cerbos guardrail that blocks reading Kubernetes Secrets regardless of which tool asks, so a confidentiality boundary survives even if a tool is otherwise permitted. Because the containment is structural, agents can run genuinely autonomously — unattended, on schedules, reacting to events — without needing a human in the loop for every action; the boundary is what makes autonomy safe to grant. The whole platform — agents, models, gateway routes, secrets policy, approval rules — is Flux-reconciled from this git repo: standing it up, changing it, or reproducing it on another machine is `git clone` + `flux bootstrap`, not a pile of manual laptop setup steps.
 
 #### Why not just run Claude Code / Codex directly on a laptop?
 
@@ -16,17 +16,17 @@ This isn't a replacement for that — running an agent directly on your laptop w
 
 #### Why not a plain container, or a runtime like NVIDIA OpenShell?
 
-A raw container is an improvement over bare-metal but usually still runs as root or with a mounted Docker socket (host-root-equivalent), has unrestricted egress, and mounts one set of credentials that every process inside can read. [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) is a closer analogue — per-sandbox isolation, declarative YAML network/filesystem/process policy, and credential injection via named providers — but it's explicitly alpha, single-tenant ("single-player mode": one developer, one environment, one gateway), and its policy engine draws one line per sandbox (filesystem/network/process/inference) rather than a two-layer split between *which MCP tools exist at all* and *which arguments to an allowed tool are blocked*. That coarser model also pushes a real tradeoff onto the operator at runtime: without the graded approval pipeline this repo has, a sandbox either needs a human reviewing/approving actions as it goes, or it needs a policy loose enough to let the agent actually act on its own — there's no middle layer that lets an agent run unattended while still catching a specific dangerous call. Neither a plain container nor OpenShell gives you Flux-reconciled, git-auditable state across many independently-credentialed agents sharing one cluster.
+A raw container is an improvement over bare-metal but usually still runs as root or with a mounted Docker socket (host-root-equivalent), has unrestricted egress, and mounts one set of credentials that every process inside can read. [NVIDIA OpenShell](https://github.com/NVIDIA/OpenShell) is a closer analogue — per-sandbox isolation, declarative YAML network/filesystem/process policy, and credential injection via named providers — but it's explicitly alpha, single-tenant ("single-player mode": one developer, one environment, one gateway), and its policy engine draws one coarse line per sandbox (filesystem/network/process/inference) rather than combining a kernel-level egress lock with argument-level MCP guardrails and a graded command-approval pipeline. That coarser model also pushes a real tradeoff onto the operator at runtime: without the graded approval pipeline this repo has, a sandbox either needs a human reviewing/approving actions as it goes, or it needs a policy loose enough to let the agent actually act on its own — there's no middle layer that lets an agent run unattended while still catching a specific dangerous call. Neither a plain container nor OpenShell gives you Flux-reconciled, git-auditable state across many independently-credentialed agents sharing one cluster.
 
 #### How this is better
 
-Compromising one agent's shell doesn't leak another agent's credentials or reach the host — the credential and network boundary is enforced by the platform, not by the agent's good behavior. Every capability an agent has is explicit and versioned in git (which MCP tools, which model routes, which egress paths), so "what can this agent do" is answerable by reading the repo, not by auditing a running process. Command execution gets real guardrails (static scan + LLM triage) even though the agent is otherwise trusted, and MCP tool access gets fine-grained argument-level control instead of a binary allow/disable per tool.
+Compromising one agent's shell doesn't leak another agent's credentials or reach the host — the credential and network boundary is enforced by the platform, not by the agent's good behavior. Every capability an agent has is explicit and versioned in git (which model routes, which egress paths, which approval rules), so "what can this agent do" is answerable by reading the repo, not by auditing a running process. Command execution gets real guardrails (static scan + LLM triage) even though the agent is otherwise trusted, and MCP tool calls get an argument-level confidentiality guardrail (no reading Kubernetes Secrets) that a broad tool grant can't override.
 
 #### Drawbacks of this architecture
 
 The flexibility that makes this useful is also complexity to maintain:
-- More moving parts than a laptop CLI — minikube, Flux, agentgateway, Cerbos, and the approval pipeline all need to be understood together when something doesn't behave as expected.
-- Adding a new integration takes a few more steps than `pip install` — an MCP route, an agentgateway allowlist entry, and possibly a Cerbos rule.
+- More moving parts than a laptop CLI — Kind, Cilium, Flux, agentgateway, Cerbos, the host ToolHive stack, and the approval pipeline all need to be understood together when something doesn't behave as expected.
+- Adding a new integration takes a few more steps than `pip install` — a ToolHive server entry, its host-side secret or OAuth flow, and possibly a Cerbos rule.
 - The host-side MCP bridge depends on the developer's machine being on; it's a deliberate tradeoff (see below) rather than a fully in-cluster design.
 - Onboarding a new agent (secrets, sandbox config, gateway routes) takes longer than opening a terminal and running a CLI tool.
 - It's infrastructure with normal upkeep — cert rotation, image bumps, keeping Flux reconciled — like any platform, not a install-and-forget script.
@@ -34,91 +34,107 @@ The flexibility that makes this useful is also complexity to maintain:
 
 ## Why not run every tool in Kubernetes?
 
-Some MCP servers stay on the developer's machine on purpose (see [`host/mcp`](host/mcp)) — OAuth-backed tools and anything tied to laptop-local session state (browser OAuth flows, a local kubeconfig, AWS SSO) don't have a clean cluster-side equivalent. Standing up a service identity for these in-cluster means either provisioning bot accounts/service tokens per integration or building an OAuth flow a headless pod can complete on its own, and most organizations haven't standardized bot identities for every tool an agent might want to use. Rather than block on that, this platform runs those tools under the developer's own already-authenticated session and tunnels them into the cluster (ghostunnel + Caddy + `mcp-proxy-server`), so the agent acts through the developer's existing identity instead of waiting for a separate one to be provisioned.
+Every MCP server runs on the developer's machine on purpose (see [`host/mcp`](host/mcp)) — OAuth-backed tools and anything tied to laptop-local session state (browser OAuth flows, a local kubeconfig, AWS SSO) don't have a clean cluster-side equivalent. Standing up a service identity for these in-cluster means either provisioning bot accounts/service tokens per integration or building an OAuth flow a headless pod can complete on its own, and most organizations haven't standardized bot identities for every tool an agent might want to use. Rather than block on that, this platform runs those tools under the developer's own already-authenticated session — as ToolHive (`thv`) workloads aggregated behind a single Virtual MCP Server (vMCP) — and tunnels that one endpoint into the cluster over mTLS (ghostunnel), so the agent acts through the developer's existing identity instead of waiting for a separate one to be provisioned.
 
 That's a deliberate design choice, not just a stopgap: it makes the agent a genuine extension of the developer — reviewing a Notion doc or hitting the Kubernetes API as *them*, with their actual permissions — rather than a separate identity whose access has to be independently reasoned about, requested, and kept in sync with the developer's own. The tradeoff is real and stated above: the host bridge only works while the developer's machine is up. Once an organization has bot tokens and service identities sorted out for a given tool, it both can and should move that tool fully into the cluster — at that point the developer laptop dependency for that integration disappears entirely, and the whole system stops needing any one person's machine at all. Taken to its conclusion, this platform can run entirely in the cloud, serving many different people's sandboxes identically, with no host-side bridge in the picture.
 
 ## MCP authorization model
 
-Three components enforce MCP authorization, each with one job. Keeping them separate is the design — overlapping allowlists drift out of sync, and that drift is a security bug.
+All MCP tools reach the cluster through one path: the host vMCP → ghostunnel (mTLS) → agentgateway's `vmcp` backend → the agent. Agentgateway is the single ingress gate (routing, auth, mTLS), but it does **not** allowlist individual tools — every tool the vMCP exposes passes through. The only instance-level control is a Cerbos guardrail attached to the `vmcp` backend, which blocks exactly one thing: reading Kubernetes **Secrets** (through any tool, `FailClosed` on `tools/call`).
 
-- **Agentgateway**: owns the MCP tool allowlist (with CEL).
-- **Cerbos**: argument/resource blocking for allowlisted MCP tools (with CEL).
-- **mcp-cerbos-shim**: standardizes fields so Cerbos is accurate (with drop-in helper functions).
+- **Agentgateway**: single MCP ingress gate — routing, bearer auth, mTLS to the host vMCP. No per-tool allowlist.
+- **Cerbos**: makes the deny decision — blocks reading Kubernetes Secrets (with CEL).
+- **mcp-cerbos-shim**: standardizes fields so Cerbos sees an accurate resource; makes no policy decisions.
 
-Permit decisions belong to the gateway allowlist; every deny is Cerbos's; the shim makes no policy decisions. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the full division of responsibility.
+The shim/Cerbos are a confidentiality guardrail, not a tool allowlist. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the full division of responsibility.
 
-## Create the local minikube cluster
+## Create the local Kind cluster
 
 Prerequisites:
 
-- macOS with minikube + vfkit installed
+- macOS with Docker (Kind runs its node as a container)
+- `kind`
+- `cilium-cli`
 - `kubectl`
 - `flux`
 - `helm`
-- `op`
 - `jq`
 - SSH access to `gitlab.hahomelabs.com:jchristensen/vicegerent-agents`
 
-Create the cluster:
+Create the cluster (creates the Kind cluster on its docker network and installs Cilium):
 
 ```bash
 ./vicegerent cluster setup
 ```
 
-Verify the cluster and addons:
+Verify the cluster and CNI:
 
 ```bash
-kubectl --context vicegerent get nodes -o wide
-kubectl --context vicegerent get pods -n kube-system
-kubectl --context vicegerent get runtimeclass
-kubectl --context vicegerent top nodes
+kubectl --context kind-vicegerent get nodes -o wide
+kubectl --context kind-vicegerent get pods -n kube-system
+cilium status --context kind-vicegerent
+kubectl --context kind-vicegerent top nodes
 ```
 
-If metrics are not ready immediately, wait a minute and rerun `kubectl --context vicegerent top nodes`.
+If metrics are not ready immediately, wait a minute and rerun `kubectl --context kind-vicegerent top nodes`.
 
 ## Secrets setup
 
-Secrets are provisioned in two passes: **platform-wide** material (shared by the
-whole cluster) and **per-agent** material (one set per named agent). Both are
-idempotent — anything already in 1Password is reused, never regenerated, and each
-only prompts before a step that actually changes something.
+Cluster secrets are plain Kubernetes Secrets — Kind etcd is the source of truth, and
+no secret values live in git. The setup scripts generate crypto material (CAs,
+certificates, SSH keys, random tokens) and read user-supplied API keys from the
+environment or interactive prompts, then `kubectl apply` the Secrets directly.
+They are provisioned in two passes: **platform-wide** material (shared by the whole
+cluster) and **per-agent** material (one set per named agent). Both are idempotent —
+generated material already present is reused, and re-running reseeds a fresh cluster.
+
+MCP-server API keys are the exception: they are `thv` (ToolHive) secrets on the host,
+not Kubernetes Secrets. Configure them with `vicegerent mcp configure` (see
+[`host/mcp`](host/mcp)), not the scripts below.
+
+> Secrets are treated as disposable/recreatable. There is no external secret store
+> in the loop, so **keep your own copy of any API keys** — re-running a setup script
+> is how you rebuild the cluster's secrets after a `kind delete cluster`. (A Velero
+> backup of the Secrets is a planned follow-up.)
 
 ### Platform-wide
 
-Creates the `Vicegerent` vault, the 1Password Connect server and token, the
-ghostunnel CA, the egress-proxy MITM CA, the server/client certificates, and the
-shared model/search API keys — storing everything in 1Password and leaving nothing
-on disk.
+Generates the ghostunnel CA + server/client certificates and the egress-proxy MITM
+CA, and applies the shared model/search API keys. The host-side ghostunnel material
+is written to `~/.vicegerent/ghostunnel` (override with `GHOSTUNNEL_HOST_DIR`); the
+CA private key never enters Kubernetes. The server cert/key + CA cert are mirrored to
+a `ghostunnel-server` Secret so a host missing them recovers on start.
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-...   # set for any key to be stored non-interactively
+export ANTHROPIC_API_KEY=sk-ant-...   # set any key to apply it non-interactively
 ./vicegerent secrets setup platform
 ```
 
 ```text
 -y, --yes     auto-approve every change (non-interactive)
---force       rebuild the CA and all certificates from scratch
+--force       rebuild the ghostunnel CA and all certificates from scratch
 ```
 
-This provisions, in vault `Vicegerent`:
+This applies these Kubernetes Secrets (and one ConfigMap):
 
 ```text
-Connect Credentials          1password-credentials.json   (Connect bootstrap)
-Connect Token                token                         (operator token)
-Agentgateway - Anthropic      Authorization                 (Anthropic API key → agentgateway-system)
-Agentgateway - OpenAI         Authorization                 (optional OpenAI key → agentgateway-system)
-Agentgateway - Host MCP       tls.crt, tls.key             (mTLS client cert → agentgateway-system)
-Agentgateway - Host MCP CA    ca.cert                       (public CA → agentgateway-system)
-Host - MCP Tunnel             server.crt, server.key, ca.cert, ca.key   (host-only, never synced)
-Egress Proxy CA               ca.crt, ca.key               (MITM CA private material → egress-proxy)
-Egress Proxy CA Cert          ca.crt                        (public CA → agent-sandbox + searxng trust)
-SearXNG                       secret_key                    (session/limiter signing key)
-MCP - Tavily                  TAVILY_API_KEY                (optional → kmcp)
-MCP - Firecrawl               FIRECRAWL_API_KEY             (optional → kmcp)
+agentgateway-system  vicegerent-secrets         Authorization         (Anthropic API key)
+agentgateway-system  vicegerent-openai-secrets  Authorization         (optional OpenAI key)
+agentgateway-system  vicegerent-mcp-client      tls.crt, tls.key      (ghostunnel mTLS client cert)
+agentgateway-system  ghostunnel-ca (ConfigMap)  ca.crt                (ghostunnel CA cert)
+agentgateway-system  ghostunnel-server          server.crt/key,ca.crt (host recovery copy)
+searxng              searxng-secret             secret_key            (session/limiter signing key)
+egress-proxy         egress-proxy-ca            ca.crt, ca.key        (MITM CA private material)
+agent-sandbox        egress-proxy-ca-cert       ca.crt                (MITM CA cert, trust only)
 ```
 
-The CA private key lives only in `Host - MCP Tunnel` so a re-run can re-issue a missing leaf certificate without rebuilding the chain. The server private key never enters Kubernetes. 1Password is the single source of truth for this material, for both the laptop and the cluster.
+MCP-server API keys (tavily/firecrawl/gitlab) are **not** here — they are `thv`
+secrets on the host (`vicegerent mcp configure`); notion/linear use OAuth.
+
+The host-only ghostunnel files (`~/.vicegerent/ghostunnel`): `ca.cert`, `ca.key`,
+`server.crt`, `server.key`, `client.crt`, `client.key`. The CA key stays host-side
+so a re-run can re-issue a leaf without rebuilding the chain, and the host ghostunnel
+server reads its material from here.
 
 ### Per-agent
 
@@ -130,20 +146,23 @@ agents.
 ./vicegerent secrets setup agent hermes   # accepts -y/--yes
 ```
 
-This provisions, in vault `Vicegerent` (for agent name `<name>`):
+This applies these Kubernetes Secrets in namespace `agent-sandbox` (agent `<name>`):
 
 ```text
-Agent - <name>                    password, signing-secret  (dashboard auth)
-                                  SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
-                                  SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (optional),
-                                  public-key                (→ agent-sandbox)
-Agent - <name> SSH Key            ed25519 keypair (1Password Document)
-Agent - <name> agentgateway API key   api-key (random hex bearer token)
+<name>-secrets               password, signing-secret, public-key,
+                             SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
+                             SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (Slack optional)
+<name>-agentgateway-api-key  api-key                 (random hex bearer token)
+<name>-ssh-key               hermes_agent_ed25519    (ed25519 private key)
 ```
 
 ## Bootstrap Flux
 
-Bootstrap the local minikube cluster against this repo. The script is idempotent — it seeds 1Password Connect (recovering a stuck/failed Helm release if an earlier run was interrupted), then runs `flux bootstrap git`. Once the Connect release is deployed and adopted by Flux, re-runs skip the Helm seed so they do not fight Flux's ownership. It confirms before each change; pass `-y`/`--yes` for a non-interactive run.
+Bootstrap the local Kind cluster against this repo. The script runs `flux
+bootstrap git` and is idempotent — re-runs reconcile cleanly. Provision the secrets
+(above) before or right after bootstrap so the workloads Flux reconciles have the
+material they consume. It confirms before each change; pass `-y`/`--yes` for a
+non-interactive run.
 
 ```bash
 ./vicegerent bootstrap
@@ -152,14 +171,11 @@ Bootstrap the local minikube cluster against this repo. The script is idempotent
 The script defaults to:
 
 ```text
-KUBE_CONTEXT=vicegerent
+KUBE_CONTEXT=kind-vicegerent
 REPO_URL=ssh://git@gitlab.hahomelabs.com/jchristensen/vicegerent-agents.git
 BRANCH=main
 CLUSTER_PATH=./clusters/vicegerent
 PRIVATE_KEY_FILE=$HOME/.ssh/id_rsa
-OP_CONNECT_CREDENTIALS_REF=op://Vicegerent/Connect Credentials/1password-credentials.json
-OP_CONNECT_TOKEN_ITEM=Connect Token
-OP_CONNECT_TOKEN_VAULT=Vicegerent
 ```
 
 Override those with environment variables if needed:
@@ -171,31 +187,58 @@ BRANCH=my-test-branch PRIVATE_KEY_FILE=$HOME/.ssh/id_ed25519 ./vicegerent bootst
 Check reconciliation:
 
 ```bash
-flux --context vicegerent get all -A
-kubectl --context vicegerent get pods -A
+flux --context kind-vicegerent get all -A
+kubectl --context kind-vicegerent get pods -A
 ```
 
 The committed `gotk-sync.yaml` expects the bootstrap-created `flux-system` Git credential Secret.
 
 ## Host-side MCP control plane
 
-OAuth-backed or laptop-context MCPs run in the macOS GUI session and are exposed to the cluster through ghostunnel. The control plane lives in [`host/mcp`](host/mcp): it renders `mcp-proxy-server` config (vendored at `host/mcp-proxy-server`) and supervises `mcp-proxy-server` + Caddy + ghostunnel, plus a `caffeinate` process that keeps macOS awake while the stack runs. It filters the host endpoint to the MCP transport methods (`POST`/`GET`/`DELETE` on `/mcp`) and includes helper commands for `mcp-remote` OAuth cache status/reset.
+Every MCP server runs on the laptop under ToolHive (`thv`) and is aggregated behind a
+single Virtual MCP Server (vMCP) that ghostunnel exposes to the cluster over mTLS. The
+control plane lives in [`host/mcp`](host/mcp): `vicegerent-mcp` brings up the ToolHive
+workloads (kubernetes, gitlab, tavily, firecrawl, notion, linear — off by default) and
+supervises the three long-lived host processes — `thv vmcp serve` (aggregates the group
+on `127.0.0.1:4483`), `ghostunnel` (terminates cluster mTLS, listens `127.0.0.1:8453`,
+forwards to the vMCP), and an opt-in `caffeinate` that keeps macOS awake while the stack
+runs.
 
-Start and stop the whole local platform — the minikube cluster and the host MCP stack together — with the top-level commands:
+The cluster reaches the vMCP at `host.docker.internal:8453`; agentgateway carries a
+`vmcp` `AgentgatewayBackend` and a single `/mcp/vmcp` HTTPRoute. Through the vMCP, tools
+are named `{workload}_<tool>` (e.g. `kubernetes_resources_get`).
+
+Enable and configure servers interactively (API keys become `thv` secrets; notion/linear
+use browser OAuth):
 
 ```bash
-./vicegerent start   # resume minikube, then bring up the host MCP stack
-./vicegerent stop    # stop the host MCP stack, then pause minikube
+./vicegerent mcp configure
 ```
 
-For finer control of just the host stack, drive it with `./vicegerent-mcp` (`start`, `stop`, `status`, `enable`/`disable`, `reload`, `logs`, `doctor`, `tui`); see [`host/mcp/README.md`](host/mcp/README.md) for the full reference.
+Start and stop the whole local platform — the Kind cluster and the host MCP stack together — with the top-level commands:
+
+```bash
+./vicegerent start   # resume the Kind cluster, then bring up the host MCP stack
+./vicegerent stop    # stop the host MCP stack (including ToolHive workloads), then pause the cluster
+```
+
+For finer control of just the host stack, drive it with `./vicegerent-mcp` (`start [--caffeinate]`, `stop`, `status`, `logs`, `doctor`, `configure`, `enable`/`disable`, `tui`); see [`host/mcp/README.md`](host/mcp/README.md) for the full reference.
 
 ```bash
 ./vicegerent-mcp start
 ./vicegerent-mcp status
 ```
 
-The host-MCP tunnel defaults to `192.168.64.1:8453`. Agents reach these tools through per-server gateway MCP routes: `/mcp/host` (host-tunneled stdio MCPs — Kubernetes, Linear, Notion) and one route per in-cluster `charts/vicegerent-mcp` server — currently `/mcp/tavily` and `/mcp/firecrawl` (gitlab is defined under `apps/vicegerent/mcps/gitlab` but not yet applied by Flux).
+## Dashboards
+
+Each agent's Hermes dashboard is published on a Kind NodePort (pool `30119-30128`,
+mapped to the host via kind `extraPortMappings`) and reachable directly at
+`http://127.0.0.1:<nodePort>/`. Print the URL + basic-auth credentials, or open it:
+
+```bash
+./vicegerent agent creds hermes       # print URL + credentials
+./vicegerent agent dashboard hermes   # open in a browser
+```
 
 ## Development
 

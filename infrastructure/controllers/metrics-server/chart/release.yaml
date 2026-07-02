@@ -1,0 +1,29 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: metrics-server
+  namespace: metrics-server
+spec:
+  driftDetection:
+    mode: enabled
+  install:
+    remediation:
+      retries: -1
+  upgrade:
+    remediation:
+      retries: -1
+    force: true
+  interval: 30m
+  chart:
+    spec:
+      chart: metrics-server
+      version: 3.12.2
+      interval: 12h
+      sourceRef:
+        kind: HelmRepository
+        name: metrics-server
+        namespace: metrics-server
+  valuesFrom:
+    - kind: ConfigMap
+      name: metrics-server-values

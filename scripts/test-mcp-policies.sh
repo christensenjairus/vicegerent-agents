@@ -2,10 +2,11 @@
 # test-mcp-policies.sh
 # Validate that agentgateway + Cerbos policies are correctly enforced at runtime.
 #
-# Tests two layers:
-#   1. agentgateway tool-name allowlist  — certain tools must NOT appear in tools/list
-#   2. Cerbos Secret block              — kubernetes__getResource/listResources/describeResource
-#                                         on a Secret must be denied at tools/call time
+# All backends are aggregated behind the single ToolHive vMCP (/mcp/vmcp); tools
+#   surface prefixed by workload (e.g. kubernetes_resources_get) with no allowlist.
+#   Enforced policy under test:
+#     Cerbos Secret block — kubernetes_resources_get/kubernetes_resources_list on a
+#                           Secret must be denied at tools/call time.
 #
 # Usage (port-forward in another terminal first):
 #   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
@@ -148,156 +149,108 @@ echo -e "${CYAN}${BOLD}=== MCP Policy Enforcement Test Suite ===${NC}"
 echo -e "${CYAN}Gateway: ${GATEWAY_URL}${NC}"
 echo -e "${CYAN}Secret probe name: ${SECRET_NAME}${NC}"
 
-HOST_URL="${GATEWAY_URL}/mcp/host"
-TAVILY_URL="${GATEWAY_URL}/mcp/tavily"
-FIRECRAWL_URL="${GATEWAY_URL}/mcp/firecrawl"
+VMCP_URL="${GATEWAY_URL}/mcp/vmcp"
 
-# ── Section 1: agentgateway tool-name allowlist ───────────────────────────────
+# ── Section 1: vMCP tool surface ──────────────────────────────────────────────
 
-section "1. agentgateway tool allowlist — host backend"
+section "1. vMCP tool surface — aggregated, no allowlist"
 
-open_session "$HOST_URL"
-TOOLS=$(get_tools "$HOST_URL")
+open_session "$VMCP_URL"
+TOOLS=$(get_tools "$VMCP_URL")
 
-# Tools that MUST exist (spot check one per MCP server)
-for must_have in "kubernetes__resources_get" "linear__list_issues" "notion__notion-search"; do
+# All tools pass through the vMCP now (no gateway allowlist). Just confirm the
+# vMCP is aggregating and exposing tools, prefixed by workload ({workload}_<tool>).
+TOOL_COUNT=$(echo "$TOOLS" | grep -c . || true)
+if [[ "$TOOL_COUNT" -gt 0 ]]; then
+  pass "vMCP exposes ${TOOL_COUNT} aggregated tools (no allowlist gate)"
+else
+  fail "vMCP exposed no tools — backends down or vMCP not aggregating?"
+fi
+
+# The Cerbos Secret block (section 2) depends on these exact kubernetes tool names.
+for must_have in "kubernetes_resources_get" "kubernetes_resources_list"; do
   if echo "$TOOLS" | grep -qx "$must_have"; then
-    pass "allowed tool present: ${must_have}"
+    pass "tool present: ${must_have}"
   else
-    fail "allowed tool MISSING: ${must_have} (policy too strict?)"
+    fail "tool MISSING from vMCP: ${must_have} (kubernetes backend down?)"
   fi
 done
 
-# Tools that must NOT exist — if mcp-proxy-server ever exposes an internal tool
-# or a new server is added without a policy update, these would appear
-# We verify the prefix gate: any tool NOT starting with notion__, linear__, kubernetes__
-UNLISTED=$(echo "$TOOLS" | grep -vE '^(notion__|linear__|kubernetes__)' || true)
-if [[ -z "$UNLISTED" ]]; then
-  pass "no unlisted tool prefixes exposed on host backend"
-else
-  fail "unlisted tools exposed (policy gap):\n$(echo "$UNLISTED" | sed 's/^/      /')"
-fi
-
-# tavily and firecrawl each get their own agentgateway backend + route + policy
-# now (charts/vicegerent-mcp), so their tools are no longer prefixed by a shared
-# aggregator name — they surface as tavily_search, firecrawl_scrape, etc.
-section "2. agentgateway tool allowlist — tavily backend"
-
-open_session "$TAVILY_URL"
-TAVILY_TOOLS=$(get_tools "$TAVILY_URL")
-ALLOWED_TAVILY="tavily_search tavily_extract tavily_map tavily_crawl"
-
-for tool in $ALLOWED_TAVILY; do
-  if echo "$TAVILY_TOOLS" | grep -qx "$tool"; then
-    pass "allowed tool present: ${tool}"
-  else
-    fail "allowed tool MISSING: ${tool}"
-  fi
-done
-
-EXTRA_TAVILY=$(echo "$TAVILY_TOOLS" | grep -vxF -f <(echo "$ALLOWED_TAVILY" | tr ' ' '\n') || true)
-if [[ -z "$EXTRA_TAVILY" ]]; then
-  pass "tavily exposes no unlisted tools"
-else
-  fail "tavily exposes unlisted tools (policy gap): ${EXTRA_TAVILY}"
-fi
-
-section "2b. agentgateway tool allowlist — firecrawl backend"
-
-open_session "$FIRECRAWL_URL"
-FIRECRAWL_TOOLS=$(get_tools "$FIRECRAWL_URL")
-ALLOWED_FIRECRAWL="firecrawl_scrape firecrawl_search firecrawl_map firecrawl_extract firecrawl_crawl firecrawl_check_crawl_status"
-
-for tool in $ALLOWED_FIRECRAWL; do
-  if echo "$FIRECRAWL_TOOLS" | grep -qx "$tool"; then
-    pass "allowed tool present: ${tool}"
-  else
-    fail "allowed tool MISSING: ${tool}"
-  fi
-done
-
-EXTRA_FIRECRAWL=$(echo "$FIRECRAWL_TOOLS" | grep -vxF -f <(echo "$ALLOWED_FIRECRAWL" | tr ' ' '\n') || true)
-if [[ -z "$EXTRA_FIRECRAWL" ]]; then
-  pass "firecrawl exposes no unlisted tools"
-else
-  fail "firecrawl exposes unlisted tools (policy gap): ${EXTRA_FIRECRAWL}"
-fi
-
-# ── Section 3: Cerbos Secret block ──────────────────────────────────────────
+# ── Section 2: Cerbos Secret block ──────────────────────────────────────────
 # All probes are READ-ONLY. Secret probes use a randomly generated name that
 # almost certainly does not exist — even if policy fails, there is nothing to
 # return. The non-secret control probe uses a namespace that certainly exists
 # but we ask for a resource name that won't exist either, so Cerbos is tested
 # without leaking real cluster state if a policy is mis-configured.
 
-section "3. Cerbos guardrail — Secret reads must be denied"
+section "2. Cerbos guardrail — Secret reads must be denied"
 
-open_session "$HOST_URL"
+open_session "$VMCP_URL"
 
 # 3a: resources_get on a Secret — must be denied before k8s is ever contacted.
 # Args: apiVersion + kind (kubernetes-mcp-server format). No context arg needed.
 # The secret name is random and almost certainly absent; Cerbos denies before k8s lookup.
-echo -e "  ${YELLOW}probing kubernetes__resources_get(Secret/${SECRET_NAME}) ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__resources_get" \
+echo -e "  ${YELLOW}probing kubernetes_resources_get(Secret/${SECRET_NAME}) ...${NC}"
+RESP=$(call_tool "$VMCP_URL" "kubernetes_resources_get" \
   "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"name\":\"${SECRET_NAME}\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  pass "kubernetes__resources_get(Secret) → denied by Cerbos"
+  pass "kubernetes_resources_get(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
-  fail "kubernetes__resources_get(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
+  fail "kubernetes_resources_get(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
 else
-  fail "kubernetes__resources_get(Secret) → unknown response"
+  fail "kubernetes_resources_get(Secret) → unknown response"
   echo "    raw: ${RESP:0:300}"
 fi
 
 # 3b: resources_list of Secrets — must be denied.
 # Namespace is intentionally a fake one so even if policy fails, no secrets are returned.
-echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Secret, ns=policy-test-ns) ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
+echo -e "  ${YELLOW}probing kubernetes_resources_list(kind=Secret, ns=policy-test-ns) ...${NC}"
+RESP=$(call_tool "$VMCP_URL" "kubernetes_resources_list" \
   "{\"apiVersion\":\"v1\",\"kind\":\"Secret\",\"namespace\":\"policy-test-nonexistent-ns\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  pass "kubernetes__resources_list(Secret) → denied by Cerbos"
+  pass "kubernetes_resources_list(Secret) → denied by Cerbos"
 elif [[ "$VERDICT" == "allowed" ]]; then
-  fail "kubernetes__resources_list(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
+  fail "kubernetes_resources_list(Secret) → ALLOWED — Cerbos guardrail not enforcing!"
 else
-  fail "kubernetes__resources_list(Secret) → unknown response"
+  fail "kubernetes_resources_list(Secret) → unknown response"
   echo "    raw: ${RESP:0:300}"
 fi
 
 # 3c: resources_get on a ConfigMap — must NOT be denied (Cerbos should not over-block).
 # A k8s-level 404 is fine — it means Cerbos passed it through (correct behaviour).
-echo -e "  ${YELLOW}probing kubernetes__resources_get(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__resources_get" \
+echo -e "  ${YELLOW}probing kubernetes_resources_get(ConfigMap/policy-test-nonexistent) — expect allowed ...${NC}"
+RESP=$(call_tool "$VMCP_URL" "kubernetes_resources_get" \
   "{\"apiVersion\":\"v1\",\"kind\":\"ConfigMap\",\"name\":\"policy-test-nonexistent\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  fail "kubernetes__resources_get(ConfigMap) → DENIED — Cerbos is over-blocking non-secrets!"
+  fail "kubernetes_resources_get(ConfigMap) → DENIED — Cerbos is over-blocking non-secrets!"
 else
-  pass "kubernetes__resources_get(ConfigMap) → passed Cerbos (k8s-level result is irrelevant)"
+  pass "kubernetes_resources_get(ConfigMap) → passed Cerbos (k8s-level result is irrelevant)"
 fi
 
 # 3d: resources_list for Pods — must NOT be denied (non-secret, non-empty kind).
-echo -e "  ${YELLOW}probing kubernetes__resources_list(kind=Pod) — expect allowed ...${NC}"
-RESP=$(call_tool "$HOST_URL" "kubernetes__resources_list" \
+echo -e "  ${YELLOW}probing kubernetes_resources_list(kind=Pod) — expect allowed ...${NC}"
+RESP=$(call_tool "$VMCP_URL" "kubernetes_resources_list" \
   "{\"apiVersion\":\"v1\",\"kind\":\"Pod\",\"namespace\":\"default\"}")
 VERDICT=$(is_cerbos_denied "$RESP")
 if [[ "$VERDICT" == "denied" ]]; then
-  fail "kubernetes__resources_list(Pod) → DENIED — Cerbos is over-blocking non-secrets!"
+  fail "kubernetes_resources_list(Pod) → DENIED — Cerbos is over-blocking non-secrets!"
 else
-  pass "kubernetes__resources_list(Pod) → passed Cerbos (correct)"
+  pass "kubernetes_resources_list(Pod) → passed Cerbos (correct)"
 fi
 
 # 3e: Guardrail attachment check — verify the policy carries the shim attachment.
 # A missing guardrail silently fails open (FailClosed only covers shim failures, not absence).
-echo -e "  ${YELLOW}verifying guardrail attached to host-mcp-tools policy ...${NC}"
+echo -e "  ${YELLOW}verifying guardrail attached to vmcp-mcp-tools policy ...${NC}"
 if command -v kubectl &>/dev/null; then
-  GUARDRAIL=$(kubectl -n agentgateway-system get agentgatewaypolicy host-mcp-tools \
+  GUARDRAIL=$(kubectl -n agentgateway-system get agentgatewaypolicy vmcp-mcp-tools \
     -o jsonpath='{.spec.backend.mcp.guardrails.processors[0].remote.backendRef.name}' 2>/dev/null || true)
   if [[ "$GUARDRAIL" == "mcp-cerbos-shim" ]]; then
     pass "guardrail attached: mcp-cerbos-shim (FailClosed)"
   elif [[ -z "$GUARDRAIL" ]]; then
-    fail "guardrail NOT attached to host-mcp-tools — Secret block silently fails open!"
+    fail "guardrail NOT attached to vmcp-mcp-tools — Secret block silently fails open!"
   else
     fail "guardrail attached to unexpected backend: ${GUARDRAIL}"
   fi

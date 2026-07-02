@@ -1,0 +1,55 @@
+---
+apiVersion: kind.x-k8s.io/v1alpha4
+kind: Cluster
+name: vicegerent
+networking:
+  disableDefaultCNI: true
+  podSubnet: 10.244.0.0/16
+nodes:
+  - role: control-plane
+    # Agent dashboard NodePort pool published to the host loopback. Each agent picks
+    # an unused port from 30119-30128 (agents/<name>/values.yaml dashboard.nodePort);
+    # the dashboard is then at http://127.0.0.1:<nodePort>/. hermes uses 30119.
+    # extraPortMappings are creation-time only, so this pool is fixed at cluster setup —
+    # to run more than 10 agents, widen the range and recreate the cluster.
+    extraPortMappings:
+      - containerPort: 30119
+        hostPort: 30119
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30120
+        hostPort: 30120
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30121
+        hostPort: 30121
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30122
+        hostPort: 30122
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30123
+        hostPort: 30123
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30124
+        hostPort: 30124
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30125
+        hostPort: 30125
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30126
+        hostPort: 30126
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30127
+        hostPort: 30127
+        listenAddress: 127.0.0.1
+        protocol: TCP
+      - containerPort: 30128
+        hostPort: 30128
+        listenAddress: 127.0.0.1
+        protocol: TCP

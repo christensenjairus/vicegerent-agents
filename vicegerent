@@ -14,12 +14,12 @@ usage() {
 ${B}vicegerent${N} — operational CLI for the vicegerent infra-agent platform
 
 ${B}Usage:${N}
-  ${C}vicegerent start${N}                   resume minikube + start the host MCP stack
-  ${C}vicegerent stop${N}                    stop the host MCP stack + pause minikube
-  ${C}vicegerent cluster setup${N}           create the minikube cluster
-  ${C}vicegerent cluster pause${N}           pause the minikube cluster
-  ${C}vicegerent cluster resume${N}          resume the minikube cluster
-  ${C}vicegerent cluster status${N}          show minikube cluster status
+  ${C}vicegerent start${N}                   start the Kind cluster + host ToolHive/vMCP stack
+  ${C}vicegerent stop${N}                    stop the host stack + Kind cluster
+  ${C}vicegerent cluster setup${N}           create the Kind cluster (+ Cilium CNI)
+  ${C}vicegerent cluster pause${N}           stop the Kind node container
+  ${C}vicegerent cluster resume${N}          start the Kind node container
+  ${C}vicegerent cluster status${N}          show Kind cluster nodes
   ${C}vicegerent secrets setup platform${N}       provision platform-wide secrets (idempotent)
   ${C}vicegerent secrets setup agent <name>${N}    provision a named agent's secrets (idempotent)
   ${C}vicegerent bootstrap${N}               bootstrap Flux against this repo
@@ -28,45 +28,115 @@ ${B}Usage:${N}
   ${C}vicegerent test gateway${N}            run MCP gateway tests
   ${C}vicegerent test policies${N}           run MCP policy enforcement tests
   ${C}vicegerent mcp setup${N}               set up host-side MCP prerequisites
+  ${C}vicegerent mcp configure${N}           enable/skip each MCP server + set secrets
+  ${C}vicegerent mcp tui${N}                 open the host stack TUI dashboard
   ${C}vicegerent slack manifest${N}          generate a Slack app manifest for a named bot
 EOF
 }
 
 cluster_usage() {
   cat <<EOF
-${B}vicegerent cluster${N} — minikube cluster lifecycle
+${B}vicegerent cluster${N} — Kind cluster lifecycle
 
-  ${C}setup${N}    create the cluster (overridable env: CPUS MEMORY DISK_SIZE DRIVER CONTAINER_RUNTIME CNI ADDONS PROFILE)
-  ${C}pause${N}    minikube pause --profile vicegerent
-  ${C}resume${N}   minikube unpause --profile vicegerent
-  ${C}status${N}   minikube status --profile vicegerent
+  ${C}setup${N}    create the Kind cluster and install Cilium as the CNI
+             (overridable env: CLUSTER_NAME KIND_CONFIG CILIUM_VERSION KIND_DOCKER_NETWORK)
+  ${C}pause${N}    docker stop ${CLUSTER_NAME:-vicegerent}-control-plane
+  ${C}resume${N}   docker start ${CLUSTER_NAME:-vicegerent}-control-plane
+  ${C}status${N}   kubectl --context kind-${CLUSTER_NAME:-vicegerent} get nodes
 EOF
 }
 
+# Patch in-cluster CoreDNS for two Kind/Docker-Desktop DNS gaps. Idempotent — each
+# entry is added only if absent (re-run to pick up a newly-needed one).
+#
+# 1. host.docker.internal: Kind's CoreDNS forwards to the pod's own loopback, not
+#    Docker's embedded resolver, so pods otherwise can't resolve it (that's how
+#    agentgateway reaches the host ghostunnel). Pin it to the detected host gateway IP.
+#
+# 2. Flatten the git host's CNAME. Cilium's DNS proxy (which powers toFQDNs) returns an
+#    EMPTY answer for a toFQDNs-allowlisted name that resolves via a CNAME to a target
+#    outside the allowlist — so the agent pod gets EAI_NODATA for git-over-SSH even though
+#    the :22 egress is allowed. A CoreDNS `rewrite` to the (per-query-resolved) CNAME
+#    target returns a direct A under the original name, which Cilium's matchName accepts.
+#    The IP stays dynamic, so the DDNS address can change without re-running setup. The
+#    CNAME target is detected from the host resolver; GIT_HOST overrides the git host.
+patch_coredns() {
+  local cluster_name="$1" docker_network="$2"
+  local ctx="kind-${cluster_name}"
+  local git_host="${GIT_HOST:-gitlab.hahomelabs.com}"
+
+  local corefile new changed
+  corefile="$(kubectl --context "$ctx" -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}')"
+  new="$corefile"; changed=0
+
+  if ! grep -q 'host.docker.internal' <<<"$new"; then
+    local host_ip
+    host_ip="$(docker run --rm --network "$docker_network" alpine \
+      sh -c 'getent hosts host.docker.internal 2>/dev/null | awk "{print \$1; exit}"' 2>/dev/null || true)"
+    [[ -n "$host_ip" ]] || host_ip="192.168.65.254"
+    echo "${B}CoreDNS: resolve host.docker.internal → ${host_ip}${N}"
+    new="$(awk -v ip="$host_ip" '{print} /^\.:53 \{/ && !d {
+      print "    hosts {"; print "        " ip " host.docker.internal"; print "        fallthrough"; print "    }"; d=1}' <<<"$new")"
+    changed=1
+  fi
+
+  if ! grep -q "rewrite name exact ${git_host} " <<<"$new"; then
+    local git_cname
+    git_cname="$(dscacheutil -q host -a name "$git_host" 2>/dev/null | awk '/^name:/{print $2}' | grep -vx "$git_host" | head -1 || true)"
+    if [[ -n "$git_cname" ]]; then
+      echo "${B}CoreDNS: rewrite ${git_host} → ${git_cname} (flatten CNAME for Cilium toFQDNs)${N}"
+      new="$(awk -v h="$git_host" -v t="$git_cname" '{print} /^\.:53 \{/ && !d {
+        print "    rewrite name exact " h " " t " answer auto"; d=1}' <<<"$new")"
+      changed=1
+    else
+      echo "${B}CoreDNS: ${git_host} is a direct A (no CNAME); no rewrite needed.${N}"
+    fi
+  fi
+
+  if [[ "$changed" == "1" ]]; then
+    kubectl --context "$ctx" -n kube-system create configmap coredns \
+      --from-literal=Corefile="$new" --dry-run=client -o yaml \
+      | kubectl --context "$ctx" -n kube-system apply -f -
+    kubectl --context "$ctx" -n kube-system rollout restart deployment/coredns
+  else
+    echo "${B}CoreDNS already patched (host.docker.internal + ${git_host}); skipping.${N}"
+  fi
+}
+
+# Create the Kind cluster (Kind's default CNI disabled) and install Cilium so it
+# owns pod networking — the CiliumNetworkPolicy egress lock is the security model.
 cluster_setup() {
-  local cpus="${CPUS:-4}"
-  local memory="${MEMORY:-16384}"
-  local disk_size="${DISK_SIZE:-50g}"
-  local driver="${DRIVER:-vfkit}"
-  local container_runtime="${CONTAINER_RUNTIME:-containerd}"
-  local cni="${CNI:-cilium}"
-  local addons="${ADDONS:-gvisor,metrics-server}"
-  local profile="${PROFILE:-vicegerent}"
+  local cluster_name="${CLUSTER_NAME:-vicegerent}"
+  local kind_config="${KIND_CONFIG:-$REPO_ROOT/scripts/install/kind-config.yaml}"
+  local cilium_version="${CILIUM_VERSION:-1.17.5}"
+  # Dedicated docker network so this cluster's node containers are isolated from the
+  # default shared `kind` network and any other kind clusters.
+  local docker_network="${KIND_DOCKER_NETWORK:-vicegerent}"
 
-  local cmd=(
-    minikube start
-    --profile "$profile"
-    --driver "$driver"
-    --container-runtime "$container_runtime"
-    --cni="$cni"
-    --addons "$addons"
-    --cpus "$cpus"
-    --memory "$memory"
-    --disk-size "$disk_size"
-  )
+  for cmd in kind kubectl docker; do
+    command -v "$cmd" >/dev/null 2>&1 || { echo "ERROR: $cmd is not installed or not on PATH" >&2; exit 1; }
+  done
+  command -v cilium >/dev/null 2>&1 || {
+    echo "ERROR: cilium (cilium-cli) is not installed or not on PATH." >&2
+    echo "  Install it: brew install cilium-cli" >&2
+    echo "  (or see https://docs.cilium.io/en/stable/gettingstarted/k8s-install-helm/)" >&2
+    exit 1
+  }
 
-  echo "${B}Running:${N} ${cmd[*]} $*"
-  exec "${cmd[@]}" "$@"
+  if kind get clusters 2>/dev/null | grep -qx "$cluster_name"; then
+    echo "${B}Kind cluster '${cluster_name}' already exists; skipping create.${N}"
+  else
+    echo "${B}Creating Kind cluster '${cluster_name}' on docker network '${docker_network}'…${N}"
+    KIND_EXPERIMENTAL_DOCKER_NETWORK="$docker_network" \
+      kind create cluster --name "$cluster_name" --config "$kind_config"
+  fi
+
+  echo "${B}Installing Cilium ${cilium_version} as the CNI…${N}"
+  cilium install --version "$cilium_version" --context "kind-${cluster_name}" 2>/dev/null \
+    || echo "${B}Cilium already installed or install skipped; checking status…${N}"
+  cilium status --wait --context "kind-${cluster_name}"
+
+  patch_coredns "$cluster_name" "$docker_network"
 }
 
 # Port-forward agentgateway, check vicegerent-mcp is running, run a test script,
@@ -83,7 +153,7 @@ run_with_portforward() {
   # Port-forward agentgateway. PF_PID is global on purpose: the EXIT trap fires at
   # script scope, after this function returns, where a `local` would be unset (and
   # would trip `set -u`). The trap is the single teardown path.
-  kubectl --context vicegerent -n agentgateway-system \
+  kubectl --context kind-vicegerent -n agentgateway-system \
     port-forward svc/agentgateway-proxy 8080:80 >/dev/null 2>&1 &
   PF_PID=$!
   trap 'kill "${PF_PID:-}" 2>/dev/null || true' EXIT INT TERM
@@ -113,29 +183,29 @@ case "${1:-}" in
   start)
     shift
     if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-      echo "vicegerent start — resume the minikube cluster, then start the host MCP stack"
-      echo "  1. minikube unpause --profile vicegerent   (resume the paused cluster)"
-      echo "  2. ./vicegerent-mcp start                   (proxy/Caddy/ghostunnel, kept awake by caffeinate)"
-      echo "  Extra args are passed through to 'vicegerent-mcp start'."
+      echo "vicegerent start — start the Kind cluster, then bring up the host ToolHive stack"
+      echo "  1. docker start vicegerent-control-plane   (start the Kind node container)"
+      echo "  2. ./vicegerent-mcp start                   (ToolHive workloads + vMCP + ghostunnel; add --caffeinate to keep macOS awake)"
+      echo "  Extra args pass through to 'vicegerent-mcp start' (e.g. --caffeinate [--always])."
       exit 0
     fi
-    echo "${B}Resuming minikube cluster…${N}"
-    minikube unpause --profile vicegerent || true
+    echo "${B}Starting Kind cluster…${N}"
+    docker start vicegerent-control-plane >/dev/null 2>&1 || true
     echo "${B}Starting host MCP stack…${N}"
     exec "$REPO_ROOT/vicegerent-mcp" start "$@"
     ;;
   stop)
     shift
     if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-      echo "vicegerent stop — stop the host MCP stack, then pause the minikube cluster"
-      echo "  1. ./vicegerent-mcp stop                    (tears down the supervised stack + caffeinate)"
-      echo "  2. minikube pause --profile vicegerent      (pause the cluster to free CPU)"
+      echo "vicegerent stop — stop the host ToolHive stack, then stop the Kind cluster"
+      echo "  1. ./vicegerent-mcp stop                    (tears down the supervised vMCP + ghostunnel + caffeinate, and stops the ToolHive workloads)"
+      echo "  2. docker stop vicegerent-control-plane     (stop the Kind node container to free CPU)"
       exit 0
     fi
     echo "${B}Stopping host MCP stack…${N}"
     "$REPO_ROOT/vicegerent-mcp" stop "$@"
-    echo "${B}Pausing minikube cluster…${N}"
-    exec minikube pause --profile vicegerent
+    echo "${B}Stopping Kind cluster…${N}"
+    exec docker stop vicegerent-control-plane
     ;;
   cluster)
     shift
@@ -147,18 +217,18 @@ case "${1:-}" in
         ;;
       pause)
         shift
-        [[ "${1:-}" == "--help" ]] && { echo "minikube pause --profile vicegerent"; exit 0; }
-        exec minikube pause --profile vicegerent "$@"
+        [[ "${1:-}" == "--help" ]] && { echo "docker stop vicegerent-control-plane"; exit 0; }
+        exec docker stop vicegerent-control-plane "$@"
         ;;
       resume)
         shift
-        [[ "${1:-}" == "--help" ]] && { echo "minikube unpause --profile vicegerent"; exit 0; }
-        exec minikube unpause --profile vicegerent "$@"
+        [[ "${1:-}" == "--help" ]] && { echo "docker start vicegerent-control-plane"; exit 0; }
+        exec docker start vicegerent-control-plane "$@"
         ;;
       status)
         shift
-        [[ "${1:-}" == "--help" ]] && { echo "minikube status --profile vicegerent"; exit 0; }
-        exec minikube status --profile vicegerent "$@"
+        [[ "${1:-}" == "--help" ]] && { echo "kubectl --context kind-vicegerent get nodes"; exit 0; }
+        exec kubectl --context kind-vicegerent get nodes "$@"
         ;;
       --help|-h|"")
         cluster_usage
@@ -198,8 +268,8 @@ case "${1:-}" in
         esac
         ;;
       --help|-h|"")
-        echo "vicegerent secrets setup platform            →  platform-wide 1Password material"
-        echo "vicegerent secrets setup agent <agent-name>  →  per-agent 1Password items"
+        echo "vicegerent secrets setup platform            →  platform-wide Kubernetes Secrets + host ghostunnel material"
+        echo "vicegerent secrets setup agent <agent-name>  →  per-agent Kubernetes Secrets"
         exit 0
         ;;
       *)
@@ -229,21 +299,6 @@ case "${1:-}" in
         fi
         [[ $# -ge 1 ]] || { echo "usage: vicegerent agent dashboard <agent-name>" >&2; exit 2; }
         AGENT="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; shift
-        NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
-        CONTEXT_ARG=()
-        kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
-        PROFILE="${MINIKUBE_PROFILE:-vicegerent}"
-        SERVICE="${AGENT}-dashboard"
-        node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
-          -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
-        [[ -n "$node_port" ]] || node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
-          -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)"
-        node_ip="$(minikube -p "$PROFILE" ip 2>/dev/null || true)"
-        [[ -n "$node_ip" ]] || node_ip="$(kubectl "${CONTEXT_ARG[@]}" get nodes \
-          -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
-        if [[ -n "$node_ip" && -n "$node_port" ]]; then
-          echo "Dashboard URL: http://${node_ip}:${node_port}/"
-        fi
         exec "$REPO_ROOT/scripts/dashboard/open-dashboard.sh" "$AGENT" "$@"
         ;;
       creds)
@@ -254,22 +309,7 @@ case "${1:-}" in
         fi
         [[ $# -ge 1 ]] || { echo "usage: vicegerent agent creds <agent-name>" >&2; exit 2; }
         AGENT="$(echo "$1" | tr '[:upper:]' '[:lower:]')"; shift
-        NAMESPACE="${HERMES_DASHBOARD_NAMESPACE:-agent-sandbox}"
-        CONTEXT_ARG=()
-        kubectl config get-contexts vicegerent >/dev/null 2>&1 && CONTEXT_ARG=(--context vicegerent)
-        PROFILE="${MINIKUBE_PROFILE:-vicegerent}"
-        SERVICE="${AGENT}-dashboard"
         "$REPO_ROOT/scripts/dashboard/dashboard-basic-cred.sh" "$AGENT" "$@"
-        node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
-          -o jsonpath='{.spec.ports[?(@.name=="dashboard")].nodePort}' 2>/dev/null || true)"
-        [[ -n "$node_port" ]] || node_port="$(kubectl "${CONTEXT_ARG[@]}" -n "$NAMESPACE" get svc "$SERVICE" \
-          -o jsonpath='{.spec.ports[0].nodePort}' 2>/dev/null || true)"
-        node_ip="$(minikube -p "$PROFILE" ip 2>/dev/null || true)"
-        [[ -n "$node_ip" ]] || node_ip="$(kubectl "${CONTEXT_ARG[@]}" get nodes \
-          -o jsonpath='{.items[0].status.addresses[?(@.type=="InternalIP")].address}' 2>/dev/null || true)"
-        if [[ -n "$node_ip" && -n "$node_port" ]]; then
-          echo "url:      http://${node_ip}:${node_port}/"
-        fi
         ;;
       --help|-h|"")
         echo "vicegerent agent dashboard <name>  →  open agent dashboard"
@@ -319,14 +359,34 @@ case "${1:-}" in
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
           echo "vicegerent mcp setup — set up all host-side MCP prerequisites"
-          echo "  Installs Homebrew packages, Python venv, mcp-proxy-server, k8s-mcp-server."
-          echo "  Flags: -y/--yes, --rebuild"
+          echo "  Installs Homebrew packages (thv, ghostunnel, supervisor), the Python venv,"
+          echo "  and prints thv secrets-provider + API-key guidance."
+          echo "  Flags: -y/--yes"
           exit 0
         fi
         exec "$REPO_ROOT/scripts/host/setup-host-mcp" "$@"
         ;;
+      configure|servers)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent mcp configure — interactively enable/skip each MCP server + set its secrets"
+          echo "  MCP servers are off by default; this walks through them one at a time."
+          exit 0
+        fi
+        exec "$REPO_ROOT/vicegerent-mcp" configure "$@"
+        ;;
+      tui)
+        shift
+        if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+          echo "vicegerent mcp tui — open the host stack TUI dashboard (textual)"
+          exit 0
+        fi
+        exec "$REPO_ROOT/vicegerent-mcp" tui "$@"
+        ;;
       --help|-h|"")
-        echo "vicegerent mcp setup  →  scripts/host/setup-host-mcp"
+        echo "vicegerent mcp setup      →  scripts/host/setup-host-mcp"
+        echo "vicegerent mcp configure  →  enable/skip each MCP server + set secrets"
+        echo "vicegerent mcp tui        →  vicegerent-mcp tui  (host stack dashboard)"
         exit 0
         ;;
       *)

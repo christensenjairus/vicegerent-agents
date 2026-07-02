@@ -1,0 +1,72 @@
+{
+  "group": "vicegerent",
+  "vmcp_port": 4483,
+  "servers": [
+    {
+      "name": "kubernetes",
+      "description": "Read-only Kubernetes access (resources, pods, logs). Cerbos blocks reading Secrets.",
+      "enabled": false,
+      "type": "npx",
+      "package": "kubernetes-mcp-server@0.0.63",
+      "server_args": ["--read-only"],
+      "kind_cluster": "vicegerent",
+      "run_flags": ["--network", "vicegerent", "--isolate-network=false"],
+      "params": [
+        {
+          "name": "kubeconfig",
+          "prompt": "Kubeconfig path for the target cluster (blank = auto-generate from the kind 'vicegerent' cluster)",
+          "apply": "kubeconfig"
+        }
+      ]
+    },
+    {
+      "name": "gitlab",
+      "description": "GitLab MCP (merge requests, pipelines, repos).",
+      "enabled": false,
+      "type": "npx",
+      "package": "@zereight/mcp-gitlab@2.1.8",
+      "secrets": [{"name": "gitlab_token", "target": "GITLAB_PERSONAL_ACCESS_TOKEN"}],
+      "params": [
+        {
+          "name": "api_url",
+          "prompt": "GitLab API URL (e.g. https://gitlab.example.com/api/v4)",
+          "apply": "server_arg",
+          "template": "--api-url={value}",
+          "required": true
+        }
+      ]
+    },
+    {
+      "name": "tavily",
+      "description": "Tavily web search and content extraction.",
+      "enabled": false,
+      "type": "npx",
+      "package": "tavily-mcp@0.2.20",
+      "secrets": [{"name": "tavily_api_key", "target": "TAVILY_API_KEY"}]
+    },
+    {
+      "name": "firecrawl",
+      "description": "Firecrawl web scraping, crawling, and extraction.",
+      "enabled": false,
+      "type": "npx",
+      "package": "firecrawl-mcp@3.22.1",
+      "secrets": [{"name": "firecrawl_api_key", "target": "FIRECRAWL_API_KEY"}]
+    },
+    {
+      "name": "notion",
+      "description": "Notion workspace search and fetch (OAuth; browser consent on first start).",
+      "enabled": false,
+      "type": "remote",
+      "registry": "notion-remote",
+      "run_flags": ["--remote-auth-callback-port", "8777", "--remote-auth-timeout", "3m"]
+    },
+    {
+      "name": "linear",
+      "description": "Linear issues and projects (OAuth; browser consent on first start).",
+      "enabled": false,
+      "type": "remote",
+      "registry": "linear",
+      "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"]
+    }
+  ]
+}
