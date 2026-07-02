@@ -78,8 +78,10 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   allowlist in `defs/resource_github.yaml` (by `owner`/`repo`), or writing directly to a protected
   branch (main/master/production); any **GitLab** call writing directly to a protected branch (no
   repo allowlist — the bot's GitLab PAT is already project-scoped, unlike GitHub's); and any
-  **Linear** `create_issue` targeting a team other than DEVOPS (`defs/resource_linear.yaml` —
-  `update_issue`/`create_comment` carry no verifiable team and are unmapped). The shim mapping and Cerbos rules deny protected resources;
+  **Linear** `save_issue` calls that supply a team other than DEVOPS (`defs/resource_linear.yaml` —
+  `save_issue` merges create+update; an ordinary update that omits `team` is unmapped, but an
+  update that sets `team` is checked like a create. `save_comment`/`save_project` carry no
+  verifiable team and are unmapped). The shim mapping and Cerbos rules deny protected resources;
   they are not the place to permit or block a tool outright — that's the tool-selection layer above.
   A tool's mapping can also carry a `force` block — a literal, unconditional argument rewrite applied
   only after Cerbos allows (GitHub `create_pull_request`/`update_pull_request` force `draft: true` so

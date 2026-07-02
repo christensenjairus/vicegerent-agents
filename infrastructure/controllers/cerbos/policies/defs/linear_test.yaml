@@ -1,7 +1,8 @@
 ---
 name: linear_devops_team_block_test
-description: Linear save_issue calls targeting a team other than DEVOPS are denied;
-  calls confined to the DEVOPS team (by uuid, name, or key) are allowed.
+description: Linear save_issue calls that supply a team other than DEVOPS are denied;
+  calls confined to the DEVOPS team (by uuid, name, or key), and calls that supply
+  no team at all, are allowed.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -25,15 +26,19 @@ resources:
     id: some-other-team-id
     kind: linear_team
     attr: {teamId: some-other-team-id}
-  missing_team_id:
+  no_team_supplied:
     id: '*'
     kind: linear_team
-    attr: {teamId: ''}
 tests:
-  - name: save_issue confined to DEVOPS (uuid, name, or key) is allowed
+  - name: save_issue confined to DEVOPS (uuid, name, or key), or with no team supplied,
+      is allowed
     input:
       principals: [hermes]
-      resources: [devops_team_uuid, devops_team_name, devops_team_key]
+      resources:
+        - devops_team_uuid
+        - devops_team_name
+        - devops_team_key
+        - no_team_supplied
       actions: [access]
     expected:
       - principal: hermes
@@ -45,15 +50,15 @@ tests:
       - principal: hermes
         resource: devops_team_key
         actions: {access: EFFECT_ALLOW}
-  - name: save_issue targeting another team, or with no teamId, is denied
+      - principal: hermes
+        resource: no_team_supplied
+        actions: {access: EFFECT_ALLOW}
+  - name: save_issue targeting another team is denied
     input:
       principals: [hermes]
-      resources: [other_team, missing_team_id]
+      resources: [other_team]
       actions: [access]
     expected:
       - principal: hermes
         resource: other_team
-        actions: {access: EFFECT_DENY}
-      - principal: hermes
-        resource: missing_team_id
         actions: {access: EFFECT_DENY}
