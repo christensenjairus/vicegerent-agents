@@ -26,6 +26,7 @@ vMCP config here exposes ALL backend tools and adds no filter/authz.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import base64
@@ -352,6 +353,69 @@ def kind_kubeconfig_stale(server: dict[str, Any], runtime_dir: Path) -> bool:
     return _ca_data(result.stdout) != _ca_data(dest.read_text(encoding="utf-8"))
 
 
+def server_spec_fingerprint(server: dict[str, Any]) -> str:
+    """Hash the parts of a server's config entry that determine its running
+    container: type/package-or-registry/transport/run_flags/server_args/env/
+    secret TARGETS (never secret values — those live in `thv secret`, not this
+    repo) and configured PARAM NAMES (not their values, which come from runtime
+    state and may reasonably change without forcing a rebuild here; params that
+    must trigger a recreate, like a changed kubeconfig path, are already covered
+    by `kind_kubeconfig_stale`).
+
+    Used to detect drift between what's currently running and what
+    toolhive-servers.json now declares, so `start` can recreate a workload whose
+    spec changed instead of blindly `thv restart`-ing stale container args (see
+    `_apply_workload`: restart reuses the args baked in at the container's
+    original `thv run`, so an edited env/flag/package silently never takes
+    effect until something forces a recreate).
+    """
+    fingerprint_input = {
+        "type": server.get("type"),
+        "package": server.get("package"),
+        "registry": server.get("registry"),
+        "transport": server.get("transport"),
+        "run_flags": list(server.get("run_flags", [])),
+        "server_args": list(server.get("server_args", [])),
+        "env": dict(sorted(server.get("env", {}).items())),
+        "secret_targets": sorted(
+            f"{sec['name']}->{sec['target']}" for sec in server.get("secrets", [])
+        ),
+        "param_names": sorted(p["name"] for p in server.get("params", [])),
+    }
+    blob = json.dumps(fingerprint_input, sort_keys=True).encode("utf-8")
+    return hashlib.sha256(blob).hexdigest()
+
+
+def load_server_fingerprints(runtime_dir: Path) -> dict[str, str]:
+    """Last-applied spec fingerprint per workload, written after each `run`/`recreate`."""
+    raw = _read_state(runtime_dir).get("fingerprints") or {}
+    return {k: str(v) for k, v in raw.items() if isinstance(v, str)}
+
+
+def save_server_fingerprint(runtime_dir: Path, name: str, fingerprint: str) -> None:
+    data = _read_state(runtime_dir)
+    fingerprints = data.get("fingerprints") or {}
+    fingerprints[name] = fingerprint
+    data["fingerprints"] = fingerprints
+    _write_state(runtime_dir, data)
+
+
+def server_spec_changed(server: dict[str, Any], runtime_dir: Path) -> bool:
+    """True if the server's declared spec differs from what was last applied.
+
+    A workload with no recorded fingerprint (first run under this feature, or a
+    workload created before it existed) is NOT treated as changed — there is
+    nothing to compare against, and forcing a needless recreate on upgrade would
+    re-trigger OAuth for every remote server. It gets a fingerprint recorded the
+    first time it's applied, so drift is detected from then on.
+    """
+    name = server["name"]
+    recorded = load_server_fingerprints(runtime_dir).get(name)
+    if recorded is None:
+        return False
+    return recorded != server_spec_fingerprint(server)
+
+
 def ensure_group(group: str) -> None:
     thv("group", "create", group)  # idempotent; errors if it already exists
 
@@ -374,9 +438,15 @@ def _apply_workload(
     # A kind_cluster workload with a stale kubeconfig (cluster CA rotated) must be
     # recreated so it remounts a fresh internal kubeconfig — restart won't remount.
     stale = kind_kubeconfig_stale(server, runtime_dir)
-    if state == "running" and not stale:
+    # A workload whose declared spec (package/env/flags/secret targets/...) has
+    # drifted from what's actually running must also be recreated — `thv restart`
+    # reuses the container's original `thv run` args, so it would silently keep
+    # running the OLD spec forever otherwise (e.g. an added `env` var never
+    # actually reaches the container).
+    spec_changed = server_spec_changed(server, runtime_dir)
+    if state == "running" and not stale and not spec_changed:
         return [(False, f"  workload {name}: already running")]
-    if stale and name in all_names:
+    if (stale or spec_changed) and name in all_names:
         action = "recreate"
     elif name in in_group:
         action = "restart"
@@ -392,10 +462,18 @@ def _apply_workload(
         result = thv("restart", name)
         if result.returncode != 0:
             msgs.append((True, f"  warning: `thv restart {name}` failed: {result.stderr.strip()}"))
+        else:
+            save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server))
         return msgs
     if action == "recreate":
-        reason = "kubeconfig changed" if stale else f"exists outside group '{group}'"
-        msgs.append((False, f"  recreating workload {name} ({reason}) …"))
+        reasons = []
+        if stale:
+            reasons.append("kubeconfig changed")
+        if spec_changed:
+            reasons.append("spec changed")
+        if not reasons:
+            reasons.append(f"exists outside group '{group}'")
+        msgs.append((False, f"  recreating workload {name} ({', '.join(reasons)}) …"))
         thv("rm", name)  # names are global; OAuth tokens persist via the secrets provider
     msgs.append((False, f"  starting workload {name} …"))
     # capture_output so concurrent workloads don't interleave on the terminal; the
@@ -406,6 +484,8 @@ def _apply_workload(
     )
     if result.returncode != 0:
         msgs.append((True, f"  warning: `thv run {name}` exited {result.returncode}: {result.stderr.strip()}"))
+    else:
+        save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server))
     return msgs
 
 
@@ -417,8 +497,11 @@ def run_workloads(
     """Ensure the group exists and every enabled workload is up (idempotent).
 
     Workloads persist across `stop`, so on a later `start` they already exist:
-    - already running in our group -> leave it
-    - exists in our group but stopped -> restart (don't `thv run`, which errors "already exists")
+    - already running in our group, spec unchanged -> leave it
+    - already running in our group, spec CHANGED since it was created -> recreate
+      (see `server_spec_changed`; `thv restart` would keep the stale container)
+    - exists in our group but stopped, spec unchanged -> restart (don't `thv run`,
+      which errors "already exists")
     - exists OUTSIDE our group (orphan / name collision) -> remove and recreate in-group
     - absent -> `thv run`
 
@@ -1368,6 +1451,10 @@ __all__ = [
     "default_listen",
     "list_workloads",
     "build_thv_run_argv",
+    "server_spec_fingerprint",
+    "load_server_fingerprints",
+    "save_server_fingerprint",
+    "server_spec_changed",
     "run_workloads",
     "generate_vmcp_config",
     "get_supervisor_states",

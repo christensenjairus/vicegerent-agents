@@ -15,7 +15,12 @@ Hermes sandbox
 ```
 
 `thv` runs the workloads as Docker containers under ToolHive's own daemon —
-they persist across `start`/`stop` so OAuth tokens are not re-prompted.
+they persist across `start`/`stop` so OAuth tokens are not re-prompted. `start`
+detects when a workload's declared spec (package, env, run/server flags, secret
+targets) has drifted from what's actually running — e.g. editing `env` or
+`tools` for a server already up — and recreates that one container instead of
+`thv restart`-ing it (which would silently keep the OLD args forever, since
+restart reuses whatever was passed to the container's original `thv run`).
 Supervisord manages only the three long-lived host processes:
 
 - `caffeinate` — keeps macOS awake for as long as the stack is up.
