@@ -19,7 +19,7 @@
         }
       ],
       "tools": [
-        "configuration_contexts_list", "configuration_view", "events_list", "namespaces_list",
+        "configuration_view", "events_list", "namespaces_list",
         "nodes_log", "nodes_stats_summary", "nodes_top", "pods_get", "pods_list",
         "pods_list_in_namespace", "pods_log", "pods_top", "resources_get", "resources_list"
       ]
@@ -42,7 +42,7 @@
         }
       ],
       "tools": [
-        "create_issue", "get_issue", "update_issue", "update_issue_description_patch",
+        "create_issue", "get_issue", "update_issue",
         "list_issues", "my_issues", "list_issue_discussions", "list_issue_links",
         "get_issue_link", "create_issue_link", "update_issue_note", "create_issue_note",
         "list_todos", "mark_todo_done", "mark_all_todos_done",
@@ -90,7 +90,7 @@
       "type": "npx",
       "package": "tavily-mcp@0.2.20",
       "secrets": [{"name": "tavily_api_key", "target": "TAVILY_API_KEY"}],
-      "tools": ["tavily-search", "tavily-extract", "tavily-crawl", "tavily-map", "tavily-research"]
+      "tools": ["tavily_search", "tavily_extract", "tavily_crawl", "tavily_map", "tavily_research"]
     },
     {
       "name": "firecrawl",
@@ -112,14 +112,14 @@
     },
     {
       "name": "notion",
-      "description": "Notion workspace (official remote MCP; OAuth, browser consent on first start), shared broadly for read. The vMCP allowlist exposes 7 read tools (search, fetch, comments, users/teams, self) plus 3 content-write tools (create-pages, update-page, create-comment); database/move/duplicate mutations excluded. create-pages is folder-pinned by the mcp-cerbos-shim `force` override (mapping.yaml): rather than deny an off-folder parent, it rewrites `parent` to the Scratchpad page on every call, so the agent never sees an error or retries and every new page lands under Scratchpad. NB update-page and create-comment target an EXISTING page by id and are left unconstrained (the shim can't verify a page's folder without an ancestry lookup). A hard separate-integration split (read broad / write narrow) was infeasible — the org blocks creating internal-integration tokens.",
+      "description": "Notion workspace (official remote MCP; OAuth, browser consent on first start), shared broadly for read. The vMCP allowlist exposes 5 read tools (search, fetch, comments, teams, users — users takes an optional user_id, including \"self\" for the current user, which replaced Notion's old dedicated get-user/get-self tools) plus 3 content-write tools (create-pages, update-page, create-comment); database/move/duplicate mutations excluded. create-pages is folder-pinned by the mcp-cerbos-shim `force` override (mapping.yaml): rather than deny an off-folder parent, it rewrites `parent` to the Scratchpad page on every call, so the agent never sees an error or retries and every new page lands under Scratchpad. NB update-page and create-comment target an EXISTING page by id and are left unconstrained (the shim can't verify a page's folder without an ancestry lookup). A hard separate-integration split (read broad / write narrow) was infeasible — the org blocks creating internal-integration tokens.",
       "enabled": false,
       "type": "remote",
       "registry": "notion-remote",
       "run_flags": ["--remote-auth-callback-port", "8777", "--remote-auth-timeout", "3m"],
       "tools": [
         "notion-search", "notion-fetch", "notion-get-comments", "notion-get-teams",
-        "notion-get-users", "notion-get-user", "notion-get-self",
+        "notion-get-users",
         "notion-create-pages", "notion-update-page", "notion-create-comment"
       ]
     },

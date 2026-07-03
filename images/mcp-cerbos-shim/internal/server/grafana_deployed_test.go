@@ -50,9 +50,7 @@ func TestDeployedGrafanaMapping_OpenSearchReachesCerbos(t *testing.T) {
 		{"grafana_list_prometheus_label_names", map[string]any{"datasourceUid": osUID}, osUID, ""},
 		{"grafana_list_prometheus_metric_names", map[string]any{"datasourceUid": osUID}, osUID, ""},
 		{"grafana_get_datasource", map[string]any{"uid": osUID}, osUID, ""},
-		{"grafana_get_datasource_by_uid", map[string]any{"uid": osUID}, osUID, ""},
-		{"grafana_get_datasource_by_name", map[string]any{"name": osName}, "", osName},
-		{"grafana_check_datasources_health", map[string]any{"uid": osUID}, osUID, ""},
+		{"grafana_get_datasource", map[string]any{"name": osName}, "", osName},
 	}
 
 	for _, tc := range cases {
@@ -130,6 +128,32 @@ func TestDeployedGrafanaMapping_UnmappedGrafanaToolPasses(t *testing.T) {
 	}
 	if !isPass(res) {
 		t.Fatalf("expected pass for an unmapped grafana tool")
+	}
+	if d.calls != 0 {
+		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
+	}
+}
+
+func TestDeployedGrafanaMapping_CheckDatasourcesHealthPasses(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	// check_datasources_health takes a plural `uids` array — the single-
+	// resource-per-call model can't check "any of these is OpenSearch", and
+	// it only reveals up/down status rather than a datasource's actual data,
+	// so it's deliberately unmapped rather than mapped-but-wrong.
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("grafana_check_datasources_health",
+			map[string]any{"uids": []any{"fess5o6x6evb4b"}})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass for unmapped check_datasources_health")
 	}
 	if d.calls != 0 {
 		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
