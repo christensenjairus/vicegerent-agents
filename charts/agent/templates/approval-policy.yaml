@@ -14,6 +14,10 @@ data:
       - script execution via -e/-c flag
       - shell command via -c/-lc flag
       - script execution via heredoc
+      # --- Arbitrary script execution — this sandbox's isolation boundary is
+      # the pod/network layer, not the approval gate. Silences the separate
+      # execute_code whole-script approval gate (0012 patch). ---
+      - execute_code script execution
       # --- Silenced by approval policy only (no kernel sandbox on Kind) ---
       - format filesystem
       - disk copy

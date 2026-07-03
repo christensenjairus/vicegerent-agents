@@ -238,6 +238,15 @@ COPY patches/0011-web-extract-capability-check.py /tmp/0011-web-extract-capabili
 RUN /opt/hermes/.venv/bin/python /tmp/0011-web-extract-capability-check.py
 RUN rm -f /tmp/0011-web-extract-capability-check.py
 
+# Patch tools/approval.py so approvals.pattern_silence also silences the
+# separate execute_code whole-script approval gate (check_execute_code_guard),
+# which previously ignored the silence list entirely. Arbitrary script
+# execution is the intended capability of this sandbox; the isolation
+# boundary is the pod/network layer, not this gate.
+COPY patches/0012-execute-code-pattern-silence.py /tmp/0012-execute-code-pattern-silence.py
+RUN /opt/hermes/.venv/bin/python /tmp/0012-execute-code-pattern-silence.py
+RUN rm -f /tmp/0012-execute-code-pattern-silence.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
