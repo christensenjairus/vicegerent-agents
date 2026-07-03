@@ -60,6 +60,7 @@ data:
         ".github.com",
         ".githubusercontent.com",
         ".aws.cdn.hf.co",  # Hugging Face Xet CDN — large-file download redirects.
+        ".xethub.hf.co",
     )
 
     # Secrets patterns — redacted from request headers and body before forwarding.
