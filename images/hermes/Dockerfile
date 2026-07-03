@@ -8,7 +8,7 @@ RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VER
 # Offline Mnemosyne seed for the egress-locked sandbox; preserve HF cache layout.
 FROM python:3.14-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
-ARG HUGGINGFACE_HUB_VERSION=1.21.0
+ARG HUGGINGFACE_HUB_VERSION=1.22.0
 RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
 RUN python - <<'PY'
 from huggingface_hub import hf_hub_download, snapshot_download
