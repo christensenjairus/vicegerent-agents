@@ -40,11 +40,13 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   self-explanatory and do not add explanatory comment blocks — rationale goes in the MR description,
   not inline.
 - **Aggressive cleanup is expected.** Delete redundant config, comments, examples, and docs instead
-  of preserving them out of habit. Keep only comments that prevent likely operational mistakes or
-  explain hard-to-find gotchas; make those comments one terse line when possible. Remove values that
-  merely mirror Kubernetes, controller, chart, or language defaults after verifying the default from
-  the upstream source. Conversation, history, and agent/tool-specific notes belong in the MR, not the
-  repo.
+  of preserving them out of habit. Default to **no comment** on config that's self-explanatory from
+  its field name/value (e.g. `strategy: RollingUpdate` needs no comment saying it's a rolling update).
+  Only add a comment when it prevents a likely operational mistake or explains a genuinely
+  non-obvious gotcha (e.g. a CNAME chain requiring intermediate FQDNs in an allowlist) — and even
+  then, one terse line, never a multi-line block. Remove values that merely mirror Kubernetes,
+  controller, chart, or language defaults after verifying the default from the upstream source.
+  Conversation, history, and agent/tool-specific notes belong in the MR, not the repo.
 - **Naming** — the project, cluster, and kube context are all `vicegerent` (context `kind-vicegerent`);
   the shared agent namespace is `agent-sandbox`. Only the git repo keeps the `vicegerent-agents` name.
 - **No vendor directories for cluster infra** — controller charts are pulled via Flux
