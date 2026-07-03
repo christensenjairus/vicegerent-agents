@@ -93,3 +93,10 @@ fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
   `/opt/data:/workspace`); upstream treated the whole value as one literal
   path, silently denying every `write_file`/`patch` call. Remove once
   upstream fixes this.
+- `0011-web-extract-capability-check.py` — gate `web_extract` on an
+  extract-capable backend (firecrawl/tavily/exa/parallel) rather than the
+  shared "any web backend configured" check. We run SearXNG-only
+  (`web.search_backend: searxng`); SearXNG passes the shared check but can't
+  extract, so `web_extract` was registering and erroring at call time
+  instead of simply not existing. Remove once upstream gates `web_extract`
+  on `supports_extract()` itself (loosely tracked with hermes-agent #19198).
