@@ -3,7 +3,7 @@
   "description": "Global npm CLIs baked into the egress-locked Hermes sandbox image.",
   "private": true,
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.197",
+    "@anthropic-ai/claude-code": "2.1.200",
     "@astrojs/language-server": "2.16.11",
     "@openai/codex": "0.142.5",
     "@vue/language-server": "3.3.6",
