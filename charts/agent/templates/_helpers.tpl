@@ -83,6 +83,9 @@ providers:
 {{- define "vicegerent-agent.defaultConfig" -}}
 model:
   default: claude-sonnet-5
+  context_length: 1000000
+compression:
+  threshold: 0.50
 prompt_caching:
   cache_ttl: 1h
 mcp_servers:
@@ -129,6 +132,7 @@ auxiliary:
   compression:
     provider: anthropic
     model: claude-sonnet-5
+    context_length: 1000000
   web_extract:
     provider: anthropic
     model: claude-haiku-4-5
