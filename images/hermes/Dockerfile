@@ -23,12 +23,12 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2027.7.1@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
+FROM nousresearch/hermes-agent:v2026.7.1@sha256:b6c019227889e6675424a2b6223b2cafdd36bf7d1048d1ddd8e043b880d6cc0f
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
-      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2027.7.1"
+      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.1"
 
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
