@@ -44,6 +44,12 @@ backends:
       # Grafana datasource-bearing tools -> grafana_datasource; Cerbos denies
       # OpenSearch datasources by uid/name. Same body for every tool: capture the
       # datasource id from whichever arg the tool uses (datasourceUid | uid | name).
+      # get_datasource_by_uid/get_datasource_by_name and check_datasources_health
+      # are deliberately NOT mapped here: the first two don't exist on the live
+      # server (get_datasource is the only real one), and check_datasources_health
+      # takes a plural `uids` array this single-resource-per-call model can't check
+      # (and it only reveals up/down status, not the datasource's actual data, so
+      # it's outside what this guardrail is for anyway).
       grafana_get_datasource: &grafana_ds
         resourceType: grafana_datasource
         action: read
@@ -51,9 +57,6 @@ backends:
         attr:
           uid: get(args,'datasourceUid', get(args,'uid',''))
           name: get(args,'name','')
-      grafana_get_datasource_by_uid: *grafana_ds
-      grafana_get_datasource_by_name: *grafana_ds
-      grafana_check_datasources_health: *grafana_ds
       grafana_query_prometheus: *grafana_ds
       grafana_query_prometheus_histogram: *grafana_ds
       grafana_list_prometheus_metric_metadata: *grafana_ds

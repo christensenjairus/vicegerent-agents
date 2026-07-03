@@ -42,9 +42,11 @@ Consequences:
   the shim blocks Secrets, it does not enumerate readable kinds.
 - The mapped tools are only the ones that name a protected resource: the k8s
   `kind`/resource selectors (`kubernetes_resources_get`, `kubernetes_resources_list`),
-  the Grafana datasource-bearing tools (`grafana_get_datasource*`,
-  `grafana_query_prometheus*`, `grafana_list_prometheus_*`,
-  `grafana_check_datasources_health`), the project/issue-bearing Jira tools
+  the Grafana datasource-bearing tools (`grafana_get_datasource`,
+  `grafana_query_prometheus*`, `grafana_list_prometheus_*` — `grafana_check_datasources_health`
+  takes a plural `uids` array this single-resource-per-call model can't check, and only
+  reveals up/down status rather than a datasource's actual data, so it's unmapped),
+  the project/issue-bearing Jira tools
   (`jira_jira_create_issue`, `jira_jira_get_issue`, `jira_jira_update_issue`,
   `jira_jira_transition_issue`, `jira_jira_add_comment`, `jira_jira_get_transitions`,
   `jira_jira_get_project_issues`, `jira_jira_create_issue_link`,
