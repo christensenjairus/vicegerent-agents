@@ -2,9 +2,9 @@
 # scripts/host/setup-host-mcp
 #
 # Idempotent setup of the host-side prerequisites for the vicegerent host stack
-# (ToolHive workloads + vMCP + ghostunnel, kept awake by caffeinate):
+# (ToolHive workloads + vMCP + ghostunnel + rclone, kept awake by caffeinate):
 #
-#   1. Homebrew packages: thv (ToolHive), ghostunnel, supervisor
+#   1. Homebrew packages: thv (ToolHive), ghostunnel, supervisor, rclone
 #   2. Python venv + deps: pip install -r host/mcp/requirements-host.txt
 #   3. ToolHive secrets provider + required API-key secrets (guidance)
 #   4. Final doctor check: vicegerent-mcp doctor
@@ -69,6 +69,7 @@ BREW_FORMULAE=(
   "thv:stacklok/tap/thv"
   "ghostunnel:ghostunnel"
   "supervisor:supervisor"
+  "rclone:rclone"
 )
 MISSING=()
 for entry in "${BREW_FORMULAE[@]}"; do

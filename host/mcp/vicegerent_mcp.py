@@ -13,11 +13,14 @@ Owns the full local ToolHive stack that backs the cluster's MCP access:
                        loopback endpoint on 127.0.0.1:4483, prefixing every
                        backend's tools with `{workload}_`.
   ghostunnel           terminates mTLS from the cluster and forwards to vMCP.
+  rclone-s3            `rclone serve s3` on 127.0.0.1:9899 backing the cluster's
+                       Velero BackupStorageLocation from <repo>/velero-backups;
+                       reached from pods via host.docker.internal.
   caffeinate           opt-in: holds a macOS "stay awake" assertion while the
                        stack is up (enable per-start with --caffeinate, or --always).
 
-vMCP and ghostunnel (plus caffeinate when enabled) run under supervisord with
-autorestart. The workloads are brought up by `start` (idempotent) before it starts.
+vMCP, ghostunnel, and rclone-s3 (plus caffeinate when enabled) run under supervisord
+with autorestart. The workloads are brought up by `start` (idempotent) before it starts.
 
 Tool authorization lives in the cluster (agentgateway allowlist + Cerbos); the
 vMCP config here exposes ALL backend tools and adds no filter/authz.
@@ -53,6 +56,16 @@ DEFAULT_VMCP_PORT = 4483
 DEFAULT_LISTEN = "127.0.0.1:8453"
 DEFAULT_AGENT_CLIENT_CN = "agent-client"
 
+# rclone serve s3 backend for Velero backups (loopback only; port clear of vmcp/ghostunnel/dashboard).
+DEFAULT_RCLONESHELL = REPO_ROOT / "scripts" / "rclone" / "rclone-s3.sh"
+DEFAULT_RCLONE_ADDR = "127.0.0.1:9899"
+DEFAULT_RCLONE_S3_DIR = Path.home() / ".vicegerent" / "rclone-s3"
+DEFAULT_RCLONE_SERVE_DIR = REPO_ROOT / "velero-backups"
+RCLONE_BUCKET = "vicegerent"
+# Mirrors the host auth-key; recovers it on a fresh laptop (see ensure_rclone_material).
+VELERO_SECRET_NS = "velero"  # pragma: allowlist secret
+VELERO_SECRET = "velero-credentials"  # pragma: allowlist secret
+
 # Host ghostunnel mTLS material. Source of truth is the laptop; a copy of the
 # server cert/key + CA cert is mirrored to a kind Secret by setup-secrets-platform.sh
 # so a host that's missing them can recover before ghostunnel starts.
@@ -68,8 +81,8 @@ THV = os.environ.get("THV", "thv")
 # Kubeconfig mount path inside the containerized kubernetes MCP server.
 KUBECONFIG_CONTAINER_PATH = "/kubeconfig/config"
 
-# Core supervised programs (always run): vMCP, then ghostunnel (forwards to vMCP).
-SUPERVISED_PROGRAMS = ("vmcp", "ghostunnel")
+# Core supervised programs (always run): vMCP, ghostunnel, rclone-s3.
+SUPERVISED_PROGRAMS = ("vmcp", "ghostunnel", "rclone-s3")
 # caffeinate (macOS stay-awake) is opt-in per `start`; shown in status/logs regardless.
 ALL_PROGRAMS = ("caffeinate", *SUPERVISED_PROGRAMS)
 
@@ -675,6 +688,8 @@ def build_supervisord_conf(
     tunnel_env: dict[str, str],
     vmcp_command: str,
     vmcp_env: dict[str, str],
+    rcloneshell: Path,
+    rclone_env: dict[str, str],
     caffeinate: bool = False,
 ) -> str:
     sock = paths["supervisord_sock"]
@@ -735,6 +750,19 @@ startsecs=2
 stopwaitsecs=8
 redirect_stderr=true
 stdout_logfile={logs}/ghostunnel.log
+stdout_logfile_maxbytes=5MB
+stdout_logfile_backups=2
+
+[program:rclone-s3]
+command={rcloneshell}
+directory={REPO_ROOT}
+environment={_supervisord_env_str(rclone_env)}
+autostart=true
+autorestart=true
+startsecs=2
+stopwaitsecs=8
+redirect_stderr=true
+stdout_logfile={logs}/rclone-s3.log
 stdout_logfile_maxbytes=5MB
 stdout_logfile_backups=2
 """
@@ -915,6 +943,60 @@ def ensure_ghostunnel_material() -> None:
         print(f"  restored {fname} from kind")
 
 
+def ensure_rclone_material() -> None:
+    """If the host rclone S3 auth-key is missing, recover it from the velero
+    credential Secret (mirrors ensure_ghostunnel_material).
+
+    The Secret's `cloud` key is an AWS credentials file; the auth-key file is the
+    `access,secret` pair `rclone serve s3 --auth-key` expects. Both are seeded by
+    setup-secrets-platform.sh, which also applies the Secret — so a laptop missing
+    the file can rebuild it from the cluster before rclone starts.
+    """
+    d = Path(os.environ.get("RCLONE_S3_HOST_DIR", str(DEFAULT_RCLONE_S3_DIR)))
+    authkey = d / "auth-key"
+    if authkey.is_file() and authkey.stat().st_size > 0:
+        return
+    current_ctx = subprocess.run(
+        ["kubectl", "config", "current-context"], capture_output=True, text=True,
+    ).stdout.strip()
+    if current_ctx != GHOSTUNNEL_KUBE_CONTEXT:
+        print(
+            f"rclone auth-key missing, but current kubectl context is "
+            f"'{current_ctx or '<none>'}', expected '{GHOSTUNNEL_KUBE_CONTEXT}'. "
+            f"Run: ./vicegerent secrets setup platform",
+            file=sys.stderr,
+        )
+        return
+    print(f"rclone auth-key missing; recovering from kind Secret {VELERO_SECRET} …")
+    result = subprocess.run(
+        ["kubectl", "--context", GHOSTUNNEL_KUBE_CONTEXT, "-n", VELERO_SECRET_NS,
+         "get", "secret", VELERO_SECRET, "-o", "jsonpath={.data.cloud}"],
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        print(
+            f"  could not recover the auth-key from kind ({result.stderr.strip() or 'secret/key absent'}).\n"
+            "  Run `./vicegerent secrets setup platform` to (re)generate the Velero credentials.",
+            file=sys.stderr,
+        )
+        return
+    cloud = base64.b64decode(result.stdout).decode("utf-8", "replace")
+    access = secret = ""
+    for line in cloud.splitlines():
+        if line.startswith("aws_access_key_id="):
+            access = line.split("=", 1)[1].strip()
+        elif line.startswith("aws_secret_access_key="):
+            secret = line.split("=", 1)[1].strip()
+    if not access or not secret:
+        print(f"  {VELERO_SECRET} Secret is malformed (missing key id/secret).", file=sys.stderr)
+        return
+    d.mkdir(parents=True, exist_ok=True)
+    d.chmod(0o700)
+    authkey.write_text(f"{access},{secret}\n", encoding="utf-8")
+    authkey.chmod(0o600)
+    print("  restored rclone auth-key from kind")
+
+
 def start_stack(
     runtime_dir: Path = DEFAULT_RUNTIME_DIR,
     servers_config: Path = DEFAULT_SERVERS_CONFIG,
@@ -978,8 +1060,21 @@ def start_stack(
         "ALLOW_CN": allow_cn or DEFAULT_AGENT_CLIENT_CN,
     }
 
+    ensure_rclone_material()
+    rclone_addr = os.environ.get("RCLONE_ADDR", DEFAULT_RCLONE_ADDR)
+    rclone_serve_dir = os.environ.get("RCLONE_SERVE_DIR", str(DEFAULT_RCLONE_SERVE_DIR))
+    rclone_env: dict[str, str] = {
+        "RCLONE_S3_HOST_DIR": os.environ.get("RCLONE_S3_HOST_DIR", str(DEFAULT_RCLONE_S3_DIR)),
+        "ADDR": rclone_addr,
+        "SERVE_DIR": rclone_serve_dir,
+        "BUCKET": RCLONE_BUCKET,
+        "PATH": path_env,
+        "HOME": str(Path.home()),
+    }
+
     conf_text = build_supervisord_conf(
-        paths, effective_ghostshell, tunnel_env, vmcp_command, vmcp_env, use_caffeinate
+        paths, effective_ghostshell, tunnel_env, vmcp_command, vmcp_env,
+        DEFAULT_RCLONESHELL, rclone_env, use_caffeinate,
     )
     paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
 
@@ -1009,6 +1104,7 @@ def start_stack(
         print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
     print(f"vMCP:          127.0.0.1:{port}  (ToolHive, group '{group_name(config)}')")
     print(f"ghostunnel:    {effective_listen} -> {target}")
+    print(f"rclone-s3:     {rclone_addr} -> {rclone_serve_dir} (bucket '{RCLONE_BUCKET}')")
     print(f"caffeinate:    {'on' if use_caffeinate else 'off'}")
     failed = [p for p in expected if sup_states.get(p) != "RUNNING"]
     if failed:
@@ -1058,7 +1154,7 @@ def stop_stack(
     return 0
 
 
-_LOG_NAMES = ("ghostunnel", "vmcp", "supervisord", "caffeinate")
+_LOG_NAMES = ("ghostunnel", "vmcp", "rclone-s3", "supervisord", "caffeinate")
 
 
 def tail_log(
@@ -1088,7 +1184,7 @@ def doctor(
     ok = True
 
     print("binaries:")
-    for binary in ("thv", "ghostunnel", "supervisord", "supervisorctl", "caffeinate", "kind"):
+    for binary in ("thv", "ghostunnel", "rclone", "supervisord", "supervisorctl", "caffeinate", "kind"):
         found = shutil.which(binary)
         print(f"  {binary}: {found or 'MISSING'}")
         if not found and binary != "kind":
@@ -1124,6 +1220,7 @@ def doctor(
     print(f"group:         {group}")
     print(f"vMCP target:   {vmcp_target(config)}")
     print(f"ghostunnel:    {default_listen()}")
+    print(f"rclone-s3:     {DEFAULT_RCLONE_ADDR} -> {DEFAULT_RCLONE_SERVE_DIR} (bucket '{RCLONE_BUCKET}')")
     return 0 if ok else 1
 
 
@@ -1327,8 +1424,9 @@ vicegerent-mcp — host-side ToolHive stack controller
 Owns the local ToolHive stack behind the cluster's MCP access:
   ToolHive workloads (group 'vicegerent') -> vMCP aggregator on :4483
   -> ghostunnel (mTLS from the cluster), optionally kept awake by caffeinate.
-vMCP and ghostunnel run under supervisord; the workloads run under ToolHive's own
-daemon and persist across stack restarts.
+Also runs rclone-s3 on :9899, the S3 backend for the cluster's Velero backups.
+vMCP, ghostunnel, and rclone-s3 run under supervisord; the workloads run under
+ToolHive's own daemon and persist across stack restarts.
 
 Commands:
   configure              interactively enable/skip each MCP server + set secrets
@@ -1338,7 +1436,7 @@ Commands:
                          --caffeinate keeps macOS awake, --always to make it the default
   stop                   stop the supervised stack + ToolHive workloads (--keep-workloads to leave them)
   status                 workload + supervised-process state (rich table)
-  logs PROC              tail logs  (ghostunnel | vmcp | supervisord | caffeinate)
+  logs PROC              tail logs  (ghostunnel | vmcp | rclone-s3 | supervisord | caffeinate)
   doctor                 check binaries, thv secrets provider + secrets, kind
   tui                    interactive dashboard (textual)
 
@@ -1354,6 +1452,7 @@ Environment:
   THV_GROUP              ToolHive group name (default: vicegerent)
   VMCP_HOST / VMCP_PORT  vMCP loopback target (default 127.0.0.1:4483)
   LISTEN                 ghostunnel listen address (default 127.0.0.1:8453)
+  RCLONE_ADDR            rclone serve s3 listen address (default 127.0.0.1:9899)
 
 Run './vicegerent-mcp COMMAND --help' for per-command options.
 """

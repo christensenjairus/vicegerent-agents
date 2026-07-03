@@ -5,3 +5,6 @@ __pycache__/
 
 # Python venv
 host/mcp/.venv/
+
+# Host-side rclone serve s3 backing dir for Velero backups (never committed)
+velero-backups/

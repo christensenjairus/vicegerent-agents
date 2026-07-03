@@ -11,3 +11,4 @@ resources:
   - mcp-cerbos-shim
   - host-firewall
   - victoria-logs
+  - velero

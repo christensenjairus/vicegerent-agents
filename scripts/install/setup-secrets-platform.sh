@@ -18,6 +18,7 @@
 #   searxng              searxng-secret               secret_key           (generated)
 #   egress-proxy         egress-proxy-ca              ca.crt, ca.key       (MITM proxy CA)
 #   agent-sandbox        egress-proxy-ca-cert         ca.crt               (MITM proxy CA cert only)
+#   velero               velero-credentials           cloud                (generated S3 creds)
 #
 # MCP server API keys (tavily/firecrawl/gitlab) are NOT Kubernetes Secrets — those
 # servers run host-side under ToolHive and read their keys from `thv` secrets.
@@ -27,19 +28,24 @@
 # ~/.vicegerent/ghostunnel). The server key never enters Kubernetes; the CA key
 # stays host-only so leaf certs can be re-issued without rebuilding the chain.
 #
+# The Velero S3 credentials are generated once and mirrored to both the
+# velero/velero-credentials Secret and $RCLONE_S3_HOST_DIR/auth-key (default
+# ~/.vicegerent/rclone-s3), read by the host rclone serve s3 (host/mcp/vicegerent_mcp.py).
+#
 # Flags:
 #   -y, --yes     auto-approve every change (non-interactive)
 #   --force       rebuild the ghostunnel CA + leaf certs even if they already exist
 #   -h, --help    show this help
 #
-# Env overrides: KUBE_CONTEXT, GHOSTUNNEL_HOST_DIR, SERVER_IP, SERVER_CN,
-#   CLIENT_CN, ANTHROPIC_API_KEY, OPENAI_API_KEY, TAVILY_API_KEY,
+# Env overrides: KUBE_CONTEXT, GHOSTUNNEL_HOST_DIR, RCLONE_S3_HOST_DIR, SERVER_IP,
+#   SERVER_CN, CLIENT_CN, ANTHROPIC_API_KEY, OPENAI_API_KEY, TAVILY_API_KEY,
 #   FIRECRAWL_API_KEY, GITLAB_PERSONAL_ACCESS_TOKEN
 
 set -euo pipefail
 
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
 GHOSTUNNEL_HOST_DIR="${GHOSTUNNEL_HOST_DIR:-$HOME/.vicegerent/ghostunnel}"
+RCLONE_S3_HOST_DIR="${RCLONE_S3_HOST_DIR:-$HOME/.vicegerent/rclone-s3}"
 
 # The cluster reaches the host ghostunnel server via host.docker.internal; the
 # server cert's SAN must match it. SERVER_IP is the loopback SAN for local tests.
@@ -53,7 +59,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     -y|--yes) ASSUME_YES=1 ;;
     --force) FORCE=1 ;;
-    -h|--help) sed -n '2,40p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,44p' "$0"; exit 0 ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
   shift
@@ -128,6 +134,33 @@ ensure_literal_secret() {
   unset val
 }
 
+# ensure_velero_credentials — generate-once S3 creds, mirrored to the k8s Secret and host auth-key file.
+ensure_velero_credentials() {
+  local hostfile="$RCLONE_S3_HOST_DIR/auth-key" access="" secret=""
+  if [[ -s "$hostfile" ]]; then
+    IFS=',' read -r access secret < "$hostfile"
+    info "Reusing Velero S3 credentials from $hostfile."
+  elif secret_has velero-credentials velero cloud; then
+    local cloud
+    cloud="$(secret_b64 velero-credentials velero cloud | base64 -d)"
+    access="$(printf '%s\n' "$cloud" | sed -n 's/^aws_access_key_id=//p')"
+    secret="$(printf '%s\n' "$cloud" | sed -n 's/^aws_secret_access_key=//p')"
+    info "Recovered Velero S3 credentials from velero/velero-credentials."
+  fi
+  if [[ -z "$access" || -z "$secret" ]]; then
+    access="$(openssl rand -hex 16)"
+    secret="$(openssl rand -hex 32)"
+    info "Generated new Velero S3 credentials."
+  fi
+  apply_secret velero-credentials velero \
+    --from-literal="cloud=$(printf '[default]\naws_access_key_id=%s\naws_secret_access_key=%s\n' "$access" "$secret")"
+  mkdir -p "$RCLONE_S3_HOST_DIR"
+  chmod 700 "$RCLONE_S3_HOST_DIR"
+  printf '%s,%s\n' "$access" "$secret" > "$hostfile"
+  chmod 600 "$hostfile"
+  info "Applied velero/velero-credentials Secret + host auth-key ($hostfile)."
+}
+
 # --- prerequisites ---------------------------------------------------------
 for cmd in kubectl openssl jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
@@ -148,7 +181,7 @@ echo "${B}vicegerent platform secret setup${N}  (context: $KUBE_CONTEXT)"
 
 # Ensure target namespaces exist so Secrets can be applied before Flux creates them.
 step "Namespaces"
-for ns in agentgateway-system searxng egress-proxy agent-sandbox; do
+for ns in agentgateway-system searxng egress-proxy agent-sandbox velero; do
   ensure_ns "$ns"
 done
 info "Target namespaces present."
@@ -268,6 +301,10 @@ fi
 apply_secret egress-proxy-ca-cert agent-sandbox --from-file=ca.crt="$WORK/proxy-ca.crt"
 info "Applied agent-sandbox/egress-proxy-ca-cert (cert only)."
 
+# --- Velero S3 credentials -------------------------------------------------
+step "Velero S3 credentials"
+ensure_velero_credentials
+
 # --- MCP credentials -------------------------------------------------------
 # The tavily/firecrawl/gitlab MCP servers now run host-side under ToolHive, so
 # their API keys are `thv` secrets on the laptop (see scripts/host/setup-host-mcp),
@@ -291,11 +328,17 @@ check searxng-secret searxng secret_key
 check egress-proxy-ca egress-proxy ca.crt
 check egress-proxy-ca egress-proxy ca.key
 check egress-proxy-ca-cert agent-sandbox ca.crt
+check velero-credentials velero cloud
 check_optional vicegerent-openai-secrets agentgateway-system Authorization
 if [[ -s "$HD/server.crt" && -s "$HD/server.key" && -s "$HD/ca.cert" ]]; then
   echo "  ${G}ok${N}   $HD (host ghostunnel server + CA material)"
 else
   echo "  ${R}MISS${N} $HD (host ghostunnel material)"; missing=1
+fi
+if [[ -s "$RCLONE_S3_HOST_DIR/auth-key" ]]; then
+  echo "  ${G}ok${N}   $RCLONE_S3_HOST_DIR/auth-key (host rclone S3 auth-key)"
+else
+  echo "  ${R}MISS${N} $RCLONE_S3_HOST_DIR/auth-key (host rclone S3 auth-key)"; missing=1
 fi
 
 echo

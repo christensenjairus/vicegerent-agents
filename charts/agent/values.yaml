@@ -6,6 +6,8 @@ image:
 storage:
   data: 10Gi
   gitrepos: 50Gi
+  # Mnemosyne embedding-model weights, reseeded from the image; excluded from Velero backup.
+  models: 2Gi
 slack:
   commandName: ''
 # Required per agent; empty leaves the NodePort auto-allocated, which is unstable.

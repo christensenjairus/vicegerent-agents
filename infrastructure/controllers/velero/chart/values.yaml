@@ -1,0 +1,52 @@
+---
+# https://github.com/vmware-tanzu/helm-charts/blob/velero-12.1.0/charts/velero/values.yaml
+resources:
+  requests:
+    cpu: 20m
+    memory: 128Mi
+  limits:
+    memory: 512Mi
+initContainers:
+  - name: velero-plugin-for-aws
+    image: docker.io/velero/velero-plugin-for-aws:v1.14.1
+    imagePullPolicy: IfNotPresent
+    volumeMounts:
+      - mountPath: /target
+        name: plugins
+# No CSI on this Kind cluster; use File System Backup (Kopia) instead of snapshots.
+snapshotsEnabled: false
+# Avoid an empty global Secret; the per-BSL credential below is the only one needed.
+credentials:
+  useSecret: false
+configuration:
+  backupStorageLocation:
+    - name: vicegerent
+      provider: aws
+      bucket: vicegerent
+      default: true
+      accessMode: ReadWrite
+      credential:
+        name: velero-credentials
+        key: cloud
+      config:
+        region: default
+        s3ForcePathStyle: true
+        # Self-hosted rclone serve s3 on the laptop, via the Docker Desktop host gateway.
+        s3Url: http://host.docker.internal:9899
+deployNodeAgent: true
+nodeAgent:
+  resources:
+    requests:
+      cpu: 10m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+schedules:
+  vicegerent-nightly:
+    disabled: false
+    schedule: 0 3 * * *
+    template:
+      ttl: 168h
+      storageLocation: vicegerent
+      defaultVolumesToFsBackup: true
+      includedNamespaces: [agent-sandbox]
