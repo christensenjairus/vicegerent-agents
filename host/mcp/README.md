@@ -50,15 +50,21 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 Tool scoping uses the vMCP's native `aggregation.tools` primitive: a server
 with a `tools` allowlist in `toolhive-servers.json` emits a `{workload, filter}`
 entry so the vMCP exposes only those tools (raw, unprefixed names). Every
-backend now carries one — for `kubernetes`/`tavily`/`firecrawl` it's the full
-live tool set pinned explicitly (nothing to restrict — `--read-only` already
-makes k8s writes impossible at the source, and tavily/firecrawl have no write
+backend now carries one — for `tavily`/`firecrawl` it's the full live tool set
+pinned explicitly (nothing to restrict — tavily/firecrawl have no write
 capability against anything this platform owns; pinning just stops a future
 package bump from silently adding to what's exposed), for `alertmanager` it's
 the full 12-tool set including `createSilence`/`deleteSilence` (an explicit
 choice, not an oversight — the operator wants the agent able to manage
 silences). The rest genuinely restrict:
 
+- `kubernetes` — read-only at the source (`--read-only` makes writes
+  impossible regardless of allowlist), and the allowlist additionally excludes
+  `configuration_view`: despite being `readOnlyHint=true`, it returns the full
+  kubeconfig including `client-certificate-data`/`client-key-data` in
+  plaintext — a live cluster credential handed straight into agent context and
+  transcripts. `configuration_contexts_list` (names + server URLs only, no key
+  material) covers "what clusters/contexts exist" instead.
 - `pagerduty` — incidents R/W + read-only schedules/services/teams/users/escalation.
 - `grafana` — read-only search/datasource/dashboard/prometheus/asserts/annotations/rendering.
 - `jira` — read+write only, Confluence disabled, deletes excluded, confined to

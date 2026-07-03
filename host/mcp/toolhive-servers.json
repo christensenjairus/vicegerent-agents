@@ -4,7 +4,7 @@
   "servers": [
     {
       "name": "kubernetes",
-      "description": "Read-only Kubernetes access (resources, pods, logs). --read-only means only readOnlyHint=true tools are exposed at the source at all (write/exec/helm/tekton tools aren't just blocked, they don't exist in this process); the tools list below just pins the exact live set explicitly so a future package bump can't silently add to it. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary').",
+      "description": "Read-only Kubernetes access (resources, pods, logs). --read-only means only readOnlyHint=true tools are exposed at the source at all (write/exec/helm/tekton tools aren't just blocked, they don't exist in this process); the tools list below just pins the exact live set explicitly so a future package bump can't silently add to it. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary'). configuration_view is deliberately excluded even though the source marks it readOnlyHint=true: unlike every other tool here, it returns the full kubeconfig including client-certificate-data/client-key-data in plaintext, handing the agent (and anything that can read its transcript) a usable cluster credential. configuration_contexts_list covers the 'what clusters/contexts exist' need with just names and server URLs, no key material.",
       "enabled": false,
       "type": "npx",
       "package": "kubernetes-mcp-server@0.0.63",
@@ -19,7 +19,7 @@
         }
       ],
       "tools": [
-        "configuration_view", "events_list", "namespaces_list",
+        "configuration_contexts_list", "events_list", "namespaces_list",
         "nodes_log", "nodes_stats_summary", "nodes_top", "pods_get", "pods_list",
         "pods_list_in_namespace", "pods_log", "pods_top", "resources_get", "resources_list"
       ]
