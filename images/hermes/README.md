@@ -21,7 +21,7 @@ relies on. Verified against the upstream arm64 image (`v2027.7.1`):
 | netdebug tools (ss, dig, nc) for egress diagnostics | no |
 
 mnemosyne's embedding model and local LLM are not baked — it downloads them from
-Hugging Face on first use, via the `huggingface.co`/`*.aws.cdn.hf.co` allowlist in
+Hugging Face on first use, via the `huggingface.co`/`*.aws.cdn.hf.co`/`*.xethub.hf.co` allowlist in
 `apps/base/egress-proxy/networkpolicy.yaml`.
 
 ## Build & push

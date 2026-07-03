@@ -1182,14 +1182,22 @@ def configure(
     state = load_server_state(runtime_dir)
     params_all = load_server_params(runtime_dir)
 
-    have_provider = thv("secret", "list").returncode == 0
     print(f"\nConfigure ToolHive MCP servers (group: {group}).")
     print("For each server: enable and set it up, or skip it (ToolHive won't run it).")
+    have_provider = thv("secret", "list").returncode == 0
     if not have_provider:
         print(
             "\n! No `thv` secrets provider configured — servers that need an API key\n"
-            "  can't be set up yet. Run `thv secret setup` (choose 'encrypted'), then re-run.\n"
+            "  can't be set up yet."
         )
+        if _prompt_yn("  Set one up now (choose 'encrypted')?", default=True):
+            subprocess.run([_thv_path(), "secret", "setup"])
+            have_provider = thv("secret", "list").returncode == 0
+        if not have_provider:
+            print(
+                "  ! Still no provider — enabling servers anyway, but set their keys later\n"
+                "    (re-run `vicegerent mcp configure` after `thv secret setup`).\n"
+            )
 
     running = list_workloads(group)
     for server in servers:

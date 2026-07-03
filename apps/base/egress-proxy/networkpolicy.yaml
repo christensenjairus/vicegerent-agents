@@ -60,6 +60,7 @@ spec:
         # Large files 302-redirect to the region-scoped Xet CDN, e.g. us.aws.cdn.hf.co.
         - matchName: huggingface.co
         - matchPattern: '*.aws.cdn.hf.co'
+        - matchPattern: '*.xethub.hf.co'
         # Public echo service — request-redaction test suite target, not agent use.
         - matchName: httpbin.io
       toPorts:
