@@ -323,7 +323,7 @@ spec:
                   key: api-key
                   optional: false
             - name: HERMES_WRITE_SAFE_ROOT
-              value: "/opt/data:/workspace"
+              value: "/opt/data:/workspace:/tmp"
           envFrom:
             # All agent pod credentials: dashboard auth, SSH key, and optional Slack tokens.
             - secretRef:
