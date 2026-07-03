@@ -334,6 +334,8 @@ spec:
                   name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
                   key: api-key
                   optional: false
+            - name: HF_HUB_OFFLINE
+              value: '1'
             - name: HERMES_WRITE_SAFE_ROOT
               value: "/opt/data:/workspace:/tmp"
           envFrom:
