@@ -128,7 +128,7 @@ RUN case "${TARGETARCH}" in \
 
 # Bake helm so scripts/validate.sh and pre-commit validate-flux-manifests can run offline.
 # renovate: datasource=github-releases depName=helm/helm
-ARG HELM_VERSION=v3.21.2
+ARG HELM_VERSION=v4.2.2
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
         arm64) HELM_ARCH=arm64 ;; \
