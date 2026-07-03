@@ -100,3 +100,12 @@ fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
   extract, so `web_extract` was registering and erroring at call time
   instead of simply not existing. Remove once upstream gates `web_extract`
   on `supports_extract()` itself (loosely tracked with hermes-agent #19198).
+- `0012-execute-code-pattern-silence.py` — let `approvals.pattern_silence`
+  also silence `execute_code`'s separate whole-script approval gate
+  (`check_execute_code_guard`), which previously ignored the silence list
+  entirely (only `check_all_command_guards`, the regex-flagged `terminal()`
+  path, consulted it). Arbitrary script execution is this sandbox's intended
+  capability — the isolation boundary is the pod/network layer (no Docker
+  socket, egress-locked, non-root), not this gate. Silenced via
+  `execute_code` in `approval-policy.yaml`'s `pattern_silence` list. Remove
+  once upstream lets a single silence list cover both approval paths.
