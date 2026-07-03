@@ -12,16 +12,29 @@
 #   -h, --help          show this help
 #
 # Env overrides: KUBE_CONTEXT, REPO_URL, BRANCH, CLUSTER_PATH, PRIVATE_KEY_FILE
-# REPO_URL defaults to this checkout's 'origin' remote, so a fork bootstraps
-# against itself without any override.
+# REPO_URL defaults to this checkout's 'origin' remote (normalized to an ssh://
+# URL, which Flux's SSH bootstrap requires), so a fork bootstraps against itself
+# without any override.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# Flux SSH auth requires an ssh:// URL; convert SCP-style (git@host:path) and
+# https remotes to it, and leave an ssh:// URL untouched.
+normalize_ssh_url() {
+  local url="$1"
+  case "$url" in
+    ""|ssh://*) printf '%s' "$url" ;;
+    https://*)  printf 'ssh://git@%s' "${url#https://}" ;;
+    *@*:*)      printf 'ssh://%s' "$(printf '%s' "$url" | sed 's|:|/|')" ;;
+    *)          printf '%s' "$url" ;;
+  esac
+}
+
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
-REPO_URL="${REPO_URL:-$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)}"
+REPO_URL="${REPO_URL:-$(normalize_ssh_url "$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)")}"
 BRANCH="${BRANCH:-main}"
 CLUSTER_PATH="${CLUSTER_PATH:-./clusters/vicegerent}"
 PRIVATE_KEY_FILE="${PRIVATE_KEY_FILE:-$HOME/.ssh/id_rsa}"
