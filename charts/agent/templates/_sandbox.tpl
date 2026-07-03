@@ -12,6 +12,9 @@ spec:
     metadata:
       labels:
         vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
+      annotations:
+        # gitrepos/models/runtime/tmp are reclonable or reseeded; excluded from Velero FSB.
+        backup.velero.io/backup-volumes-excludes: gitrepos,models,runtime,tmp
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -60,13 +63,15 @@ spec:
               # Using only the proxy CA would break direct-egress TLS (Slack, SSH).
               cat /etc/ssl/certs/ca-certificates.crt /reload/egress-proxy-ca/ca.crt \
                 > /opt/data/certs/ca-bundle.crt
-              # digest-gated reseed: only re-copy when image digest changes; rm-first so stale weights don't linger.
-              # layout=v2 forces one reseed on PVCs stamped under the old (wrong) dest paths.
+              # digest-gated reseed (rm-first); layout=v2 forces reseed off old dest paths;
+              # also reseed if llm_dest is empty (its own PVC, excluded from Velero backup).
               seed="/opt/hermes/mnemosyne-seed"
               marker="${marker_dir}/.mnemosyne-seed.sha256"
               want="$(cat "${seed}.sha256"):layout=v2"
-              if [ "$(cat "${marker}" 2>/dev/null || true)" != "${want}" ]; then
-                rm -rf "${fastembed_dest}" "${llm_dest}"
+              if [ "$(cat "${marker}" 2>/dev/null || true)" != "${want}" ] || [ -z "$(ls -A "${llm_dest}" 2>/dev/null)" ]; then
+                rm -rf "${fastembed_dest}"
+                # llm_dest is a mountpoint; rm -rf on it errors EBUSY under set -e.
+                find "${llm_dest}" -mindepth 1 -delete 2>/dev/null || true
                 mkdir -p "${fastembed_dest}" "${llm_dest}"
                 cp -a "${seed}/mnemosyne/models/." "${llm_dest}/"
                 cp -a "${seed}/cache/fastembed/." "${fastembed_dest}/"
@@ -123,6 +128,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /opt/data
+            - name: models
+              mountPath: /opt/data/home/.hermes/mnemosyne/models
             - name: config
               mountPath: /reload/hermes-config
               readOnly: true
@@ -364,6 +371,8 @@ spec:
               mountPath: /tmp
             - name: data
               mountPath: /opt/data
+            - name: models
+              mountPath: /opt/data/home/.hermes/mnemosyne/models
             - name: gitrepos
               mountPath: /workspace
             - name: ssh-key
@@ -422,4 +431,11 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.gitrepos }}
+    - metadata:
+        name: models
+      spec:
+        accessModes: [ReadWriteOnce]
+        resources:
+          requests:
+            storage: {{ .Values.storage.models }}
 {{- end -}}
