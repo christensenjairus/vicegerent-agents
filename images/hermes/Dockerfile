@@ -219,6 +219,14 @@ COPY patches/0009-mcp-circuit-breaker-business-errors.py /tmp/0009-mcp-circuit-b
 RUN /opt/hermes/.venv/bin/python /tmp/0009-mcp-circuit-breaker-business-errors.py
 RUN rm -f /tmp/0009-mcp-circuit-breaker-business-errors.py
 
+# Patch agent/file_safety.py so HERMES_WRITE_SAFE_ROOT supports multiple
+# os.pathsep-delimited roots (sandbox.yaml sets it to "/opt/data:/workspace").
+# Upstream treated the whole value as one literal path, silently denying
+# every write_file/patch call. Remove once upstream fixes this.
+COPY patches/0010-write-safe-root-multi-path.py /tmp/0010-write-safe-root-multi-path.py
+RUN /opt/hermes/.venv/bin/python /tmp/0010-write-safe-root-multi-path.py
+RUN rm -f /tmp/0010-write-safe-root-multi-path.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
