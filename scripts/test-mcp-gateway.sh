@@ -5,14 +5,22 @@
 # Usage (run from your mac):
 #   # Port-forward first in another terminal:
 #   #   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
-#   #   GATEWAY_URL=http://localhost:8080 bash scripts/test-mcp-gateway.sh
+#   #   GATEWAY_URL=http://localhost:8080 bash scripts/test-mcp-gateway.sh [keyword]
+#
+# With no keyword, enumerate the reachable tools per backend. With a keyword,
+# search find_tool for matching tools (e.g. 'kubernetes', 'context', 'notion').
 #
 # Override API key (default is the kustomize-generated literal "hermes"):
 #   MYKEY=myval bash scripts/test-mcp-gateway.sh
 set -uo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
 API_KEY="${API_KEY:-hermes}"
+SERVERS_CONFIG="${SERVERS_CONFIG:-$SCRIPT_DIR/../host/mcp/toolhive-servers.json}"
+# Optional free-form keyword: search find_tool for matching tools instead of
+# enumerating every backend (e.g. 'kubernetes', 'context', 'notion').
+QUERY="${1:-}"
 
 # MCP endpoints — all backends are aggregated behind the single ToolHive vMCP,
 # fronted by the agentgateway /mcp/vmcp HTTPRoute.
@@ -73,6 +81,76 @@ except Exception as e:
 "
 }
 
+# The vMCP tool-discovery optimizer collapses every backend tool behind two
+# meta-tools (find_tool/call_tool), so tools/list can't enumerate the real tools.
+# We probe find_tool instead. With no QUERY, search once per expected backend
+# (keyword = the backend's own name) and union the hits, surfacing which backends
+# are live and a representative set of each one's tools. With a QUERY, run that one
+# search and show matches across all backends (e.g. 'kubernetes', 'context', 'notion').
+# find_tool is a ranked BM25+semantic search capped at a handful of hits per query,
+# so results are a reachable sample, not the full catalog. Enumerate mode exits 4
+# if the index came back empty; search mode always exits 0 (the endpoint is healthy).
+discover_tools() {
+  local url="$1" session="$2" query="${3:-}"
+  URL="$url" API_KEY="$API_KEY" SESSION="$session" SERVERS_CONFIG="$SERVERS_CONFIG" QUERY="$query" python3 -c "
+import os, json, urllib.request
+url, key, sid, cfg = os.environ['URL'], os.environ['API_KEY'], os.environ['SESSION'], os.environ['SERVERS_CONFIG']
+query = os.environ['QUERY']
+G, Y, N = chr(27)+'[0;32m', chr(27)+'[1;33m', chr(27)+'[0m'
+servers = [s['name'] for s in json.load(open(cfg))['servers']]
+
+def find(keyword):
+    payload = json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{
+        'name':'find_tool','arguments':{'tool_description':keyword,'tool_keywords':[keyword]}}}).encode()
+    req = urllib.request.Request(url, data=payload, method='POST', headers={
+        'Authorization': f'Bearer {key}', 'Content-Type':'application/json',
+        'Accept':'application/json, text/event-stream', 'Mcp-Session-Id': sid})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            raw = r.read().decode()
+        data = [l[5:].strip() for l in raw.split(chr(10)) if l.startswith('data:')]
+        d = json.loads(data[0] if data else raw)
+        inner = json.loads(d['result']['content'][0]['text'])
+        return inner.get('tools') or []
+    except Exception:
+        return []
+
+def owner(name):
+    return next((p for p in servers if name.startswith(p + '_')), '?')
+
+if query:
+    matches = {t['name']: t for t in find(query)}
+    if not matches:
+        print(f'  {Y}- no tools match \"{query}\"{N}')
+        raise SystemExit(0)
+    print(f'  {G}+ {len(matches)} tools match \"{query}\":{N}')
+    for name in sorted(matches):
+        desc = ' '.join((matches[name].get('description') or '').split())
+        if len(desc) > 100: desc = desc[:99] + '…'
+        print(f'      {name}  [{owner(name)}]')
+        if desc: print(f'        {desc}')
+    raise SystemExit(0)
+
+union = {}
+for s in servers:
+    for t in find(s):
+        union[t['name']] = owner(t['name'])
+by_server = {s: sorted(n for n, o in union.items() if o == s) for s in servers}
+live = [s for s in servers if by_server[s]]
+for s in servers:
+    tools = by_server[s]
+    if tools:
+        print(f'  {G}+ {s}: {len(tools)} tools reachable{N}')
+        for t in tools:
+            print(f'      {t}')
+    else:
+        print(f'  {Y}- {s}: none reachable (disabled or backend down){N}')
+total = len(union)
+print(f'  {G}{total} tools reachable across {len(live)} backend(s): {\", \".join(live) or \"none\"}{N}')
+raise SystemExit(0 if total else 4)
+"
+}
+
 echo ""
 echo -e "${CYAN}=== agentgateway MCP endpoint test ===${NC}"
 echo -e "${CYAN}Gateway: ${GATEWAY_URL}${NC}"
@@ -125,6 +203,15 @@ for entry in "${MCPS[@]}"; do
     echo -e "  ${YELLOW}? 0 tools returned — allowlist blocking all?${NC}"
     echo    "    kubectl -n agentgateway-system get agentgatewaypolicies ${name}-policy -o yaml"
     ((WARN++))
+  elif echo "$tools" | grep -qx "find_tool"; then
+    # Optimizer on: search (QUERY) or enumerate the real tools behind find_tool.
+    [[ -n "$QUERY" ]] && echo -e "  ${CYAN}search: \"${QUERY}\"${NC}"
+    if discover_tools "$url" "$SESSION_ID" "$QUERY"; then
+      ((PASS++))
+    else
+      echo -e "  ${YELLOW}? find_tool surfaced no backend tools — index empty or all backends down${NC}"
+      ((WARN++))
+    fi
   else
     count=$(echo "$tools" | wc -l | tr -d ' ')
     echo -e "  ${GREEN}+ ${count} tools:${NC}"

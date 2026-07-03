@@ -10,7 +10,7 @@ on.
 ## Why a derived image
 
 The stock image ships the Hermes runtime but **not** the pieces this platform
-relies on. Verified against the upstream arm64 image (`v2027.7.1`):
+relies on. Verified against the upstream arm64 image (`v2026.7.1`):
 
 | Needed | In stock image? |
 | --- | --- |
@@ -29,7 +29,7 @@ egress-locked cluster only ever pulls.
 docker login harbor.hahomelabs.com
 make image PLATFORM=linux/arm64      # Kind on Apple Silicon
 make push
-# or: make release PLATFORM=linux/arm64 TAG=v2027.7.1
+# or: make release PLATFORM=linux/arm64 TAG=v2026.7.1
 ```
 
 `make help` lists targets. `TAG` defaults to the upstream version; bump it when
@@ -69,7 +69,7 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 Upstream Hermes is also customized at build time by numbered Python scripts in
 `patches/`, each `COPY`d in, run against `/opt/hermes/.venv`, then deleted. They edit
 installed package files in place and self-verify where feasible; remove one once the
-fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
+fix lands upstream. (Numbering is sparse — 0002/0003/0010 were dropped.)
 
 - `0001-toolsearch-context-length.py` — resolve Tool Search context length offline so
   it never dials `openrouter.ai` at startup behind the egress lockdown.
@@ -87,11 +87,6 @@ fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
   tripping on business errors (`isError: true` relayed as a JSON `"error"` key); only
   real transport/auth exceptions should count toward the 3-strike "server unreachable"
   block. Remove once upstream lands hermes-agent #47918/#47955 (issues #47851/#11113).
-- `0010-write-safe-root-multi-path.py` — make `HERMES_WRITE_SAFE_ROOT` support
-  multiple `os.pathsep`-delimited roots (`sandbox.yaml` sets it to
-  `/opt/data:/workspace`); upstream treated the whole value as one literal
-  path, silently denying every `write_file`/`patch` call. Remove once
-  upstream fixes this.
 - `0011-web-extract-capability-check.py` — gate `web_extract` on an
   extract-capable backend (firecrawl/tavily/exa/parallel) rather than the
   shared "any web backend configured" check. We run SearXNG-only

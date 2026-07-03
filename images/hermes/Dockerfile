@@ -33,7 +33,8 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
-    && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
+    && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q \
+    && chmod -R a+rX /opt/hermes/mnemosyne-seed
 # Stable seed digest for init-container reseed-on-change.
 RUN find /opt/hermes/mnemosyne-seed -type f -exec sha256sum {} + \
       | sort -k2 | sha256sum | cut -d' ' -f1 > /opt/hermes/mnemosyne-seed.sha256
@@ -243,14 +244,6 @@ RUN rm -f /tmp/0008-approval-tirith-only-mode.py
 COPY patches/0009-mcp-circuit-breaker-business-errors.py /tmp/0009-mcp-circuit-breaker-business-errors.py
 RUN /opt/hermes/.venv/bin/python /tmp/0009-mcp-circuit-breaker-business-errors.py
 RUN rm -f /tmp/0009-mcp-circuit-breaker-business-errors.py
-
-# Patch agent/file_safety.py so HERMES_WRITE_SAFE_ROOT supports multiple
-# os.pathsep-delimited roots (sandbox.yaml sets it to "/opt/data:/workspace").
-# Upstream treated the whole value as one literal path, silently denying
-# every write_file/patch call. Remove once upstream fixes this.
-COPY patches/0010-write-safe-root-multi-path.py /tmp/0010-write-safe-root-multi-path.py
-RUN /opt/hermes/.venv/bin/python /tmp/0010-write-safe-root-multi-path.py
-RUN rm -f /tmp/0010-write-safe-root-multi-path.py
 
 # Patch tools/web_tools.py so web_extract only registers when an
 # extract-capable backend (firecrawl/tavily/exa/parallel) is configured.

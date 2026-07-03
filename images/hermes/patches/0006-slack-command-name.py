@@ -9,9 +9,9 @@ as /hermes, /aria, or any other name without touching upstream source.
 Three sites are patched:
   1. hermes_cli/commands.py :: slack_native_slashes()
      — the first entry in the list (the catch-all slash)
-  2. gateway/platforms/slack.py :: SlackAdapter.connect()
+  2. plugins/platforms/slack/adapter.py :: SlackAdapter.connect()
      — the fallback regex used when slack_native_slashes() returns empty
-  3. gateway/platforms/slack.py :: SlackAdapter._handle_slash_command()
+  3. plugins/platforms/slack/adapter.py :: SlackAdapter._handle_slash_command()
      — the set literal that identifies the catch-all slash at dispatch time
 
 All three read the same env var at import time so they stay consistent.
@@ -37,7 +37,7 @@ def _find_module_path(module_name: str) -> Path:
 
 
 commands_path = _find_module_path("hermes_cli.commands")
-slack_path = _find_module_path("gateway.platforms.slack")
+slack_path = _find_module_path("plugins.platforms.slack.adapter")
 
 print(f"Patching {commands_path}")
 print(f"Patching {slack_path}")
@@ -100,7 +100,7 @@ _patch(
         '                _fb_name = _os.environ.get("HERMES_SLACK_COMMAND_NAME", "hermes").strip().lower() or "hermes"\n'
         '                _slash_pattern = _re.compile(r"^/" + _re.escape(_fb_name) + r"$")'
     ),
-    description="slack.py: fallback regex in connect()",
+    description="adapter.py: fallback regex in connect()",
 )
 
 
@@ -116,7 +116,7 @@ _patch(
         '        _catch_all = _os.environ.get("HERMES_SLACK_COMMAND_NAME", "hermes").strip().lower() or "hermes"\n'
         '        if slash_name in {_catch_all, ""}:'
     ),
-    description="slack.py: dispatch set in _handle_slash_command()",
+    description="adapter.py: dispatch set in _handle_slash_command()",
 )
 
 

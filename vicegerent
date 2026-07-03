@@ -340,7 +340,9 @@ case "${1:-}" in
       gateway)
         shift
         if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
-          echo "vicegerent test gateway — probe MCP endpoints (auto port-forwards agentgateway, requires vicegerent-mcp running)"
+          echo "vicegerent test gateway [keyword] — probe MCP endpoints (auto port-forwards agentgateway, requires vicegerent-mcp running)"
+          echo "  no keyword: enumerate reachable tools per backend"
+          echo "  keyword:    search find_tool for matching tools (e.g. 'kubernetes', 'context', 'notion')"
           exit 0
         fi
         run_with_portforward "$REPO_ROOT/scripts/test-mcp-gateway.sh" "$@"
