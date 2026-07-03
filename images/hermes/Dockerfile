@@ -5,23 +5,6 @@ FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
-# Offline Mnemosyne seed for the egress-locked sandbox; preserve HF cache layout.
-FROM python:3.14-slim AS mnemosyne-models
-# renovate: datasource=pypi depName=huggingface-hub
-ARG HUGGINGFACE_HUB_VERSION=1.21.0
-RUN pip install --no-cache-dir "huggingface-hub==${HUGGINGFACE_HUB_VERSION}"
-RUN python - <<'PY'
-from huggingface_hub import hf_hub_download, snapshot_download
-hf_hub_download("openbmb/MiniCPM5-1B-GGUF", "MiniCPM5-1B-Q4_K_M.gguf",
-                local_dir="/seed/mnemosyne/models")
-snapshot_download("qdrant/bge-small-en-v1.5-onnx-q",
-                  cache_dir="/seed/cache/fastembed")
-PY
-# Drop GGUF download metadata, keep fastembed's HF cache layout, and fail build if the seed is empty.
-RUN rm -rf /seed/mnemosyne/models/.cache \
-    && test -f /seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
-    && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
-
 # Thin Vicegerent derivation of upstream Hermes Agent.
 FROM nousresearch/hermes-agent:v2027.7.1@sha256:9f367c7756ef087661a361536a89f438d57a122b958dc23d82d456b1433e6e9e
 
@@ -29,14 +12,6 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2027.7.1"
-
-# Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
-COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
-RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
-    && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
-# Stable seed digest for init-container reseed-on-change.
-RUN find /opt/hermes/mnemosyne-seed -type f -exec sha256sum {} + \
-      | sort -k2 | sha256sum | cut -d' ' -f1 > /opt/hermes/mnemosyne-seed.sha256
 
 # shellcheck is required by bash-language-server for diagnostics.
 RUN apt-get update \

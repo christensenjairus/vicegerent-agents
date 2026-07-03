@@ -53,11 +53,14 @@ data:
         "files.pythonhosted.org",
         "github.com",
         "githubusercontent.com",
+        "huggingface.co",
         "httpbin.io",  # echo service — used by the redaction test suite only.
     }
     EXTERNAL_FQDN_WILDCARD_SUFFIXES = (
         ".github.com",
         ".githubusercontent.com",
+        ".aws.cdn.hf.co",  # Hugging Face Xet CDN — large-file download redirects.
+        ".xethub.hf.co",
     )
 
     # Secrets patterns — redacted from request headers and body before forwarding.
