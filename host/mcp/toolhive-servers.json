@@ -8,7 +8,7 @@
       "enabled": false,
       "type": "npx",
       "package": "kubernetes-mcp-server@0.0.63",
-      "server_args": ["--read-only"],
+      "server_args": ["--read-only","--toolsets=config,core,helm"],
       "kind_cluster": "vicegerent",
       "run_flags": ["--network", "vicegerent", "--isolate-network=false"],
       "params": [
