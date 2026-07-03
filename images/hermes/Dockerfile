@@ -227,6 +227,17 @@ COPY patches/0010-write-safe-root-multi-path.py /tmp/0010-write-safe-root-multi-
 RUN /opt/hermes/.venv/bin/python /tmp/0010-write-safe-root-multi-path.py
 RUN rm -f /tmp/0010-write-safe-root-multi-path.py
 
+# Patch tools/web_tools.py so web_extract only registers when an
+# extract-capable backend (firecrawl/tavily/exa/parallel) is configured.
+# We run SearXNG-only (web.search_backend: searxng) — search-only backends
+# pass the shared check_web_api_key() gate, so web_extract was registering
+# and erroring at call time ("SearXNG is a search-only backend...") instead
+# of simply not existing. Remove once upstream gates web_extract on
+# supports_extract() itself (loosely tracked with hermes-agent #19198).
+COPY patches/0011-web-extract-capability-check.py /tmp/0011-web-extract-capability-check.py
+RUN /opt/hermes/.venv/bin/python /tmp/0011-web-extract-capability-check.py
+RUN rm -f /tmp/0011-web-extract-capability-check.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
