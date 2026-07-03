@@ -88,3 +88,8 @@ fix lands upstream. (Numbering is sparse — 0002/0003 were dropped.)
   tripping on business errors (`isError: true` relayed as a JSON `"error"` key); only
   real transport/auth exceptions should count toward the 3-strike "server unreachable"
   block. Remove once upstream lands hermes-agent #47918/#47955 (issues #47851/#11113).
+- `0010-write-safe-root-multi-path.py` — make `HERMES_WRITE_SAFE_ROOT` support
+  multiple `os.pathsep`-delimited roots (`sandbox.yaml` sets it to
+  `/opt/data:/workspace`); upstream treated the whole value as one literal
+  path, silently denying every `write_file`/`patch` call. Remove once
+  upstream fixes this.
