@@ -33,12 +33,20 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   to define an agent/model/MCP live under `apps/base` (agents, gateway, models, mcps);
   standardized controllers (cilium, metrics-server, reloader, agentgateway, agent-sandbox,
   cerbos, mcp-cerbos-shim, host-firewall) live under `infrastructure/controllers`.
-- **The layout is the documentation.** A user creates a new agent by copying `agents/hermes` and a
-  new model/route by copying `models/sonnet`. MCP servers are not in the cluster tree — they run
+- **The layout is the documentation.** A user creates a new agent by copying
+  `apps/personal/agents/hermes` within their machine's overlay, and a new model/route by copying
+  `apps/base/models/anthropic`. MCP servers are not in the cluster tree — they run
   host-side under ToolHive and are declared in `host/mcp/toolhive-servers.json` (the cluster carries
   only the single `mcps/vmcp` backend/route/policy that fronts the host vMCP). Keep names
   self-explanatory and do not add explanatory comment blocks — rationale goes in the MR description,
   not inline.
+- **One repo, one fork, many machines.** Each machine is its own Kind cluster with its own
+  `clusters/<machine>/` (Flux entrypoint + `cluster-vars.yaml`) and `apps/<machine>/` (a thin overlay
+  pulling in `../base` plus that machine's own `agents/`). `apps/base/*` stays the shared,
+  machine-agnostic platform (gateway, models, mcps, searxng). The first machine is
+  `personal`; stand up another by copying the `clusters/personal/` + `apps/personal/` pair, renaming
+  both to the new machine, editing `clusters/<machine>/cluster-vars.yaml`, and running
+  `CLUSTER_NAME=<machine> CLUSTER_PATH=./clusters/<machine> KUBE_CONTEXT=kind-<machine> ./vicegerent cluster setup && ./vicegerent bootstrap`.
 - **Aggressive cleanup is expected.** Delete redundant config, comments, examples, and docs instead
   of preserving them out of habit. Default to **no comment** on config that's self-explanatory from
   its field name/value (e.g. `strategy: RollingUpdate` needs no comment saying it's a rolling update).
@@ -100,13 +108,13 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
 
 ## Command Approval System
 
-Hermes runs with `approvals.mode: smart` (set in `apps/base/agents/hermes/config.yaml`).
+Hermes runs with `approvals.mode: smart` (set in `apps/personal/agents/hermes/config.yaml`).
 Before executing a shell command, the approval pipeline runs in this order:
 
 1. **Hardline block** — unconditional, nothing bypasses it. Covers catastrophic commands
    (`rm -rf /`, disk formatters, fork bomb, system halt). Defined in `tools/approval.py`.
 2. **Silence list** — operator-configured patterns dropped before any LLM sees them.
-   Read from `apps/base/agents/hermes/approval-policy.yaml` (ConfigMap
+   Read from `apps/personal/agents/hermes/approval-policy.yaml` (ConfigMap
    `hermes-approval-policy`, mounted read-only at `/opt/hermes/approval-policy.yaml`).
    Tirith findings and uncancellable patterns (Hermes config escalation, credential writes,
    self-termination) are never silenced.

@@ -36,7 +36,7 @@ normalize_ssh_url() {
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
 REPO_URL="${REPO_URL:-$(normalize_ssh_url "$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null || true)")}"
 BRANCH="${BRANCH:-main}"
-CLUSTER_PATH="${CLUSTER_PATH:-./clusters/vicegerent}"
+CLUSTER_PATH="${CLUSTER_PATH:-./clusters/personal}"
 PRIVATE_KEY_FILE="${PRIVATE_KEY_FILE:-$HOME/.ssh/id_rsa}"
 
 ASSUME_YES=0

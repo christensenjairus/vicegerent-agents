@@ -20,7 +20,7 @@ metadata:
   namespace: flux-system
 spec:
   interval: 10m0s
-  path: ./clusters/vicegerent
+  path: ./clusters/personal
   prune: true
   sourceRef:
     kind: GitRepository

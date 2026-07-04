@@ -1,4 +1,6 @@
 ---
+# Fixtures use the literal project matching cluster-vars.yaml's jiraProjectKey —
+# validate.sh compiles the substituted policy against them, so keep the two in sync.
 name: jira_change_project_block_test
 description: Jira calls targeting a project other than CHANGE are denied (by project_key,
   or by the project prefix of an issue/inward/outward/epic key); calls confined to

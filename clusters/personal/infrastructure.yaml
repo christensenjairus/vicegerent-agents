@@ -99,3 +99,7 @@ spec:
   prune: true
   wait: true
   force: true
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

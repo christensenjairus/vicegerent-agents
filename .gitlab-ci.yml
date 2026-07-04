@@ -32,7 +32,7 @@ validate:pre-commit:
       prefix: validation-cache
       files:
         - .pre-commit-config.yaml
-        - clusters/vicegerent/flux-system/gotk-components.yaml
+        - clusters/personal/flux-system/gotk-components.yaml
     paths:
       - .cache/pre-commit/
       - .flux-crd-schemas/

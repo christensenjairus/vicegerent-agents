@@ -25,6 +25,19 @@ git:
   # seeding ~/.gitconfig, leaving git to fail with "Author identity unknown" until set manually.
   userName: ''
   userEmail: ''
+# Machine-scoped egress allowlist for a direct (port-22) FQDN reached behind dynamic DNS/a CDN
+# (templates/networkpolicy.yaml), set per cluster from cluster-vars.yaml. Cilium's toFQDNs DNS
+# proxy strips a CNAME answer unless every name in the resolution chain is itself allowlisted,
+# so cnameChain (comma-joined) must list every intermediate hostname, not just the one actually
+# queried — applies to any CNAME-chained FQDN, not specifically git. github.com is always
+# allowed and not listed here.
+networkAllowlist:
+  cnameChainedFQDN: ''
+  cnameChain: ''
+  # Port-443 FQDNs allowed direct egress, bypassing the GET-only egress proxy (Slack Socket Mode
+  # needs POST + WebSocket). Empty by default so the bypass list is opt-in per agent, not silently
+  # inherited from this chart default.
+  slackFQDNs: []
 # Personality/voice only. The chart appends a fixed Environment section after this.
 soul: ''
 # Agent config.yaml as a literal YAML string. Merged with defaultConfig and

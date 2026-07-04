@@ -47,16 +47,20 @@ spec:
         - ports:
             - port: '8080'
               protocol: TCP
-    # Public internet — minimal FQDN allowlist.
-    # Add FQDNs here (not hermes policy) when a new external service is needed.
+    # Public-internet allowlist — set apexWildcardDomains/exactOnlyDomains in cluster-vars.yaml
+    # (drives scrub.py from the same source). httpbin.io is hardcoded: redaction-test target only.
     - toFQDNs:
-        - matchName: pypi.org
-        - matchName: files.pythonhosted.org
-        - matchName: github.com
-        - matchPattern: '*.github.com'
-        - matchName: githubusercontent.com
-        - matchPattern: '*.githubusercontent.com'
-        # Public echo service — request-redaction test suite target, not agent use.
+        {{- range (splitList "," .Values.apexWildcardDomains) }}
+        {{- if . }}
+        - matchName: {{ . }}
+        - matchPattern: '*.{{ . }}'
+        {{- end }}
+        {{- end }}
+        {{- range (splitList "," .Values.exactOnlyDomains) }}
+        {{- if . }}
+        - matchName: {{ . }}
+        {{- end }}
+        {{- end }}
         - matchName: httpbin.io
       toPorts:
         - ports:

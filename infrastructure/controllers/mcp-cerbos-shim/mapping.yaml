@@ -170,4 +170,4 @@ backends:
         force:
           parent:
             type: page_id
-            page_id: 1ea588d8909f80edb0cef38d0aeaf64f  # pragma: allowlist secret (Notion page id)
+            page_id: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id, from clusters/personal/cluster-vars.yaml)

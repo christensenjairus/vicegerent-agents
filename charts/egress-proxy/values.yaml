@@ -1,0 +1,5 @@
+---
+# Comma-joined FQDN lists, machine-scoped via cluster-vars.yaml. Empty by default so the
+# allowlist is opt-in per cluster. Both drive the Cilium policy and scrub.py from one source.
+apexWildcardDomains: ''
+exactOnlyDomains: ''
