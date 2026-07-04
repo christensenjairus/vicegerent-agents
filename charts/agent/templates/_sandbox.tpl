@@ -59,6 +59,10 @@ spec:
               llm_dest="/opt/data/home/.hermes/mnemosyne/models"
               marker_dir="/opt/data/.hermes"
               mkdir -p "${fastembed_dest}" "${llm_dest}" "${marker_dir}" /opt/data/plugins /opt/data/.ssh
+{{- if and .Values.git.userName .Values.git.userEmail }}
+              git config --global user.name {{ .Values.git.userName | quote }}
+              git config --global user.email {{ .Values.git.userEmail | quote }}
+{{- end }}
               # Seed egress proxy CA cert so curl, pip, git, and Python requests trust it.
               mkdir -p /opt/data/certs
               # Build combined CA bundle: system CAs + proxy CA.

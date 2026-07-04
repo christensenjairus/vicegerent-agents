@@ -20,6 +20,11 @@ obsidian:
   # Absolute path to a git-synced Obsidian vault under /opt/data or /workspace. Empty disables
   # Obsidian entirely: no env var is set and the Environment section omits Obsidian guidance.
   vaultPath: ''
+git:
+  # Global git identity for commits the agent makes (MRs, vault pushes, etc.). Empty skips
+  # seeding ~/.gitconfig, leaving git to fail with "Author identity unknown" until set manually.
+  userName: ''
+  userEmail: ''
 # Personality/voice only. The chart appends a fixed Environment section after this.
 soul: ''
 # Agent config.yaml as a literal YAML string. Merged with defaultConfig and
