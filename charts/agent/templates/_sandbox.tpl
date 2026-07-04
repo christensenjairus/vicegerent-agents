@@ -13,8 +13,9 @@ spec:
       labels:
         vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
       annotations:
-        # data opts out of FSB so Velero routes it to CSI snapshot; the rest are
-        # reclonable/reseeded or emptyDir and get no backup (not on a CSI StorageClass).
+        # data/gitrepos/models are all on the CSI StorageClass now, so excluding them from
+        # Velero's file-system-backup path routes them to CSI snapshot instead (not "no backup").
+        # runtime/tmp are emptyDir and genuinely get no backup either way.
         backup.velero.io/backup-volumes-excludes: gitrepos,models,runtime,tmp,data
     spec:
       automountServiceAccountToken: false
@@ -433,6 +434,7 @@ spec:
         name: gitrepos
       spec:
         accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storage.gitreposStorageClassName }}
         resources:
           requests:
             storage: {{ .Values.storage.gitrepos }}
@@ -440,6 +442,7 @@ spec:
         name: models
       spec:
         accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storage.modelsStorageClassName }}
         resources:
           requests:
             storage: {{ .Values.storage.models }}
