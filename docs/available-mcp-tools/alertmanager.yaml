@@ -1,0 +1,95 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 12
+servers:
+  alertmanager:
+    tool_count: 12
+    tools:
+      correlateAlerts:
+        description: "Find correlated alerts that share common labels (namespace, pod, node). Helps identify related issues during incidents."
+        arguments: {}
+      createSilence:
+        description: "Create a silence for an alert. Duration format: '30m', '2h', '1d'. Max 30 days."
+        arguments:
+          alertName:
+            type: "string"
+            required: true
+            description: "Alert name to silence"
+          comment:
+            type: "string"
+            required: false
+            description: "Reason for silence (default: 'Silenced via MCP')"
+          createdBy:
+            type: "string"
+            required: false
+            description: "Creator name (default: 'mcp-alertmanager')"
+          duration:
+            type: "string"
+            required: false
+            description: "Duration: '30m', '2h', '1d' (default: 2h)"
+      deleteSilence:
+        description: "Delete a silence by ID. Get ID from getSilences output."
+        arguments:
+          silenceId:
+            type: "string"
+            required: true
+            description: "Silence UUID"
+      getAlertGroups:
+        description: "Get alerts grouped by routing labels. Shows how alerts are batched for notifications."
+        arguments: {}
+      getAlertHistory:
+        description: "Get alert history for a specific alert. Shows current/recent instances and guidance for historical analysis."
+        arguments:
+          alertName:
+            type: "string"
+            required: true
+            description: "Alert name to get history for"
+      getAlertingSummary:
+        description: "Get alerting summary: counts by severity, top alerts, affected namespaces."
+        arguments: {}
+      getAlertmanagerStatus:
+        description: "Get Alertmanager server status: version, uptime, cluster info."
+        arguments: {}
+      getAlerts:
+        description: "Get alerts from Alertmanager. Returns active alerts by default. Filter by: active, silenced, inhibited, or label (e.g., 'severity=critical')."
+        arguments:
+          active:
+            type: "string"
+            required: false
+            description: "Include active alerts (true/false)"
+          filterLabel:
+            type: "string"
+            required: false
+            description: "Label filter: 'key=value'"
+          inhibited:
+            type: "string"
+            required: false
+            description: "Include inhibited alerts (true/false)"
+          silenced:
+            type: "string"
+            required: false
+            description: "Include silenced alerts (true/false)"
+      getCriticalAlerts:
+        description: "Get critical severity alerts only. Prioritized for incident response."
+        arguments: {}
+      getReceivers:
+        description: "List configured notification receivers (Slack, email, PagerDuty, etc.)."
+        arguments: {}
+      getSilences:
+        description: "List silences. Filter by state: 'active', 'pending', 'expired', or omit for all."
+        arguments:
+          state:
+            type: "string"
+            required: false
+            description: "State: 'active', 'pending', 'expired'"
+      investigateAlert:
+        description: "Investigate an alert: all instances, duration, labels, silences, recommendations."
+        arguments:
+          alertName:
+            type: "string"
+            required: true
+            description: "Alert name to investigate"

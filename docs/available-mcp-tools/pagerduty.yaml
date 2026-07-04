@@ -1,0 +1,479 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 64
+servers:
+  pagerduty:
+    tool_count: 64
+    tools:
+      list_alert_grouping_settings:
+        description: "List all alert grouping settings with optional filtering. Args: query_model: Optional filtering parameters Returns: List of alert grouping settings matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_alert_grouping_setting:
+        description: "Get details for a specific alert grouping setting. Args: setting_id: The ID of the alert grouping setting to retrieve Returns: Alert grouping setting details"
+        arguments:
+          setting_id:
+            type: "string"
+            required: true
+      list_alerts_from_incident:
+        description: "List alerts for a specific incident. Args: incident_id: The ID of the incident query_model: Query parameters for pagination Returns: List of Alert objects for the incident"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+      get_alert_from_incident:
+        description: "Get a specific alert from an incident. Args: incident_id: The ID of the incident alert_id: The ID of the alert Returns: Alert details"
+        arguments:
+          alert_id:
+            type: "string"
+            required: true
+          incident_id:
+            type: "string"
+            required: true
+      list_change_events:
+        description: "List all change events with optional filtering. Change Events represent changes to systems, services, and applications that can be correlated with incidents to provide context for troubleshooting. Args: query_model: Query parameters for filtering change events Returns: List of ChangeEvent objects matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_change_event:
+        description: "Get details about a specific change event. Args: change_event_id: The ID of the change event to retrieve Returns: ChangeEvent details"
+        arguments:
+          change_event_id:
+            type: "string"
+            required: true
+      list_service_change_events:
+        description: "List all change events for a specific service. Args: service_id: The ID of the service query_model: Query parameters for filtering change events Returns: List of ChangeEvent objects associated with the service"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+          service_id:
+            type: "string"
+            required: true
+      list_incident_change_events:
+        description: "List change events related to a specific incident. Args: incident_id: The ID of the incident limit: Maximum number of results to return (optional) Returns: List of ChangeEvent objects related to the incident"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          limit:
+            type: "integer|null"
+            required: false
+      list_incidents:
+        description: "List incidents with optional filtering. Args: query_model: Optional filtering parameters Returns: List of Incident objects matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_incident:
+        description: "Get a specific incident. Args: incident_id: The ID or number of the incident to retrieve. Returns: Incident details"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+      get_outlier_incident:
+        description: "Get Outlier Incident information for a given Incident on its Service. Outlier Incident returns incident that deviates from the expected patterns for the same Service. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get outlier incident information for query_model: Query parameters including date range and additional details Returns: Outlier incident information calculated over the same Service as the given Incident"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+      get_past_incidents:
+        description: "Get Past Incidents related to a specific incident ID. Past Incidents returns Incidents within the past 6 months that have similar metadata and were generated on the same Service as the parent Incident. By default, 5 Past Incidents are returned. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get past incidents for query_model: Query parameters including limit and total flag Returns: List of past incidents with similarity scores"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+      get_related_incidents:
+        description: "Get Related Incidents for a specific incident ID. Returns the 20 most recent Related Incidents that are impacting other Responders and Services. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get related incidents for query_model: Query parameters including additional details Returns: List of related incidents and their relationships"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+      list_incident_notes:
+        description: "List all notes for a specific incident. Args: incident_id: The ID of the incident to retrieve notes from Returns: List of IncidentNote objects for the specified incident"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+      list_incident_workflows:
+        description: "List incident workflows with optional filtering. Args: query_model: Optional filtering parameters. If None, returns the first page with default limit of 100. Returns: List of IncidentWorkflow objects matching the query parameters"
+        arguments:
+          query_model:
+            type: "?|null"
+            required: false
+      get_incident_workflow:
+        description: "Get a specific incident workflow. Args: workflow_id: The ID of the incident workflow to retrieve Returns: IncidentWorkflow details"
+        arguments:
+          workflow_id:
+            type: "string"
+            required: true
+      list_services:
+        description: "List all services. Args: query_model: Optional filtering parameters Returns: List of services matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_service:
+        description: "Get details for a specific service. Args: service_id: The ID of the service to retrieve Returns: The service details"
+        arguments:
+          service_id:
+            type: "string"
+            required: true
+      list_teams:
+        description: "List teams based on the provided query model. Args: query_model: The model containing the query parameters Returns: List of teams."
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_team:
+        description: "Get a specific team. Args: team_id: The ID or name of the team to retrieve Returns: Team details"
+        arguments:
+          team_id:
+            type: "string"
+            required: true
+      list_team_members:
+        description: "List members of a team. Args: team_id: The ID of the team Returns: List of UserReference objects"
+        arguments:
+          team_id:
+            type: "string"
+            required: true
+      get_user_data:
+        description: "Get the current user's data. Returns: User: User name, role, id, and summary and teams"
+        arguments: {}
+      list_users:
+        description: "List users, optionally filtering by name (query) and team IDs. Args: query_model: Optional filtering parameters Returns: List of users matching the criteria."
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      list_schedules:
+        description: "List schedules with optional filtering. Returns: List of schedules matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_schedule:
+        description: "Get a specific schedule by ID. Args: schedule_id: The ID of the schedule to retrieve Returns: Schedule details"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+      list_schedule_users:
+        description: "List users in a schedule. Args: schedule_id: The ID of the schedule Returns: List of users in the schedule"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+      list_oncalls:
+        description: "List on-call schedules with optional filtering. Returns: List of on-call schedules matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      list_log_entries:
+        description: "List all log entries across the account. Log entries are records of all events on your account. This function allows you to filter log entries by time range and paginate through results. If no time range is specified, defaults to the last 7 days. Args: query_model: Query parameters including since, until, limit, and offset Returns: List of LogEntry objects matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_log_entry:
+        description: "Get a specific log entry by ID. Args: log_entry_id: The ID of the log entry Returns: LogEntry details"
+        arguments:
+          log_entry_id:
+            type: "string"
+            required: true
+      list_escalation_policies:
+        description: "List escalation policies with optional filtering. Returns: List of escalation policies matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_escalation_policy:
+        description: "Get a specific escalation policy. Args: policy_id: The ID of the escalation policy to retrieve Returns: Escalation policy details"
+        arguments:
+          policy_id:
+            type: "string"
+            required: true
+      list_event_orchestrations:
+        description: "List event orchestrations with optional filtering. Args: query_model: Optional filtering parameters Returns: List of event orchestrations matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      get_event_orchestration:
+        description: "Get details for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to retrieve Returns: The event orchestration details"
+        arguments:
+          orchestration_id:
+            type: "string"
+            required: true
+      get_event_orchestration_router:
+        description: "Get the router configuration for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to retrieve router for Returns: The event orchestration router configuration"
+        arguments:
+          orchestration_id:
+            type: "string"
+            required: true
+      get_event_orchestration_service:
+        description: "Get the Service Orchestration configuration for a specific service. Args: service_id: The ID of the service to retrieve the orchestration configuration for Returns: The service orchestration configuration"
+        arguments:
+          service_id:
+            type: "string"
+            required: true
+      get_event_orchestration_global:
+        description: "Get the Global Orchestration configuration for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to retrieve global configuration for Returns: The global orchestration configuration"
+        arguments:
+          orchestration_id:
+            type: "string"
+            required: true
+      list_status_pages:
+        description: "List Status Pages with optional filtering. Args: query_model: Optional filtering parameters Returns: List of StatusPage objects matching the query parameters"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+      list_status_page_severities:
+        description: "List Severities for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageSeverity objects for the given Status Page"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      list_status_page_impacts:
+        description: "List Impacts for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageImpact objects for the given Status Page"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      list_status_page_statuses:
+        description: "List Statuses for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageStatus objects for the given Status Page"
+        arguments:
+          query_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      get_status_page_post:
+        description: "Get a Post for a Status Page by Status Page ID and Post ID. Args: status_page_id: The ID of the Status Page post_id: The ID of the Status Page Post query_model: Optional query parameters (e.g., include related resources) Returns: StatusPagePost details"
+        arguments:
+          post_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      list_status_page_post_updates:
+        description: "List Post Updates for a Status Page by Status Page ID and Post ID. Args: status_page_id: The ID of the Status Page post_id: The ID of the Status Page Post query_model: Optional filtering parameters Returns: List of StatusPagePostUpdate objects for the given Post"
+        arguments:
+          post_id:
+            type: "string"
+            required: true
+          query_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      create_alert_grouping_setting:
+        description: "Create a new alert grouping setting. Args: create_model: The alert grouping setting creation request Returns: The created alert grouping setting"
+        arguments:
+          create_model:
+            type: ""
+            required: true
+      update_alert_grouping_setting:
+        description: "Update an existing alert grouping setting. Args: setting_id: The ID of the alert grouping setting to update update_model: The alert grouping setting update request Returns: The updated alert grouping setting"
+        arguments:
+          setting_id:
+            type: "string"
+            required: true
+          update_model:
+            type: ""
+            required: true
+      delete_alert_grouping_setting:
+        description: "Delete an alert grouping setting. Args: setting_id: The ID of the alert grouping setting to delete Returns: None (successful deletion returns no content)"
+        arguments:
+          setting_id:
+            type: "string"
+            required: true
+      create_incident:
+        description: "Create an incident. Returns: The created incident"
+        arguments:
+          create_model:
+            type: ""
+            required: true
+      manage_incidents:
+        description: "Manage one or more incidents by changing its status, urgency, assignment, or escalation level. Use this tool when you want to bulk update incidents. Args: manage_request: The request model containing the incident IDs and the fields to update (status, urgency, assignment, escalation level) Returns: The updated incident"
+        arguments:
+          manage_request:
+            type: ""
+            required: true
+      add_responders:
+        description: "Add responders to an incident. Args: incident_id: The ID of the incident to add responders to request: The responder request data containing user IDs and optional message ctx: The context containing the request information Returns: Details of the responder request"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          request:
+            type: ""
+            required: true
+      add_note_to_incident:
+        description: "Add a note to an incident. Args: incident_id: The ID of the incident to add a note to note: The note text to be added Returns: The updated incident with the new note"
+        arguments:
+          incident_id:
+            type: "string"
+            required: true
+          note:
+            type: "string"
+            required: true
+      start_incident_workflow:
+        description: "Start an incident workflow instance. Args: workflow_id: The ID of the workflow to start instance_request: The workflow instance request containing incident reference Returns: The created IncidentWorkflowInstance"
+        arguments:
+          instance_request:
+            type: ""
+            required: true
+          workflow_id:
+            type: "string"
+            required: true
+      create_service:
+        description: "Create a new service. Args: service_data: The data for the new service. Do not include the ID in the data since it is auto-generated. Always include the summary field for all references if available. Returns: The created service"
+        arguments:
+          service_data:
+            type: ""
+            required: true
+      update_service:
+        description: "Update an existing service. Args: service_id: The ID of the service to update service_data: The updated service data Returns: The updated service"
+        arguments:
+          service_data:
+            type: ""
+            required: true
+          service_id:
+            type: "string"
+            required: true
+      create_team:
+        description: "Create a team. Returns: The created team."
+        arguments:
+          create_model:
+            type: ""
+            required: true
+      update_team:
+        description: "Update a team. Args: team_id: The ID of the team to update update_model: The model containing the updated team data Returns: The updated team"
+        arguments:
+          team_id:
+            type: "string"
+            required: true
+          update_model:
+            type: ""
+            required: true
+      delete_team:
+        description: "Delete a team. Args: team_id: The ID of the team to delete"
+        arguments:
+          team_id:
+            type: "string"
+            required: true
+      add_team_member:
+        description: "Add a user to a team. Args: team_id: The ID of the team to add the user to member_data: Object containing the user ID and role to add to the team Returns: The API response confirming the addition"
+        arguments:
+          member_data:
+            type: ""
+            required: true
+          team_id:
+            type: "string"
+            required: true
+      remove_team_member:
+        description: "Remove a user from a team. Args: team_id: The ID of the team to remove the user from user_id: The ID of the user to remove"
+        arguments:
+          team_id:
+            type: "string"
+            required: true
+          user_id:
+            type: "string"
+            required: true
+      create_schedule:
+        description: "Create a new on-call schedule. Args: create_model: The schedule creation data Returns: The created schedule"
+        arguments:
+          create_model:
+            type: ""
+            required: true
+      create_schedule_override:
+        description: "Create an override for a schedule. Args: schedule_id: The ID of the schedule to override override_request: Data for the schedule override Returns: The created schedule override"
+        arguments:
+          override_request:
+            type: ""
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      update_schedule:
+        description: "Update an existing schedule. Args: schedule_id: The ID of the schedule to update update_model: The updated schedule data Returns: The updated schedule"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+          update_model:
+            type: ""
+            required: true
+      update_event_orchestration_router:
+        description: "Update the router configuration for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to update router for router_update: The updated router configuration Returns: The updated event orchestration router configuration"
+        arguments:
+          orchestration_id:
+            type: "string"
+            required: true
+          router_update:
+            type: ""
+            required: true
+      append_event_orchestration_router_rule:
+        description: "Append a new routing rule to the end of an event orchestration's router rules. This function first retrieves the current router configuration, appends the new rule to the existing rules array, and then updates the router configuration. Args: orchestration_id: The ID of the event orchestration to append rule to new_rule: The new rule configuration to append Returns: The updated event orchestration router configuration with the new rule appended"
+        arguments:
+          new_rule:
+            type: ""
+            required: true
+          orchestration_id:
+            type: "string"
+            required: true
+      create_status_page_post:
+        description: "Create a Post for a Status Page by Status Page ID. This tool creates a new post (incident or maintenance) on a status page. According to the PagerDuty API, all posts require starts_at, ends_at, and at least one update. Args: status_page_id: The ID of the Status Page create_model: The post creation request. Must include: - post.title: The title of the post - post.post_type: Either \"incident\" or \"maintenance\" - post.starts_at: When the post becomes effective (required) - post.ends_at: When the post is concluded (required) - post.updates: List of at least one post update with message, status, severity, etc. Returns: The created StatusPagePost"
+        arguments:
+          create_model:
+            type: ""
+            required: true
+          status_page_id:
+            type: "string"
+            required: true
+      create_status_page_post_update:
+        description: "Create a Post Update for a Post by Post ID. This tool adds a new update to an existing status page post. Args: status_page_id: The ID of the Status Page post_id: The ID of the Status Page Post create_model: The post update creation request. Must include: - post_update.message: The message text for the update - post_update.status: Status reference (required) - post_update.severity: Severity reference (required) - post_update.post: Post reference (required) Optional fields with defaults: - post_update.impacted_services: List of impacted services (defaults to empty list) - post_update.notify_subscribers: Whether to notify subscribers (defaults to False) - post_update.update_frequency_ms: Update frequency in milliseconds (defaults to null) Returns: The created StatusPagePostUpdate"
+        arguments:
+          create_model:
+            type: ""
+            required: true
+          post_id:
+            type: "string"
+            required: true
+          status_page_id:
+            type: "string"
+            required: true

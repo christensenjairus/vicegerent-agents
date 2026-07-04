@@ -1,0 +1,239 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 12
+servers:
+  jira:
+    tool_count: 12
+    tools:
+      jira_get_issue:
+        description: "Get details of a specific Jira issue including its Epic links and relationship information. Args: ctx: The FastMCP context. issue_key: Jira issue key. fields: Comma-separated list of fields to return (e.g., 'summary,status,customfield_10010'), a single field as a string (e.g., 'duedate'), '*all' for all fields, or omitted for essentials. expand: Optional fields to expand. comment_limit: Maximum number of comments. properties: Issue properties to return. update_history: Whether to update issue view history. Returns: JSON string representing the Jira issue object. Raises: ValueError: If the Jira client is not configured or available."
+        arguments:
+          comment_limit:
+            type: "integer"
+            required: false
+            description: "Maximum number of comments to include (0 or null for no comments)"
+          expand:
+            type: "string"
+            required: false
+            description: "(Optional) Fields to expand. Examples: 'renderedFields' (for rendered content), 'transitions' (for available status transitions), 'changelog' (for history)"
+          fields:
+            type: "string"
+            required: false
+            description: "(Optional) Comma-separated list of fields to return (e.g., 'summary,status,customfield_10010'). You may also provide a single field as a string (e.g., 'duedate'). Use '*all' for all fields (including custom fields), or omit for essential fields only."
+          issue_key:
+            type: "string"
+            required: true
+            description: "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"
+          properties:
+            type: "string"
+            required: false
+            description: "(Optional) A comma-separated list of issue properties to return"
+          update_history:
+            type: "boolean"
+            required: false
+            description: "Whether to update the issue view history for the requesting user"
+      jira_search:
+        description: "Search Jira issues using JQL (Jira Query Language). Args: ctx: The FastMCP context. jql: JQL query string. fields: Comma-separated fields to return. limit: Maximum number of results. start_at: Starting index for pagination. projects_filter: Comma-separated list of project keys to filter by. expand: Optional fields to expand. page_token: Pagination token from a previous search result (Cloud only). Returns: JSON string representing the search results including pagination info."
+        arguments:
+          expand:
+            type: "string"
+            required: false
+            description: "(Optional) fields to expand. Examples: 'renderedFields', 'transitions', 'changelog'"
+          fields:
+            type: "string"
+            required: false
+            description: "(Optional) Comma-separated fields to return in the results. Use '*all' for all fields, or specify individual fields like 'summary,status,assignee,priority'"
+          jql:
+            type: "string"
+            required: true
+            description: "JQL query string (Jira Query Language). Examples: - Find Epics: \"issuetype = Epic AND project = PROJ\" - Find issues in Epic: \"parent = PROJ-123\" - Find by status: \"status = 'In Progress' AND project = PROJ\" - Find by assignee: \"assignee = currentUser()\" - Find recently updated: \"updated >= -7d AND project = PROJ\" - Find by label: \"labels = frontend AND project = PROJ\" - Find by priority: \"priority = High AND project = PROJ\""
+          limit:
+            type: "integer"
+            required: false
+            description: "Maximum number of results (1-50)"
+          page_token:
+            type: "string"
+            required: false
+            description: "(Optional) Pagination token from a previous search result. Cloud only \u2014 Server/DC uses start_at for pagination."
+          projects_filter:
+            type: "string"
+            required: false
+            description: "(Optional) Comma-separated list of project keys to filter results by. Overrides the environment variable JIRA_PROJECTS_FILTER if provided."
+          start_at:
+            type: "integer"
+            required: false
+            description: "Starting index for pagination (0-based)"
+      jira_search_fields:
+        description: "Search Jira fields by keyword with fuzzy match. Args: ctx: The FastMCP context. keyword: Keyword for fuzzy search. limit: Maximum number of results. refresh: Whether to force refresh the field list. Returns: JSON string representing a list of matching field definitions."
+        arguments:
+          keyword:
+            type: "string"
+            required: false
+            description: "Keyword for fuzzy search. If left empty, lists the first 'limit' available fields in their default order."
+          limit:
+            type: "integer"
+            required: false
+            description: "Maximum number of results"
+          refresh:
+            type: "boolean"
+            required: false
+            description: "Whether to force refresh the field list"
+      jira_get_project_issues:
+        description: "Get all issues for a specific Jira project. Args: ctx: The FastMCP context. project_key: The project key. limit: Maximum number of results. start_at: Starting index for pagination. Returns: JSON string representing the search results including pagination info."
+        arguments:
+          limit:
+            type: "integer"
+            required: false
+            description: "Maximum number of results (1-50)"
+          project_key:
+            type: "string"
+            required: true
+            description: "Jira project key (e.g., 'PROJ', 'ACV2')"
+          start_at:
+            type: "integer"
+            required: false
+            description: "Starting index for pagination (0-based)"
+      jira_get_transitions:
+        description: "Get available status transitions for a Jira issue. Args: ctx: The FastMCP context. issue_key: Jira issue key. Returns: JSON string representing a list of available transitions."
+        arguments:
+          issue_key:
+            type: "string"
+            required: true
+            description: "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"
+      jira_get_link_types:
+        description: "Get all available issue link types. Args: ctx: The FastMCP context. name_filter: Optional substring to filter link types by name. Returns: JSON string representing a list of issue link type objects."
+        arguments:
+          name_filter:
+            type: "string"
+            required: false
+            description: "(Optional) Filter link types by name substring (case-insensitive)"
+      jira_create_issue:
+        description: "Create a new Jira issue with optional Epic link or parent for subtasks. Args: ctx: The FastMCP context. project_key: The JIRA project key. summary: Summary/title of the issue. issue_type: Issue type (e.g., 'Task', 'Bug', 'Story', 'Epic', 'Subtask'). assignee: Assignee's user identifier (string): Email, display name, or account ID (e.g., 'user@example.com', 'John Doe', 'accountid:...'). description: Issue description in Markdown format. components: Comma-separated list of component names. additional_fields: JSON string of additional fields. Returns: JSON string representing the created issue object. Raises: ValueError: If in read-only mode or Jira client is unavailable."
+        arguments:
+          additional_fields:
+            type: "string"
+            required: false
+            description: "(Optional) JSON string of additional fields to set. Examples: - Set priority: {\"priority\": {\"name\": \"High\"}} - Add labels: {\"labels\": [\"frontend\", \"urgent\"]} - Link to parent (for any issue type): {\"parent\": \"PROJ-123\"} - Link to epic: {\"epicKey\": \"EPIC-123\"} or {\"epic_link\": \"EPIC-123\"} - Set Fix Version/s: {\"fixVersions\": [{\"id\": \"10020\"}]} - Custom fields: {\"customfield_10010\": \"value\"}"
+          assignee:
+            type: "string"
+            required: false
+            description: "(Optional) Assignee's user identifier (string): Email, display name, or account ID (e.g., 'user@example.com', 'John Doe', 'accountid:...')"
+          components:
+            type: "string"
+            required: false
+            description: "(Optional) Comma-separated list of component names to assign (e.g., 'Frontend,API')"
+          description:
+            type: "string"
+            required: false
+            description: "Issue description in Markdown format"
+          issue_type:
+            type: "string"
+            required: true
+            description: "Issue type (e.g. 'Task', 'Bug', 'Story', 'Epic', 'Subtask'). The available types depend on your project configuration. For subtasks, use 'Subtask' (not 'Sub-task') and include parent in additional_fields."
+          project_key:
+            type: "string"
+            required: true
+            description: "The JIRA project key (e.g. 'PROJ', 'DEV', 'ACV2'). This is the prefix of issue keys in your project. Never assume what it might be, always ask the user."
+          summary:
+            type: "string"
+            required: true
+            description: "Summary/title of the issue"
+      jira_update_issue:
+        description: "Update an existing Jira issue including changing status, adding Epic links, updating fields, etc. Args: ctx: The FastMCP context. issue_key: Jira issue key. fields: JSON string of fields to update. Text fields like 'description' should use Markdown format. additional_fields: Optional JSON string of additional fields. components: Comma-separated list of component names. attachments: Optional JSON array string or comma-separated list of file paths. Returns: JSON string representing the updated issue object and attachment results. Raises: ValueError: If in read-only mode or Jira client unavailable, or invalid input."
+        arguments:
+          additional_fields:
+            type: "string"
+            required: false
+            description: "(Optional) JSON string of additional fields to update. Use this for custom fields or more complex updates. Link to epic: {\"epicKey\": \"EPIC-123\"} or {\"epic_link\": \"EPIC-123\"}."
+          attachments:
+            type: "string"
+            required: false
+            description: "(Optional) JSON string array or comma-separated list of file paths to attach to the issue. Example: '/path/to/file1.txt,/path/to/file2.txt' or ['/path/to/file1.txt','/path/to/file2.txt']"
+          components:
+            type: "string"
+            required: false
+            description: "(Optional) Comma-separated list of component names (e.g., 'Frontend,API')"
+          fields:
+            type: "string"
+            required: true
+            description: "JSON string of fields to update. For 'assignee', provide a string identifier (email, name, or accountId). For 'description', provide text in Markdown format. Example: '{\"assignee\": \"user@example.com\", \"summary\": \"New Summary\", \"description\": \"## Updated\\nMarkdown text\"}'"
+          issue_key:
+            type: "string"
+            required: true
+            description: "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"
+      jira_add_comment:
+        description: "Add a comment to a Jira issue. Args: ctx: The FastMCP context. issue_key: Jira issue key. body: Comment text in Markdown. visibility: (Optional) Comment visibility as JSON string. public: (Optional) For JSM issues. True = customer-visible, False = internal/agent-only. Uses ServiceDesk API. Returns: JSON string representing the added comment object. Raises: ValueError: If in read-only mode or Jira client unavailable."
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "Comment text in Markdown format"
+          issue_key:
+            type: "string"
+            required: true
+            description: "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"
+          public:
+            type: "boolean"
+            required: false
+            description: "(Optional) For JSM/Service Desk issues only. Set to true for customer-visible comment, false for internal agent-only comment. Uses the ServiceDesk API (plain text, not Markdown). Cannot be combined with visibility."
+          visibility:
+            type: "string"
+            required: false
+            description: "(Optional) Comment visibility as JSON string (e.g. '{\"type\":\"group\",\"value\":\"jira-users\"}')"
+      jira_link_to_epic:
+        description: "Link an existing issue to an epic. Args: ctx: The FastMCP context. issue_key: The key of the issue to link. epic_key: The key of the epic to link to. Returns: JSON string representing the updated issue object. Raises: ValueError: If in read-only mode or Jira client unavailable."
+        arguments:
+          epic_key:
+            type: "string"
+            required: true
+            description: "The key of the epic to link to (e.g., 'PROJ-456')"
+          issue_key:
+            type: "string"
+            required: true
+            description: "The key of the issue to link (e.g., 'PROJ-123', 'ACV2-642')"
+      jira_create_issue_link:
+        description: "Create a link between two Jira issues. Args: ctx: The FastMCP context. link_type: The type of link (e.g., 'Blocks'). inward_issue_key: The key of the source issue. outward_issue_key: The key of the target issue. comment: Optional comment text. comment_visibility: Optional JSON string for comment visibility. Returns: JSON string indicating success or failure. Raises: ValueError: If required fields are missing, invalid input, in read-only mode, or Jira client unavailable."
+        arguments:
+          comment:
+            type: "string"
+            required: false
+            description: "(Optional) Comment to add to the link"
+          comment_visibility:
+            type: "string"
+            required: false
+            description: "(Optional) Visibility settings for the comment as JSON string (e.g. '{\"type\":\"group\",\"value\":\"jira-users\"}')"
+          inward_issue_key:
+            type: "string"
+            required: true
+            description: "The key of the inward issue (e.g., 'PROJ-123', 'ACV2-642')"
+          link_type:
+            type: "string"
+            required: true
+            description: "The type of link to create (e.g., 'Duplicate', 'Blocks', 'Relates to')"
+          outward_issue_key:
+            type: "string"
+            required: true
+            description: "The key of the outward issue (e.g., 'PROJ-456')"
+      jira_transition_issue:
+        description: "Transition a Jira issue to a new status. Args: ctx: The FastMCP context. issue_key: Jira issue key. transition_id: ID of the transition. fields: Optional JSON string of fields to update during transition. comment: Optional comment for the transition in Markdown format. Returns: JSON string representing the updated issue object. Raises: ValueError: If required fields missing, invalid input, in read-only mode, or Jira client unavailable."
+        arguments:
+          comment:
+            type: "string"
+            required: false
+            description: "(Optional) Comment to add during the transition in Markdown format. This will be visible in the issue history."
+          fields:
+            type: "string"
+            required: false
+            description: "(Optional) JSON string of fields to update during the transition. Some transitions require specific fields to be set (e.g., resolution). Example: '{\"resolution\": {\"name\": \"Fixed\"}}'"
+          issue_key:
+            type: "string"
+            required: true
+            description: "Jira issue key (e.g., 'PROJ-123', 'ACV2-642')"
+          transition_id:
+            type: "string"
+            required: true
+            description: "ID of the transition to perform. Use the jira_get_transitions tool first to get the available transition IDs for the issue. Example values: '11', '21', '31'"
