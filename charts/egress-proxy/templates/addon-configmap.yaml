@@ -49,15 +49,24 @@ data:
     # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
     EXTERNAL_FQDN_ALLOWLIST = {
-        "pypi.org",
-        "files.pythonhosted.org",
-        "github.com",
-        "githubusercontent.com",
+        {{- range (splitList "," .Values.apexWildcardDomains) }}
+        {{- if . }}
+        "{{ . }}",
+        {{- end }}
+        {{- end }}
+        {{- range (splitList "," .Values.exactOnlyDomains) }}
+        {{- if . }}
+        "{{ . }}",
+        {{- end }}
+        {{- end }}
         "httpbin.io",  # echo service — used by the redaction test suite only.
     }
     EXTERNAL_FQDN_WILDCARD_SUFFIXES = (
-        ".github.com",
-        ".githubusercontent.com",
+        {{- range (splitList "," .Values.apexWildcardDomains) }}
+        {{- if . }}
+        ".{{ . }}",
+        {{- end }}
+        {{- end }}
     )
 
     # Secrets patterns — redacted from request headers and body before forwarding.

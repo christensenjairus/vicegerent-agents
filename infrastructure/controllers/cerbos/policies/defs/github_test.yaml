@@ -1,4 +1,6 @@
 ---
+# Fixtures use literal repos matching cluster-vars.yaml's githubAllowedRepos —
+# validate.sh compiles the substituted policy against them, so keep the two in sync.
 name: github_repo_allowlist_block_test
 description: GitHub calls targeting a repo outside the allowlist are denied; calls
   confined to an allowed owner/repo are allowed.

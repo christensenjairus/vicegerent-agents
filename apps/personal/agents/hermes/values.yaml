@@ -10,6 +10,14 @@ obsidian:
 git:
   userName: felix
   userEmail: felix@hahomelabs.com
+networkAllowlist:
+  cnameChainedFQDN: ${cnameChainedFQDN}
+  cnameChain: ${cnameChain}
+  slackFQDNs:
+    - slack.com
+    - wss-primary.slack.com
+    - wss-backup.slack.com
+    - files.slack.com
 config: |-
   model:
     provider: anthropic

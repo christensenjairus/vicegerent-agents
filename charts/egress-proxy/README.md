@@ -71,9 +71,10 @@ The proxy checks the HTTP *method*, not the *URL path* or *response content*. A 
 to any allowed FQDN succeeds regardless of path. This is intentional — path-based
 policy requires constant maintenance and breaks legitimate use cases.
 
-**Mitigation**: The Cilium FQDN allowlist (`egress-proxy/networkpolicy.yaml` for
-proxied destinations) is the destination gate. Only explicitly listed FQDNs are
-reachable. Add FQDNs there, not URL path rules.
+**Mitigation**: The Cilium FQDN allowlist (rendered into
+`charts/egress-proxy/templates/networkpolicy.yaml`) is the destination gate. Only
+explicitly listed FQDNs are reachable. Add FQDNs in `cluster-vars.yaml`, not URL path
+rules — see [Adding a new external service](#adding-a-new-external-service).
 
 ### Sophisticated GET exfiltration
 A URL within the 2048-char limit can still carry meaningful data in query strings or
@@ -90,8 +91,9 @@ scrubbing additionally covers Bearer, Basic, and `x-api-key`/`api-key` schemes).
 Anthropic/OpenAI API keys and other credentials carried in a request body or query
 string are NOT currently scrubbed and pass through.
 
-**To add a pattern**: edit `REDACT_PATTERNS` in `addon-configmap.yaml`. Regex patterns
-only. For verbatim secret values, see below.
+**To add a pattern**: edit `REDACT_PATTERNS` in
+`charts/egress-proxy/templates/addon-configmap.yaml`. Regex patterns only. For verbatim
+secret values, see below.
 
 **To scrub a literal secret value**: there is currently no mechanism to inject runtime
 secret values into the proxy for scrubbing. Adding this requires mounting the secret
@@ -104,8 +106,9 @@ deploy key's scope (read-only vs read-write, per-repo vs org-wide) is the contro
 
 ### Slack traffic
 Four specific Slack FQDNs are allowed direct (bypassing the proxy) via the **hermes**
-Cilium policy (`apps/base/agents/hermes/networkpolicy.yaml`) and `no_proxy` in
-`sandbox.yaml`. Slack Socket Mode requires POST and WebSocket — both blocked by the
+Cilium policy (`charts/agent/templates/networkpolicy.yaml`, FQDNs set through
+`networkAllowlist.slackFQDNs` in `apps/personal/agents/hermes/values.yaml`) and `no_proxy`
+in `sandbox.yaml`. Slack Socket Mode requires POST and WebSocket — both blocked by the
 proxy — so Slack must go direct. (`no_proxy` alone is not enough: `slack_sdk` ignores
 `NO_PROXY` and auto-loads `HTTPS_PROXY`, so the hermes image also carries build patch
 `0007-slack-bypass-egress-proxy.py` to force the bypass.)
@@ -118,8 +121,8 @@ proxy — so Slack must go direct. (`no_proxy` alone is not enough: `slack_sdk` 
 | `files.slack.com` | File/image downloads for attachment handling |
 
 The former `*.slack.com` wildcard is removed. If Slack rotates the WSS hostname,
-Socket Mode reconnections will fail — add the new hostname to the hermes policy
-(`apps/base/agents/hermes/networkpolicy.yaml`) and `no_proxy` in `sandbox.yaml`.
+Socket Mode reconnections will fail — add the new hostname to `networkAllowlist.slackFQDNs`
+in `apps/personal/agents/hermes/values.yaml` and `no_proxy` in `sandbox.yaml`.
 Slack traffic carries no sandbox secrets by design.
 
 ### Streaming responses
@@ -166,19 +169,27 @@ possible but requires the external server to actively reflect back injected cont
 There are two CiliumNetworkPolicies; pick by how the sandbox reaches the service.
 
 For a service the **proxy fetches** (GET/HEAD through the egress proxy):
-1. Add the FQDN to the egress-proxy policy (`apps/base/egress-proxy/networkpolicy.yaml`)
+1. Add the FQDN to `clusters/<machine>/cluster-vars.yaml` — one edit, single source of
+   truth. `apexWildcardDomains` if the service also needs subdomains (an exact match plus
+   a `*.<domain>` wildcard); `exactOnlyDomains` for an exact host only. Both are
+   comma-joined bare hostnames, machine-scoped (same laptop implies the same network
+   requirements, unlike the per-agent direct-egress bypass FQDNs below). Flux substitutes
+   them into `charts/egress-proxy`, which renders the **same** list into both the Cilium
+   `toFQDNs` policy (the kernel-level gate) and `scrub.py`'s allowlist (the mitmproxy
+   application-layer gate) — so the two can no longer drift.
 2. If the service needs POST it cannot go through the proxy (external POST → 403) — route it direct instead (below)
 3. If the service holds credentials, add a `REDACT_PATTERNS` entry for its token format
 
 For a service the sandbox reaches **direct** (bypassing the proxy, e.g. Slack):
-1. Add the FQDN to the hermes policy (`apps/base/agents/hermes/networkpolicy.yaml`)
+1. Add the FQDN to `networkAllowlist.slackFQDNs` in `apps/personal/agents/hermes/values.yaml`
+   (rendered by `charts/agent/templates/networkpolicy.yaml`)
 2. Add it to `no_proxy`/`NO_PROXY` in `sandbox.yaml`
 
 ---
 
 ## Adding a new secret pattern
 
-Edit `REDACT_PATTERNS` in `addon-configmap.yaml`:
+Edit `REDACT_PATTERNS` in `charts/egress-proxy/templates/addon-configmap.yaml`:
 
 ```python
 # Example: Anthropic API keys

@@ -1,6 +1,7 @@
 ---
-# linear_team policy: deny a save_issue call that supplies a team other than
-# DEVOPS; allow everything else. DEVOPS is matched by any of its three known
+# linear_team policy: deny a save_issue call that supplies a team other than the
+# allowed one (${linearAllowedTeams}, from clusters/personal/cluster-vars.yaml);
+# allow everything else. The team is matched by any of its three known
 # identifiers, since the caller's `team` arg may be the real Linear team
 # UUID, its display name ("DevOps"), or its issue-key prefix ("DEVOPS") — an
 # exact match against only one form would wrongly deny legitimate DEVOPS
@@ -22,7 +23,7 @@ resourcePolicy:
           expr: >-
             has(request.resource.attr.teamId) &&
             !(request.resource.attr.teamId in
-            ["6deab0c5-9bda-4f82-b552-41f4aa9e449b", "DevOps", "DEVOPS"])
+            [${linearAllowedTeams}])
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

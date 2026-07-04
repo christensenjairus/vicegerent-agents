@@ -45,11 +45,12 @@ require_tools() {
 }
 
 download_and_extract_schemas() {
-  local tmp_tar
-  tmp_tar="$(mktemp /tmp/flux-schemas.XXXXXX.tar.gz)"
+  local tmp_dir tmp_tar
+  tmp_dir="$(mktemp -d /tmp/flux-schemas.XXXXXX)"
+  tmp_tar="$tmp_dir/schemas.tar.gz"
   curl -sfL --connect-timeout 10 --max-time 60 "$SCHEMA_URL" -o "$tmp_tar"
   tar zxf "$tmp_tar" -C "$SCHEMA_DEST"
-  rm -f "$tmp_tar"
+  rm -rf "$tmp_dir"
 }
 
 ensure_flux_schemas() {
@@ -86,6 +87,68 @@ repo_kustomizations() {
     -type f -name "$kustomize_config" -print0
 }
 
+# Resolve Flux ${var} substitution tokens in a copy of the Cerbos policy dir from
+# the committed cluster-vars ConfigMap, so `cerbos compile` exercises the real
+# substituted values — it has no concept of Flux's postBuild syntax and would
+# fail to parse raw ${...} tokens in the CEL expressions.
+resolve_cluster_vars() {
+  local vars_file="$1" target_dir="$2"
+  command -v python3 >/dev/null 2>&1 \
+    || { echo "ERROR - python3 required to resolve cluster-vars tokens" >&2; return 1; }
+  yq -o=json '.data' "$vars_file" | python3 -c '
+import json, os, re, sys
+data = json.load(sys.stdin)
+target = sys.argv[1]
+files = [os.path.join(target, f) for f in os.listdir(target) if f.endswith(".yaml")]
+for f in files:
+    s = open(f).read()
+    for k, v in data.items():
+        s = s.replace("${" + k + "}", v)
+    open(f, "w").write(s)
+leftover = set()
+for f in files:
+    leftover |= set(re.findall(r"\$\{[A-Za-z0-9_]+\}", open(f).read()))
+if leftover:
+    sys.stderr.write("ERROR - unresolved cluster-vars tokens: %s\n" % sorted(leftover))
+    sys.exit(1)
+' "$target_dir"
+}
+
+# Resolve Flux ${var} tokens into the egress-proxy overlay values, render the
+# charts/egress-proxy chart with them, and assert the templated scrub.py is still
+# valid Python. The allowlist literals are built by Helm {{ range }} over
+# cluster-vars-sourced values; a bad value or template would produce YAML that
+# survives kustomize build + kubeconform (just a string) then fail at mitmproxy
+# load time in a live pod — so catch it loudly here at CI time.
+validate_egress_scrub_py() {
+  local vars_file="$1" values_file="$2" chart_dir="$3"
+  command -v python3 >/dev/null 2>&1 \
+    || { echo "ERROR - python3 required to resolve cluster-vars tokens" >&2; return 1; }
+  command -v helm >/dev/null 2>&1 \
+    || { echo "WARN - helm not installed; skipping egress-proxy scrub.py validation" >&2; return 0; }
+  local resolved_dir resolved
+  resolved_dir="$(mktemp -d "${TMPDIR:-/tmp}/egress-values.XXXXXX")"
+  resolved="$resolved_dir/values.yaml"
+  yq -o=json '.data' "$vars_file" | python3 -c '
+import json, re, sys
+data = json.load(sys.stdin)
+src, dst = sys.argv[1], sys.argv[2]
+s = open(src).read()
+for k, v in data.items():
+    s = s.replace("${" + k + "}", v)
+leftover = sorted(set(re.findall(r"\$\{[A-Za-z0-9_]+\}", s)))
+if leftover:
+    sys.stderr.write("ERROR - unresolved cluster-vars tokens in %s: %s\n" % (src, leftover))
+    sys.exit(1)
+open(dst, "w").write(s)
+' "$values_file" "$resolved" || { rm -rf "$resolved_dir"; return 1; }
+  helm template egress-proxy "$chart_dir" -f "$resolved" --show-only templates/addon-configmap.yaml \
+    | yq '.data."scrub.py"' \
+    | python3 -c 'import ast, sys; ast.parse(sys.stdin.read())' \
+    || { echo "ERROR - templated egress-proxy scrub.py is not valid Python" >&2; rm -rf "$resolved_dir"; return 1; }
+  rm -rf "$resolved_dir"
+}
+
 require_tools
 ensure_flux_schemas
 
@@ -117,13 +180,31 @@ repo_kustomizations | while IFS= read -r -d $'\0' file; do
 done
 
 cerbos_policy_dir="infrastructure/controllers/cerbos/policies/defs"
+cluster_vars_file="clusters/personal/cluster-vars.yaml"
 if [[ -d "$cerbos_policy_dir" ]]; then
   if command -v cerbos >/dev/null 2>&1; then
     echo "INFO - Compiling and testing Cerbos policies"
-    cerbos compile "$cerbos_policy_dir"
+    if [[ -f "$cluster_vars_file" ]]; then
+      resolved_dir="$(mktemp -d "${TMPDIR:-/tmp}/cerbos-defs.XXXXXX")"
+      trap 'rm -rf "$resolved_dir"' EXIT
+      cp "$cerbos_policy_dir"/*.yaml "$resolved_dir"/
+      resolve_cluster_vars "$cluster_vars_file" "$resolved_dir"
+      cerbos compile "$resolved_dir"
+      rm -rf "$resolved_dir"
+      trap - EXIT
+    else
+      cerbos compile "$cerbos_policy_dir"
+    fi
   else
     echo "WARN - cerbos not installed; skipping Cerbos policy tests"
   fi
+fi
+
+egress_values_file="apps/personal/egress-proxy/values.yaml"
+egress_chart_dir="charts/egress-proxy"
+if [[ -f "$egress_values_file" && -f "$cluster_vars_file" ]]; then
+  echo "INFO - Rendering egress-proxy chart with cluster-vars and validating scrub.py"
+  validate_egress_scrub_py "$cluster_vars_file" "$egress_values_file" "$egress_chart_dir"
 fi
 
 # Assert the vMCP overlay's AgentgatewayPolicy either attaches a well-formed

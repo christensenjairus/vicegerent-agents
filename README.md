@@ -11,7 +11,7 @@ Four independent layers sit between the agent and anything it can affect. Each i
 | # | Layer | Enforces | Component | Docs |
 |---|---|---|---|---|
 | 1 | **Command approval** | Every shell command the agent runs, before it executes | `tools/approval.py` in the Hermes image, config from `approval-policy.yaml` | [AGENTS.md § Command Approval System](AGENTS.md#command-approval-system) |
-| 2 | **Network egress** | Every outbound connection from the sandbox pod | Cilium (`CiliumNetworkPolicy`, kernel-level FQDN/IP allowlist) + the mitmproxy egress proxy (scrubbing, method/URL/SSRF checks) it fronts | [`apps/base/egress-proxy/README.md`](apps/base/egress-proxy/README.md) |
+| 2 | **Network egress** | Every outbound connection from the sandbox pod | Cilium (`CiliumNetworkPolicy`, kernel-level FQDN/IP allowlist) + the mitmproxy egress proxy (scrubbing, method/URL/SSRF checks) it fronts | [`charts/egress-proxy/README.md`](charts/egress-proxy/README.md) |
 | 3 | **MCP tool selection** | Which tools exist for the agent to call at all | ToolHive vMCP `aggregation.tools` (`host/mcp/toolhive-servers.json`); agentgateway can also do this centrally | [`host/mcp/README.md`](host/mcp/README.md) |
 | 4 | **MCP argument authorization** | What a selected tool is allowed to do with the arguments it was called with — deny, or mutate specific arguments before forwarding (e.g. keep a GitHub PR a draft, pin a Notion page's parent folder) | `mcp-cerbos-shim` + Cerbos, attached to agentgateway's `vmcp` backend (`FailClosed`) | [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) |
 
@@ -24,13 +24,14 @@ Layers 3 and 4 share one path: host vMCP → ghostunnel (mTLS) → agentgateway'
 ## Repo layout
 
 ```text
-apps/base/            user-config: agents, models, gateway routes, MCP backend — copy an existing agent/model dir to add one
+apps/base/            shared platform layer: models, gateway routes, MCP backend, searxng
+apps/<machine>/       per-machine overlay: pulls in apps/base plus that machine's own agents/ and egress-proxy (first machine: personal)
 infrastructure/       the platform itself: Cilium, Flux, agentgateway, Cerbos, host-firewall, etc.
 charts/               Helm charts backing apps/ and infrastructure/
 host/mcp/             host-side MCP control plane (ToolHive + vMCP) — see docs/setup.md
 images/               source-built container images (hermes, agentgateway-proxy, mcp-cerbos-shim)
 scripts/              install, secrets, validation, and test scripts driven by ./vicegerent
-clusters/vicegerent/  Flux's per-cluster entrypoint (kustomization + generated gotk-*.yaml)
+clusters/personal/    Flux's per-machine entrypoint (kustomization + generated gotk-*.yaml); one dir per machine
 docs/                 design rationale (docs/design.md) and full setup walkthrough (docs/setup.md)
 ```
 
@@ -40,14 +41,15 @@ docs/                 design rationale (docs/design.md) and full setup walkthrou
 
 Every extension point has a working example already in the repo to copy, not just a description:
 
-- **A new agent or model route** — copy `apps/base/agents/hermes` or `apps/base/models/anthropic` and adjust names/values; see [`AGENTS.md` § Repo Conventions](AGENTS.md#repo-conventions) ("the layout is the documentation").
+- **A new agent or model route** — copy `apps/personal/agents/hermes` (within your machine's overlay) or `apps/base/models/anthropic` and adjust names/values; see [`AGENTS.md` § Repo Conventions](AGENTS.md#repo-conventions) ("the layout is the documentation").
+- **A new machine** — one fork hosts a `clusters/<machine>/` + `apps/<machine>/` pair per machine; see [`docs/setup.md` § Adding a second machine](docs/setup.md).
 - **A new MCP server** — add an entry to `host/mcp/toolhive-servers.json` alongside the 11 already there (kubernetes, github, gitlab, jira, grafana, notion, linear, etc.); see [`host/mcp/README.md`](host/mcp/README.md) for the workload shape, tool-scoping via `aggregation.tools`, and how secrets/OAuth are wired per server.
 - **A new argument-authorization rule** — add a tool mapping to `infrastructure/controllers/mcp-cerbos-shim/mapping.yaml` (CEL expressions; `images/mcp-cerbos-shim/mapping.example.yaml` is a minimal worked example) and a matching Cerbos policy under `infrastructure/controllers/cerbos/policies/defs/`; the existing `resource_github.yaml`, `resource_gitlab.yaml`, `resource_linear.yaml`, etc. are working deny-by-resource examples; most carry a paired `*_test.yaml` you can copy for the new rule. See [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) for the CEL helper mechanism if the new resource needs one (e.g. normalizing a field name across spellings).
 - **A mutation instead of a deny** — same mapping file, a `force` block on the tool entry (see the GitHub PR draft-forcing and Notion parent-folder-pinning entries already there for the pattern).
 
 ## Quickstart
 
-Full walkthrough, flags, and troubleshooting: [`docs/setup.md`](docs/setup.md). This is the condensed path on macOS with Docker:
+Full walkthrough, flags, and troubleshooting: [`docs/setup.md`](docs/setup.md). Before your first bootstrap, see [`docs/setup.md` § Values to change for your fork](docs/setup.md#values-to-change-for-your-fork) — a handful of files ship with the original operator's own GitHub repos, Jira/Linear settings, git identity, and git host baked in as concrete values, not placeholders, so nothing fails loudly if you skip them. This is the condensed path on macOS with Docker:
 
 ```bash
 # 1. Fork this repo and clone your fork (write access needed — Flux commits back to it)

@@ -1,0 +1,6 @@
+---
+apiVersion: v2
+name: egress-proxy
+description: In-house Helm chart for the vicegerent shared egress proxy
+type: application
+version: 0.1.0

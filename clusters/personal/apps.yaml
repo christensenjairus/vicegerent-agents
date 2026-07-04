@@ -13,6 +13,10 @@ spec:
   sourceRef:
     kind: GitRepository
     name: flux-system
-  path: ./apps/base
+  path: ./apps/personal
   prune: true
   wait: true
+  postBuild:
+    substituteFrom:
+      - kind: ConfigMap
+        name: cluster-vars

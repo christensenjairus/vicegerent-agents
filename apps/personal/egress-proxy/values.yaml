@@ -1,0 +1,3 @@
+---
+apexWildcardDomains: ${apexWildcardDomains}
+exactOnlyDomains: ${exactOnlyDomains}

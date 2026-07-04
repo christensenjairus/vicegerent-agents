@@ -1,0 +1,69 @@
+---
+# Per-machine identity/scoping values, substituted into policy and config
+# manifests at Flux reconcile time via this cluster's apps.yaml +
+# infrastructure.yaml postBuild.substituteFrom. Nothing here is a secret — it's
+# the operator's own GitHub repos, Jira project, Linear team, and git host — so
+# the Cerbos authorization policies under
+# infrastructure/controllers/cerbos/policies/defs/*.yaml carry readable
+# ${tokens} instead of hand-edited literal strings that mean nothing to anyone
+# else forking this repo.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cluster-vars
+  namespace: flux-system
+data:
+  # GitHub owner/repo pairs this machine's agents may act on (resource_github.yaml).
+  # CEL-list-ready: pre-quoted, comma-joined. Flux substitution is a literal string
+  # replace, not YAML-aware — it is spliced into a CEL `in [...]` list, so keep the
+  # quotes and commas and do not reformat it into a YAML list.
+  githubAllowedRepos: >-
+    "moveworks-emu/moveworks", "moveworks-emu/k8s-manifests",
+    "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
+    "christensenjairus/vicegerent-agents"
+
+  # Jira project key this machine's agents may act on (resource_jira.yaml). Every
+  # Jira issue/epic key is expected to start with this prefix + "-".
+  jiraProjectKey: CHANGE
+
+  # Linear team this machine's agents may create/update issues for
+  # (resource_linear.yaml). CEL-list-ready set of the team's three identifier
+  # forms — the real team UUID, the display name, and the issue-key prefix —
+  # since a caller's `team` arg may be any one of them.
+  linearAllowedTeams: >-
+    "6deab0c5-9bda-4f82-b552-41f4aa9e449b", "DevOps", "DEVOPS"
+
+  # This machine's git-over-SSH FQDN and every intermediate hostname in its CNAME
+  # chain (charts/agent/templates/networkpolicy.yaml). Generic to any CNAME-chained
+  # FQDN the SSH egress block allowlists, not git-specific. Cilium's toFQDNs DNS
+  # proxy strips a CNAME answer unless every name in the chain is itself
+  # allowlisted, so list them all, comma-joined (empty if the host resolves with
+  # no CNAME chain).
+  cnameChainedFQDN: gitlab.hahomelabs.com
+  cnameChain: uw1-ddns.hahomelabs.com,uw1-hahomelabs.ddns.net
+
+  # FQDNs the shared egress-proxy permits for external HTTP(S) (charts/egress-proxy).
+  # Machine-scoped, not per-agent: one laptop implies one set of network requirements,
+  # so this lives here rather than in each agent's values.yaml. One source drives both
+  # the Cilium toFQDNs policy and the mitmproxy scrub.py allowlist. Comma-joined bare
+  # hostnames — Flux substitutes them into apps/personal/egress-proxy/values.yaml and
+  # the chart splitLists each one. apexWildcardDomains get an exact match AND a
+  # *.<domain> wildcard; exactOnlyDomains get an exact match only. (httpbin.io stays
+  # hardcoded in the chart: a redaction-test-suite target, not a user-facing
+  # destination.)
+  apexWildcardDomains: github.com,githubusercontent.com
+  exactOnlyDomains: pypi.org,files.pythonhosted.org
+
+  # Grafana datasource this machine's agents may NOT read from
+  # (resource_grafana.yaml). Matched by uid or by name — whichever the calling
+  # tool populates — since either can identify the datasource depending on the
+  # Grafana MCP tool used.
+  grafanaDeniedDatasourceUid: fess5o6x6evb4b
+  grafanaDeniedDatasourceName: dev-opensearch-datasource
+
+  # Notion page id that notion-create-pages force-rewrites every new page's
+  # parent to (mcp-cerbos-shim's mapping.yaml `force` block) — your
+  # "Scratchpad" page. Not a Cerbos policy value, but the same substitution
+  # mechanism (infra-controllers' postBuild.substituteFrom covers all of
+  # infrastructure/controllers/**, including mapping.yaml).
+  notionScratchpadPageId: 1ea588d8909f80edb0cef38d0aeaf64f  # pragma: allowlist secret (Notion page id)

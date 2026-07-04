@@ -42,23 +42,30 @@ spec:
     # NOTE: if Slack rotates the WSS hostname (rare but possible), Socket Mode will
     # fail to reconnect and you'll see apps.connections.open succeed but the WSS
     # connection refused. Add the new hostname here and to no_proxy in sandbox.yaml.
+    {{- if .Values.networkAllowlist.slackFQDNs }}
     - toFQDNs:
-        - matchName: slack.com
-        - matchName: wss-primary.slack.com
-        - matchName: wss-backup.slack.com
-        - matchName: files.slack.com
+        {{- range .Values.networkAllowlist.slackFQDNs }}
+        - matchName: {{ . }}
+        {{- end }}
       toPorts:
         - ports:
             - port: '443'
               protocol: TCP
-    # SSH bypasses the HTTP proxy — direct egress for git push/pull. gitlab.hahomelabs.com
-    # resolves through a CNAME chain (dynamic DNS); Cilium's toFQDNs DNS proxy strips a
-    # CNAME answer unless every name in the chain is itself allowlisted, so the
-    # intermediate names are listed alongside the host actually queried.
+    {{- end }}
+    # SSH bypasses the HTTP proxy — direct egress for git push/pull. The configured FQDN may
+    # resolve through a CNAME chain (dynamic DNS); Cilium's toFQDNs DNS proxy strips a CNAME
+    # answer unless every name in the chain is itself allowlisted, so cnameChain lists the
+    # intermediate names. Both are machine-scoped (cluster-vars.yaml); github.com is always
+    # allowed.
     - toFQDNs:
-        - matchName: gitlab.hahomelabs.com
-        - matchName: uw1-ddns.hahomelabs.com
-        - matchName: uw1-hahomelabs.ddns.net
+        {{- if .Values.networkAllowlist.cnameChainedFQDN }}
+        - matchName: {{ .Values.networkAllowlist.cnameChainedFQDN }}
+        {{- end }}
+        {{- range (splitList "," .Values.networkAllowlist.cnameChain) }}
+        {{- if . }}
+        - matchName: {{ . }}
+        {{- end }}
+        {{- end }}
         - matchName: github.com
       toPorts:
         - ports:

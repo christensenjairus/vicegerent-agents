@@ -3,14 +3,14 @@
 # Validate that the egress-proxy scrubs secrets from outbound requests before
 # they leave the cluster, by driving real HTTP calls FROM a running agent
 # sandbox pod against httpbin.io (a public echo service allowlisted for this
-# purpose — see apps/base/egress-proxy/networkpolicy.yaml and
+# purpose — see charts/egress-proxy/templates/networkpolicy.yaml and
 # addon-configmap.yaml). httpbin echoes back exactly what it received, so a
 # response missing the raw secret proves the proxy redacted it before
 # forwarding — not just that some client-side masking happened.
 #
 # All test secrets are fake/synthetic. Only GET/HEAD is exercised, since the
 # proxy enforces GET/HEAD-only for external destinations — PEM private-key
-# and POST-body scrubbing cannot be exercised this way (see egress-proxy/README.md).
+# and POST-body scrubbing cannot be exercised this way (see charts/egress-proxy/README.md).
 #
 # Usage:
 #   bash scripts/test-egress-redaction.sh

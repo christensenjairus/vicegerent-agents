@@ -1,4 +1,6 @@
 ---
+# Fixtures use the literal team forms matching cluster-vars.yaml's linearAllowedTeams —
+# validate.sh compiles the substituted policy against them, so keep the two in sync.
 name: linear_devops_team_block_test
 description: Linear save_issue calls that supply a team other than DEVOPS are denied;
   calls confined to the DEVOPS team (by uuid, name, or key), and calls that supply

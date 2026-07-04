@@ -6,13 +6,33 @@ Full step-by-step for standing up your own instance. See the [README](../README.
 
 This repo is meant to be forked, not shared — each person runs their own fork against their own laptop and their own local Kind cluster. Nothing here is multi-tenant: two people bootstrapping the same repo would each try to push Flux's generated manifests back to it and fight over the same git history.
 
+### Values to change for your fork
+
+This repo ships with the original operator's own identity baked into a few files as concrete values, not templated placeholders — Flux will happily reconcile them as-is, so nothing fails loudly if you miss one. Go through this list before (or right after) your first bootstrap:
+
+- **`clusters/personal/cluster-vars.yaml`** — every field here is machine/operator-scoped and feeds the Cerbos authorization policies via Flux substitution. Read the inline comment on each field, then replace:
+  - `githubAllowedRepos` — the GitHub `owner/repo` pairs your agents are allowed to touch (`resource_github.yaml`). Currently someone else's repos.
+  - `jiraProjectKey` — ships as the literal placeholder `CHANGE`; set to your Jira project key (or leave it if you don't use Jira — the Cerbos policy just won't match anything).
+  - `linearAllowedTeams` — your Linear team's UUID, display name, and issue-key prefix (`resource_linear.yaml`).
+  - `cnameChainedFQDN` / `cnameChain` — your git host's FQDN and its full CNAME chain (see step 3 below). Currently the original operator's self-hosted GitLab + dynamic-DNS chain.
+  - `apexWildcardDomains` / `exactOnlyDomains` — the external HTTP(S) destinations your agents' egress-proxy should allow. Add/remove as your workflow needs.
+  - `grafanaDeniedDatasourceUid` / `grafanaDeniedDatasourceName` — the Grafana datasource (by uid or name) your agents may not read from (`resource_grafana.yaml`). Currently someone else's OpenSearch datasource.
+  - `notionScratchpadPageId` — the Notion page id that `notion-create-pages` force-rewrites every new page's parent to (`infrastructure/controllers/mcp-cerbos-shim/mapping.yaml`'s `force` block, substituted the same way as the Cerbos policy fields above). Currently someone else's Notion page.
+- **`apps/personal/agents/hermes/values.yaml`** — `git.userName` / `git.userEmail` are the identity the agent commits as (e.g. when Flux-driven changes get pushed back). Currently someone else's name and email.
+- **Container registry** (`charts/agent/values.yaml`, `infrastructure/controllers/mcp-cerbos-shim/deployment.yaml`, `apps/base/gateway/gateway.yaml`) — these point at the original operator's Harbor registry (`harbor.hahomelabs.com/vicegerent/...`), which is public to pull from, so you can leave these as-is and bootstrap directly against it. Only repoint them if you want to build and host your own copies of `hermes-agent`, `mcp-cerbos-shim`, or the agentgateway proxy image — see each image's README under `images/*/README.md` for the build & push steps.
+- **`.gitlab-ci.yml` / `renovate.json`** — wired for this repo's own self-hosted GitLab instance (`RENOVATE_PLATFORM: gitlab`, `RENOVATE_REPOSITORIES`, `RENOVATE_ENDPOINT`, the `harbor.hahomelabs.com` CI runner images). If you fork to GitHub or a different GitLab instance, this file won't run as-is — either adapt it to your CI platform or ignore it; nothing in the platform itself depends on it (it's validation/dependency-update tooling, not part of the reconciled cluster state).
+
+Steps 1-3 below get the cluster up; the fork-identity values above are what make the Cerbos policies, agent commits, and egress allowlist actually reflect *your* setup instead of the original operator's.
+
 To stand up your own instance:
 
 1. Fork the repo (GitHub, your own self-hosted git, wherever) and clone your fork. `./vicegerent bootstrap` / `install.sh` default `REPO_URL` to this checkout's `origin` remote, so cloning your own fork is enough — no env override needed.
 2. Make sure the SSH key you'll bootstrap with (`PRIVATE_KEY_FILE`, default `~/.ssh/id_rsa`) has **write** access to your fork — `flux bootstrap git` commits its generated manifests back to it.
 3. If your git host isn't `github.com`, add it to the agent sandbox's SSH egress allowlist in `charts/agent/templates/networkpolicy.yaml` (the `toFQDNs` block under the "SSH bypasses the HTTP proxy" comment) — otherwise Cilium blocks git-over-SSH from inside the sandbox. If that host itself resolves through a CNAME (common for self-hosted setups behind dynamic DNS or a tunnel), add every name in the chain, not just the one you git-clone with: Cilium's `toFQDNs` DNS proxy strips a CNAME answer unless every name in it is itself allowlisted. Find the chain with `dig +noall +answer <your-host>`.
 
-After your own `flux bootstrap` run, `clusters/vicegerent/flux-system/gotk-*.yaml` will diverge from this repo's copies to point at your fork — that's expected (Flux regenerates them per-target), not something to reconcile back upstream.
+One fork can drive many machines — each is a separate `clusters/<machine>/` + `apps/<machine>/` pair in the same git history, not a new fork per machine (see [Adding a second machine](#adding-a-second-machine) below). This is still not multi-tenant: each pair is bootstrapped to its own Kind cluster, and only that machine writes Flux's generated manifests back under its own `clusters/<machine>/`.
+
+After your own `flux bootstrap` run, `clusters/personal/flux-system/gotk-*.yaml` will diverge from this repo's copies to point at your fork — that's expected (Flux regenerates them per-target), not something to reconcile back upstream.
 
 ## Create the local Kind cluster
 
@@ -118,7 +138,7 @@ The script defaults to:
 KUBE_CONTEXT=kind-vicegerent
 REPO_URL=<this checkout's 'origin' remote>
 BRANCH=main
-CLUSTER_PATH=./clusters/vicegerent
+CLUSTER_PATH=./clusters/personal
 PRIVATE_KEY_FILE=$HOME/.ssh/id_rsa
 ```
 
@@ -136,6 +156,37 @@ kubectl --context kind-vicegerent get pods -A
 ```
 
 The committed `gotk-sync.yaml` expects the bootstrap-created `flux-system` Git credential Secret.
+
+## Adding a second machine
+
+One fork drives as many machines as you like — each is its own Kind cluster with its own `clusters/<machine>/` (Flux entrypoint + `cluster-vars.yaml`) and `apps/<machine>/` (a thin overlay that pulls in `apps/base` plus that machine's own `agents/`). The shared platform under `apps/base/` is not duplicated. The first machine is `personal`; to stand up another — say `macbook-office`:
+
+1. Copy the two directory trees and rename them:
+
+   ```bash
+   cp -r clusters/personal clusters/macbook-office
+   cp -r apps/personal apps/macbook-office
+   ```
+
+2. Repoint and re-scope the copy:
+
+   - In `clusters/macbook-office/apps.yaml`, set `path: ./apps/macbook-office`.
+   - In `clusters/macbook-office/cluster-vars.yaml`, set this machine's GitHub repos, Jira project, Linear team, and git host (each value is documented inline in that file).
+   - Add or remove agent folders under `apps/macbook-office/agents/` as that machine needs (copy `hermes` for a new agent).
+
+3. Create the cluster, provision secrets, and bootstrap Flux against the new path. The `vicegerent` CLI honors `CLUSTER_NAME` / `CLUSTER_PATH` / `KUBE_CONTEXT` overrides, and `kind create --name` (from `CLUSTER_NAME`) names the cluster regardless of `kind-config.yaml`'s `name:`:
+
+   ```bash
+   export CLUSTER_NAME=macbook-office
+   export CLUSTER_PATH=./clusters/macbook-office
+   export KUBE_CONTEXT=kind-macbook-office
+   ./vicegerent cluster setup
+   ./vicegerent secrets setup platform
+   ./vicegerent secrets setup agent hermes
+   ./vicegerent bootstrap
+   ```
+
+The new `clusters/macbook-office/flux-system/gotk-*.yaml` are placeholders until that machine's own `flux bootstrap` regenerates them. `scripts/install/kind-config.yaml`'s NodePort pool (`30119-30128`) only needs editing if two of your clusters run on the same host at once — a single laptop running one cluster can leave it as-is.
 
 ## Host-side MCP control plane
 

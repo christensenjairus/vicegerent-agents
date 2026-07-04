@@ -1,9 +1,10 @@
 ---
-# jira_project policy: deny any Jira call that targets a project other than CHANGE;
+# jira_project policy: deny any Jira call that targets a project other than the
+# allowed one (${jiraProjectKey}, from clusters/personal/cluster-vars.yaml);
 # allow everything else. The shim maps every project/issue-bearing Jira tool to this
 # resource, carrying project_key plus any issue/inward/outward/epic keys (whose
 # "<PROJECT>-123" prefix is the project). A call is denied if any populated key
-# resolves to a project other than CHANGE. Do NOT add tools here to permit them;
+# resolves to a different project. Do NOT add tools here to permit them;
 # that belongs in the vMCP tools allowlist.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
@@ -18,15 +19,15 @@ resourcePolicy:
         match:
           expr: >-
             (has(request.resource.attr.projectKey) && request.resource.attr.projectKey
-            != "" && request.resource.attr.projectKey != "CHANGE")
+            != "" && request.resource.attr.projectKey != "${jiraProjectKey}")
             || (has(request.resource.attr.issueKey) && request.resource.attr.issueKey
-            != "" && !request.resource.attr.issueKey.startsWith("CHANGE-"))
+            != "" && !request.resource.attr.issueKey.startsWith("${jiraProjectKey}-"))
             || (has(request.resource.attr.inwardKey) && request.resource.attr.inwardKey
-            != "" && !request.resource.attr.inwardKey.startsWith("CHANGE-"))
+            != "" && !request.resource.attr.inwardKey.startsWith("${jiraProjectKey}-"))
             || (has(request.resource.attr.outwardKey) && request.resource.attr.outwardKey
-            != "" && !request.resource.attr.outwardKey.startsWith("CHANGE-"))
+            != "" && !request.resource.attr.outwardKey.startsWith("${jiraProjectKey}-"))
             || (has(request.resource.attr.epicKey) && request.resource.attr.epicKey
-            != "" && !request.resource.attr.epicKey.startsWith("CHANGE-"))
+            != "" && !request.resource.attr.epicKey.startsWith("${jiraProjectKey}-"))
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

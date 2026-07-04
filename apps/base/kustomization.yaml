@@ -7,6 +7,4 @@ resources:
   - models/haiku-oai
   - models/openai
   - mcps/vmcp
-  - egress-proxy
   - searxng
-  - agents
