@@ -349,6 +349,10 @@ spec:
               value: '1'
             - name: HERMES_WRITE_SAFE_ROOT
               value: "/opt/data:/workspace:/tmp"
+{{- if .Values.obsidian.vaultPath }}
+            - name: OBSIDIAN_VAULT_PATH
+              value: {{ .Values.obsidian.vaultPath | quote }}
+{{- end }}
           envFrom:
             # All agent pod credentials: dashboard auth, SSH key, and optional Slack tokens.
             - secretRef:

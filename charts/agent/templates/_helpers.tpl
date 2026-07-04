@@ -55,6 +55,28 @@ Pick the model that fits the task: heavier reasoning for complex/design work, li
 # Memory
 - Mnemosyne is the only memory store. Use it for all facts, preferences, and insights
 - **Repo knowledge**: also add a terse bullet to `AGENTS.md` in your next PR.
+{{- if .Values.obsidian.vaultPath }}
+
+# Obsidian vault
+- `OBSIDIAN_VAULT_PATH` is set to `{{ .Values.obsidian.vaultPath }}` — a git-synced Obsidian vault.
+  It is the durable, version-controlled knowledge base: prefer it over ad-hoc notes for anything
+  meant to survive indefinitely and be reviewed/edited by a human.
+- Treat the vault as an [OKF](https://github.com/GoogleCloudPlatform/knowledge-catalog/blob/main/okf/SPEC.md)
+  bundle unless the user's existing vault says otherwise: one concept per markdown file, YAML
+  frontmatter (`type` required), `index.md` per directory for progressive disclosure, bundle-relative
+  links (`[text](/topic/concept.md)`), a `log.md` changelog.
+- Use the `obsidian` skill for reads/writes/search. Don't `git commit`/`git push` after every single
+  edit — batch them. Commit and push at the end of a work session, or at least once a day if the
+  session runs long, using the already-configured SSH key. The vault directory persists across pod
+  restarts either way; committing regularly is about off-site durability and human visibility, not
+  preventing data loss.
+- Keep skills (`$HERMES_HOME/skills/`) and the vault as separate systems — don't move or symlink
+  skills into the vault. Skills carry their own curator lifecycle (usage telemetry, staleness,
+  archiving) that assumes a skill-shaped directory, not an OKF bundle; cross-reference a skill by
+  name from a vault concept instead of merging the two.
+- Mnemosyne stays the fast-recall layer: store short pointers to vault concept paths there, not
+  copies of vault content, so the two stores don't drift out of sync.
+{{- end }}
 
 # Expectations
 - Use a fresh, updated git worktree for every session, regardless of the repo.
