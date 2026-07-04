@@ -44,9 +44,9 @@ nodeAgent:
     limits:
       memory: 512Mi
 schedules:
-  vicegerent-nightly:
+  vicegerent-daily:
     disabled: false
-    schedule: 0 3 * * *
+    schedule: CRON_TZ=America/Denver 0 13 * * *
     template:
       ttl: 168h
       storageLocation: vicegerent
