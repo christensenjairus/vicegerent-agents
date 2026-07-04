@@ -74,8 +74,8 @@ spec:
                 # llm_dest is a mountpoint; rm -rf on it errors EBUSY under set -e.
                 find "${llm_dest}" -mindepth 1 -delete 2>/dev/null || true
                 mkdir -p "${fastembed_dest}" "${llm_dest}"
-                cp -a "${seed}/mnemosyne/models/." "${llm_dest}/"
-                cp -a "${seed}/cache/fastembed/." "${fastembed_dest}/"
+                cp -a --no-preserve=ownership,timestamps "${seed}/mnemosyne/models/." "${llm_dest}/"
+                cp -a --no-preserve=ownership,timestamps "${seed}/cache/fastembed/." "${fastembed_dest}/"
                 printf '%s\n' "${want}" > "${marker}"
               fi
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
