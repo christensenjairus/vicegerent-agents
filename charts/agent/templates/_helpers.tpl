@@ -138,7 +138,7 @@ kanban:
   dispatch_in_gateway: false
 delegation:
   provider: anthropic
-  model: claude-haiku-4-5
+  model: claude-sonnet-5
   orchestrator_enabled: true
   max_spawn_depth: 2
 auxiliary:
@@ -153,7 +153,7 @@ auxiliary:
     model: claude-haiku-4-5
   compression:
     provider: anthropic
-    model: claude-sonnet-5
+    model: claude-haiku-4-5
     context_length: 1000000
   web_extract:
     provider: anthropic
