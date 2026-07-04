@@ -5,6 +5,8 @@ dashboard:
   nodePort: 30119
 slack:
   commandName: hermes
+obsidian:
+  vaultPath: /workspace/knowledge-vault
 config: |-
   model:
     provider: anthropic

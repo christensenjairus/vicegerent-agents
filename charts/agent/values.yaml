@@ -15,6 +15,10 @@ slack:
 # Required per agent; empty leaves the NodePort auto-allocated, which is unstable.
 dashboard:
   nodePort: ''
+obsidian:
+  # Absolute path to a git-synced Obsidian vault under /opt/data or /workspace. Empty disables
+  # Obsidian entirely: no env var is set and the Environment section omits Obsidian guidance.
+  vaultPath: ''
 # Personality/voice only. The chart appends a fixed Environment section after this.
 soul: ''
 # Agent config.yaml as a literal YAML string. Merged with defaultConfig and
