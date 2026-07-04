@@ -6,6 +6,7 @@ server:
   retentionPeriod: 7d
   persistentVolume:
     size: 10Gi
+    storageClassName: csi-hostpath-sc
   resources:
     requests:
       cpu: 50m

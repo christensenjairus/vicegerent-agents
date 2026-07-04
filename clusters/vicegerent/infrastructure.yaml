@@ -71,6 +71,14 @@ spec:
   targetNamespace: kube-system
   prune: true
   wait: true
+  patches:
+    - patch: |
+        - op: replace
+          path: /spec/replicas
+          value: 1
+      target:
+        kind: Deployment
+        name: snapshot-controller
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
