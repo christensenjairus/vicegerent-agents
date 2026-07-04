@@ -13,8 +13,9 @@ spec:
       labels:
         vicegerent.io/dashboard: {{ include "vicegerent-agent.name" . }}
       annotations:
-        # gitrepos/models/runtime/tmp are reclonable or reseeded; excluded from Velero FSB.
-        backup.velero.io/backup-volumes-excludes: gitrepos,models,runtime,tmp
+        # data opts out of FSB so Velero routes it to CSI snapshot; the rest are
+        # reclonable/reseeded or emptyDir and get no backup (not on a CSI StorageClass).
+        backup.velero.io/backup-volumes-excludes: gitrepos,models,runtime,tmp,data
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -421,6 +422,7 @@ spec:
         name: data
       spec:
         accessModes: [ReadWriteOnce]
+        storageClassName: {{ .Values.storage.dataStorageClassName }}
         resources:
           requests:
             storage: {{ .Values.storage.data }}

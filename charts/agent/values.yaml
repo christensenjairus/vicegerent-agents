@@ -8,6 +8,8 @@ storage:
   gitrepos: 50Gi
   # Mnemosyne embedding-model weights, reseeded from the image; excluded from Velero backup.
   models: 2Gi
+  # data only; gitrepos/models stay on the cluster default (no snapshot support needed).
+  dataStorageClassName: csi-hostpath-sc
 slack:
   commandName: ''
 # Required per agent; empty leaves the NodePort auto-allocated, which is unstable.
