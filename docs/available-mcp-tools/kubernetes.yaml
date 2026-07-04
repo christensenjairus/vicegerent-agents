@@ -1,0 +1,256 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 15
+servers:
+  kubernetes:
+    tool_count: 15
+    tools:
+      configuration_contexts_list:
+        description: "List all available context names and associated server urls from the kubeconfig file"
+        arguments: {}
+      configuration_view:
+        description: "Get the current Kubernetes configuration content as a kubeconfig YAML"
+        arguments:
+          minified:
+            type: "boolean"
+            required: false
+            description: "Return a minified version of the configuration. If set to true, keeps only the current-context and the relevant pieces of the configuration for that context. If set to false, all contexts, clusters, auth-infos, and users are returned in the configuration. (Optional, default true)"
+      events_list:
+        description: "List Kubernetes events (warnings, errors, state changes) for debugging and troubleshooting in the current cluster from all namespaces"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          fieldSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes field selector to filter events by field values (e.g. 'type=Warning', 'involvedObject.name=my-pod'). Supported fields: involvedObject.kind, involvedObject.name, involvedObject.namespace, involvedObject.uid, involvedObject.apiVersion, involvedObject.resourceVersion, involvedObject.fieldPath, reason, reportingComponent, source, type. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+          namespace:
+            type: "string"
+            required: false
+            description: "Optional Namespace to retrieve the events from. If not provided, will list events from all namespaces"
+      helm_list:
+        description: "List all the Helm releases in the current or provided namespace (or in all namespaces if specified)"
+        arguments:
+          all_namespaces:
+            type: "boolean"
+            required: false
+            description: "If true, lists all Helm releases in all namespaces ignoring the namespace argument (Optional)"
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          namespace:
+            type: "string"
+            required: false
+            description: "Namespace to list Helm releases from (Optional, all namespaces if not provided)"
+      namespaces_list:
+        description: "List all the Kubernetes namespaces in the current cluster"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          fieldSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes field selector to filter namespaces by field values (e.g. 'metadata.name=default', 'status.phase=Active'). Supported fields: metadata.name, status.phase. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+      nodes_log:
+        description: "Get logs from a Kubernetes node (kubelet, kube-proxy, or other system logs). This accesses node logs through the Kubernetes API proxy to the kubelet"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the node to get logs from"
+          query:
+            type: "string"
+            required: true
+            description: "query specifies services(s) or files from which to return logs (required). Example: \"kubelet\" to fetch kubelet logs, \"/<log-file-name>\" to fetch a specific log file from the node (e.g., \"/var/log/kubelet.log\" or \"/var/log/kube-proxy.log\")"
+          tailLines:
+            type: "integer"
+            required: false
+            description: "Number of lines to retrieve from the end of the logs (Optional, 0 means all logs)"
+      nodes_stats_summary:
+        description: "Get detailed resource usage statistics from a Kubernetes node via the kubelet's Summary API. Provides comprehensive metrics including CPU, memory, filesystem, and network usage at the node, pod, and container levels. On systems with cgroup v2 and kernel 4.20+, also includes PSI (Pressure Stall Information) metrics that show resource pressure for CPU, memory, and I/O. See https://kubernetes.io/docs/reference/instrumentation/understand-psi-metrics/ for details on PSI metrics"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the node to get stats from"
+      nodes_top:
+        description: "List the resource consumption (CPU and memory) as recorded by the Kubernetes Metrics Server for the specified Kubernetes Nodes or all nodes in the cluster"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          label_selector:
+            type: "string"
+            required: false
+            description: "Kubernetes label selector (e.g. 'node-role.kubernetes.io/worker=') to filter nodes by label (Optional, only applicable when name is not provided)"
+          name:
+            type: "string"
+            required: false
+            description: "Name of the Node to get the resource consumption from (Optional, all Nodes if not provided)"
+      pods_get:
+        description: "Get a Kubernetes Pod in the current or provided namespace with the provided name"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the Pod"
+          namespace:
+            type: "string"
+            required: false
+            description: "Namespace to get the Pod from"
+      pods_list:
+        description: "List all the Kubernetes pods in the current cluster from all namespaces"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          fieldSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+          labelSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label"
+      pods_list_in_namespace:
+        description: "List all the Kubernetes pods in the specified namespace in the current cluster"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          fieldSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes field selector to filter pods by field values (e.g. 'status.phase=Running', 'spec.nodeName=node1'). Supported fields: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. Note: CrashLoopBackOff is a container state, not a pod phase, so it cannot be filtered directly. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+          labelSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label"
+          namespace:
+            type: "string"
+            required: true
+            description: "Namespace to list pods from"
+      pods_log:
+        description: "Get the logs of a Kubernetes Pod in the current or provided namespace with the provided name"
+        arguments:
+          container:
+            type: "string"
+            required: false
+            description: "Name of the Pod container to get the logs from (Optional)"
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the Pod to get the logs from"
+          namespace:
+            type: "string"
+            required: false
+            description: "Namespace to get the Pod logs from"
+          previous:
+            type: "boolean"
+            required: false
+            description: "Return previous terminated container logs (Optional)"
+          tail:
+            type: "integer"
+            required: false
+            description: "Number of lines to retrieve from the end of the logs (Optional, default: 100)"
+      pods_top:
+        description: "List the resource consumption (CPU and memory) as recorded by the Kubernetes Metrics Server for the specified Kubernetes Pods in the all namespaces, the provided namespace, or the current namespace"
+        arguments:
+          all_namespaces:
+            type: "boolean"
+            required: false
+            description: "If true, list the resource consumption for all Pods in all namespaces. If false, list the resource consumption for Pods in the provided namespace or the current namespace"
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          label_selector:
+            type: "string"
+            required: false
+            description: "Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the pods by label (Optional, only applicable when name is not provided)"
+          name:
+            type: "string"
+            required: false
+            description: "Name of the Pod to get the resource consumption from (Optional, all Pods in the namespace if not provided)"
+          namespace:
+            type: "string"
+            required: false
+            description: "Namespace to get the Pods resource consumption from (Optional, current namespace if not provided and all_namespaces is false)"
+      resources_get:
+        description: "Get a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress)"
+        arguments:
+          apiVersion:
+            type: "string"
+            required: true
+            description: "apiVersion of the resource (examples of valid apiVersion are: v1, apps/v1, networking.k8s.io/v1)"
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          kind:
+            type: "string"
+            required: true
+            description: "kind of the resource (examples of valid kind are: Pod, Service, Deployment, Ingress)"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the resource"
+          namespace:
+            type: "string"
+            required: false
+            description: "Optional Namespace to retrieve the namespaced resource from (ignored in case of cluster scoped resources). If not provided, will get resource from configured namespace"
+      resources_list:
+        description: "List Kubernetes resources and objects in the current cluster by providing their apiVersion and kind and optionally the namespace and label selector (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress)"
+        arguments:
+          apiVersion:
+            type: "string"
+            required: true
+            description: "apiVersion of the resources (examples of valid apiVersion are: v1, apps/v1, networking.k8s.io/v1)"
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+          fieldSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes field selector to filter resources by field values (e.g. 'status.phase=Running', 'metadata.name=myresource'). Supported fields vary by resource type. For Pods: metadata.name, metadata.namespace, spec.nodeName, spec.restartPolicy, spec.schedulerName, spec.serviceAccountName, status.phase (Pending/Running/Succeeded/Failed/Unknown), status.podIP, status.nominatedNodeName. See https://kubernetes.io/docs/concepts/overview/working-with-objects/field-selectors/"
+          kind:
+            type: "string"
+            required: true
+            description: "kind of the resources (examples of valid kind are: Pod, Service, Deployment, Ingress)"
+          labelSelector:
+            type: "string"
+            required: false
+            description: "Optional Kubernetes label selector (e.g. 'app=myapp,env=prod' or 'app in (myapp,yourapp)'), use this option when you want to filter the resources by label"
+          namespace:
+            type: "string"
+            required: false
+            description: "Optional Namespace to retrieve the namespaced resources from (ignored in case of cluster scoped resources). If not provided, will list resources from all namespaces"

@@ -1,0 +1,3173 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 134
+servers:
+  gitlab:
+    tool_count: 134
+    tools:
+      merge_merge_request:
+        description: "Merge a merge request"
+        arguments:
+          auto_merge:
+            type: "boolean"
+            required: false
+            description: "If true, the merge request merges when the pipeline succeeds."
+          merge_commit_message:
+            type: "string"
+            required: false
+            description: "Custom merge commit message"
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          merge_when_pipeline_succeeds:
+            type: "boolean"
+            required: false
+            description: "If true, the merge request merges when the pipeline succeeds. Deprecated in GitLab 17.11. Use `auto_merge` instead."
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          should_remove_source_branch:
+            type: "boolean"
+            required: false
+            description: "Remove source branch after merge"
+          squash:
+            type: "boolean"
+            required: false
+            description: "Squash commits into a single commit when merging"
+          squash_commit_message:
+            type: "string"
+            required: false
+            description: "Custom squash commit message"
+      approve_merge_request:
+        description: "Approve a merge request"
+        arguments:
+          approval_password:
+            type: "string"
+            required: false
+            description: "Current user's password. Required if 'Require user re-authentication to approve' is enabled in the project settings"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of the merge request to approve"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          sha:
+            type: "string"
+            required: false
+            description: "The HEAD of the merge request. Optional, but used to ensure the merge request hasn't changed since you last reviewed it"
+      unapprove_merge_request:
+        description: "Unapprove a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of the merge request to unapprove"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request_approval_state:
+        description: "Get merge request approval details including approvers"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of the merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request_conflicts:
+        description: "Get the conflicts of a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of the merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_merge_request_pipelines:
+        description: "List pipelines for a merge request with pagination"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the merge request"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_or_update_file:
+        description: "Create or update a file in a GitLab project"
+        arguments:
+          branch:
+            type: "string"
+            required: true
+            description: "Branch to create/update the file in"
+          commit_id:
+            type: "string"
+            required: false
+            description: "Current file commit ID (for update operations)"
+          commit_message:
+            type: "string"
+            required: true
+            description: "Commit message"
+          content:
+            type: "string"
+            required: true
+            description: "Content of the file"
+          file_path:
+            type: "string"
+            required: true
+            description: "Path where to create/update the file"
+          last_commit_id:
+            type: "string"
+            required: false
+            description: "Last known file commit ID"
+          previous_path:
+            type: "string"
+            required: false
+            description: "Path of the file to move/rename"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      search_repositories:
+        description: "Search for GitLab projects"
+        arguments:
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          query:
+            type: "string"
+            required: false
+            description: "Search query (alias for 'search')"
+          search:
+            type: "string"
+            required: false
+            description: "Search query"
+      create_repository:
+        description: "Create a new GitLab project"
+        arguments:
+          description:
+            type: "string"
+            required: false
+            description: "Repository description"
+          initialize_with_readme:
+            type: "boolean"
+            required: false
+            description: "Initialize with README.md"
+          name:
+            type: "string"
+            required: true
+            description: "Repository name"
+          namespace_id:
+            type: "integer"
+            required: false
+            description: "Group namespace ID to create the project in. Omit to use the current user's namespace."
+          visibility:
+            type: "string"
+            required: false
+            description: "Repository visibility level"
+            enum: ["private", "internal", "public"]
+      create_group:
+        description: "Create new group or subgroup"
+        arguments:
+          description:
+            type: "string"
+            required: false
+            description: "The group's description"
+          name:
+            type: "string"
+            required: true
+            description: "The name of the group"
+          parent_id:
+            type: "number"
+            required: false
+            description: "The parent group ID for creating a subgroup"
+          path:
+            type: "string"
+            required: true
+            description: "The path of the group"
+          visibility:
+            type: "string"
+            required: false
+            description: "The group's visibility level"
+            enum: ["private", "internal", "public"]
+      get_file_contents:
+        description: "Get contents of a file or directory from a GitLab project"
+        arguments:
+          file_path:
+            type: "string"
+            required: false
+            description: "Path to the file or directory. Takes precedence over 'path' when both are provided"
+          path:
+            type: "string"
+            required: false
+            description: "Alias of file_path"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or URL-encoded path (optional; falls back to env)"
+          ref:
+            type: "string"
+            required: false
+            description: "Branch/tag/commit to get contents from"
+      push_files:
+        description: "Push multiple files in a single commit"
+        arguments:
+          branch:
+            type: "string"
+            required: true
+            description: "Branch to push to"
+          commit_message:
+            type: "string"
+            required: true
+            description: "Commit message"
+          files:
+            type: "array"
+            required: true
+            description: "Array of files to push"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_issue:
+        description: "Create a new issue"
+        arguments:
+          assignee_ids:
+            type: "array"
+            required: false
+            description: "Array of user IDs to assign"
+          description:
+            type: "string"
+            required: false
+            description: "Issue description"
+          issue_type:
+            type: "string"
+            required: false
+            description: "The type of issue. One of issue, incident, test_case or task."
+            enum: ["issue", "incident", "test_case", "task"]
+          labels:
+            type: "array"
+            required: false
+            description: "Array of label names"
+          milestone_id:
+            type: "string"
+            required: false
+            description: "Milestone ID to assign"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          title:
+            type: "string"
+            required: true
+            description: "Issue title"
+          weight:
+            type: "number"
+            required: false
+            description: "Weight of the issue (numeric, typically hours of work)"
+      create_merge_request:
+        description: "Create a new merge request"
+        arguments:
+          allow_collaboration:
+            type: "boolean"
+            required: false
+            description: "Allow commits from upstream members"
+          assignee_ids:
+            type: "array"
+            required: false
+            description: "The ID of the users to assign the MR to"
+          description:
+            type: "string"
+            required: false
+            description: "Merge request description"
+          draft:
+            type: "boolean"
+            required: false
+            description: "Create as draft merge request"
+          labels:
+            type: "array"
+            required: false
+            description: "Labels for the MR"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          remove_source_branch:
+            type: ["boolean", "null"]
+            required: false
+            description: "Flag indicating if a merge request should remove the source branch when merging."
+          reviewer_ids:
+            type: "array"
+            required: false
+            description: "The ID of the users to assign as reviewers of the MR"
+          source_branch:
+            type: "string"
+            required: true
+            description: "Branch containing changes"
+          squash:
+            type: ["boolean", "null"]
+            required: false
+            description: "If true, squash all commits into a single commit on merge."
+          target_branch:
+            type: "string"
+            required: true
+            description: "Branch to merge into"
+          target_project_id:
+            type: "string"
+            required: false
+            description: "Numeric ID of the target project."
+          title:
+            type: "string"
+            required: true
+            description: "Merge request title"
+      fork_repository:
+        description: "Fork a project to your account or specified namespace"
+        arguments:
+          namespace:
+            type: "string"
+            required: false
+            description: "Namespace to fork to (full path)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_branch:
+        description: "Create a new branch"
+        arguments:
+          branch:
+            type: "string"
+            required: true
+            description: "Name for the new branch"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          ref:
+            type: "string"
+            required: false
+            description: "Source branch/commit for new branch"
+      get_branch:
+        description: "Get branch details (commit, protection status)"
+        arguments:
+          branch_name:
+            type: "string"
+            required: true
+            description: "Name of the branch"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_branches:
+        description: "List branches in project with search filter"
+        arguments:
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          search:
+            type: "string"
+            required: false
+            description: "Search term to filter branches by name"
+      delete_branch:
+        description: "Delete branch from project"
+        arguments:
+          branch_name:
+            type: "string"
+            required: true
+            description: "Name of the branch to delete"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_protected_branches:
+        description: "List protected branches in a project, supports search filter"
+        arguments:
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          search:
+            type: "string"
+            required: false
+            description: "Search term to filter protected branches by name"
+      get_protected_branch:
+        description: "Get details of a single protected branch (access levels, force push settings)"
+        arguments:
+          branch_name:
+            type: "string"
+            required: true
+            description: "Name of the protected branch"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      protect_branch:
+        description: "Protect a repository branch (set push/merge/unprotect access levels)"
+        arguments:
+          allow_force_push:
+            type: "boolean"
+            required: false
+            description: "Allow force push to the protected branch. Default: false"
+          branch_name:
+            type: "string"
+            required: true
+            description: "Branch name or wildcard pattern to protect"
+          code_owner_approval_required:
+            type: "boolean"
+            required: false
+            description: "Require code owner approval before merging (PREMIUM). Default: false"
+          merge_access_level:
+            type: "integer"
+            required: false
+            description: "Access level for merging (0=No access, 30=Developer, 40=Maintainer, 60=Admin). GitLab default applies when omitted."
+          name:
+            type: "string"
+            required: false
+            description: "Deprecated alias for branch_name; prefer branch_name for consistency"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or complete URL-encoded path to project"
+          push_access_level:
+            type: "integer"
+            required: false
+            description: "Access level for pushing (0=No access, 30=Developer, 40=Maintainer, 60=Admin). GitLab default applies when omitted."
+          unprotect_access_level:
+            type: "integer"
+            required: false
+            description: "Access level for unprotecting (0=No access, 30=Developer, 40=Maintainer, 60=Admin). GitLab default applies when omitted."
+      unprotect_branch:
+        description: "Remove protection from a previously protected branch"
+        arguments:
+          branch_name:
+            type: "string"
+            required: true
+            description: "Name of the protected branch to unprotect"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      update_default_branch:
+        description: "Change the default branch of a project"
+        arguments:
+          default_branch:
+            type: "string"
+            required: true
+            description: "The new default branch name for the project"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request:
+        description: "Get details of a merge request (mergeRequestIid or branchName required)"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+      get_merge_request_diffs:
+        description: "Get the changes/diffs of a merge request (mergeRequestIid or branchName required)"
+        arguments:
+          excluded_file_patterns:
+            type: "array"
+            required: false
+            description: "Array of regex patterns to exclude files from the diff results. Each pattern is a JavaScript-compatible regular expression that matches file paths to ignore. Examples: [\"^vendor/\", \"^test/mocks/\", \"\\.spec\\.ts$\", \"package-lock\\.json\"]"
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+          view:
+            type: "string"
+            required: false
+            description: "Diff view type"
+            enum: ["inline", "parallel"]
+      list_merge_request_changed_files:
+        description: "List changed file paths in a merge request without diff content (mergeRequestIid or branchName required)"
+        arguments:
+          excluded_file_patterns:
+            type: "array"
+            required: false
+            description: "Array of regex patterns to exclude files. Examples: [\"^vendor/\", \"\\.pb\\.go$\"]"
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+      list_merge_request_diffs:
+        description: "List merge request diffs with pagination (mergeRequestIid or branchName required)"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+          unidiff:
+            type: "boolean"
+            required: false
+            description: "Present diffs in the unified diff format. Default is false. Introduced in GitLab 16.5."
+      get_merge_request_file_diff:
+        description: "Get diffs for specific files from a merge request (mergeRequestIid or branchName required)"
+        arguments:
+          file_paths:
+            type: "array"
+            required: true
+            description: "List of file paths to retrieve diffs for (e.g. ['src/api/users.ts', 'src/repo/user.go']). Call list_merge_request_changed_files first to get the full list of changed paths."
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+          unidiff:
+            type: "boolean"
+            required: false
+            description: "Present diff in the unified diff format. Default is false."
+      list_merge_request_versions:
+        description: "List all versions of a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request_version:
+        description: "Get a specific version of a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          unidiff:
+            type: "boolean"
+            required: false
+            description: "Present diffs in the unified diff format. Default is false. Introduced in GitLab 16.5."
+          version_id:
+            type: "string"
+            required: true
+            description: "The ID of the merge request diff version"
+      get_branch_diffs:
+        description: "Get diffs between two branches or commits"
+        arguments:
+          excluded_file_patterns:
+            type: "array"
+            required: false
+            description: "Array of regex patterns to exclude files from the diff results. Each pattern is a JavaScript-compatible regular expression that matches file paths to ignore. Examples: [\"^vendor/\", \"^test/mocks/\", \"\\.spec\\.ts$\", \"package-lock\\.json\"]"
+          from:
+            type: "string"
+            required: true
+            description: "The base branch or commit SHA to compare from"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          straight:
+            type: "boolean"
+            required: false
+            description: "Comparison method: false for '...' (default), true for '--'"
+          to:
+            type: "string"
+            required: true
+            description: "The target branch or commit SHA to compare to"
+      update_merge_request:
+        description: "Update a merge request (mergeRequestIid or branchName required)"
+        arguments:
+          assignee_ids:
+            type: "array"
+            required: false
+            description: "The ID of the users to assign the MR to"
+          description:
+            type: "string"
+            required: false
+            description: "The description of the merge request"
+          draft:
+            type: "boolean"
+            required: false
+            description: "Work in progress merge request"
+          labels:
+            type: "array"
+            required: false
+            description: "Labels for the MR"
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          remove_source_branch:
+            type: "boolean"
+            required: false
+            description: "Flag indicating if the source branch should be removed"
+          reviewer_ids:
+            type: "array"
+            required: false
+            description: "The ID of the users to assign as reviewers of the MR"
+          source_branch:
+            type: "string"
+            required: false
+            description: "Source branch name"
+          squash:
+            type: "boolean"
+            required: false
+            description: "Squash commits into a single commit when merging"
+          state_event:
+            type: "string"
+            required: false
+            description: "New state (close/reopen) for the MR"
+            enum: ["close", "reopen"]
+          target_branch:
+            type: "string"
+            required: false
+            description: "The target branch"
+          title:
+            type: "string"
+            required: false
+            description: "The title of the merge request"
+      create_note:
+        description: "Create a new note (comment) to an issue or merge request"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "Note content"
+          noteable_iid:
+            type: "string"
+            required: true
+            description: "IID of the issue or merge request"
+          noteable_type:
+            type: "string"
+            required: true
+            description: "Type of noteable (issue or merge_request)"
+            enum: ["issue", "merge_request"]
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or namespace/project_path"
+      create_merge_request_thread:
+        description: "Create a new thread on a merge request"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the thread"
+          created_at:
+            type: "string"
+            required: false
+            description: "Date the thread was created at (ISO 8601 format)"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          position:
+            type: "object"
+            required: false
+            description: "Position when creating a diff note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      resolve_merge_request_thread:
+        description: "Resolve a thread on a merge request"
+        arguments:
+          discussion_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          resolved:
+            type: "boolean"
+            required: true
+            description: "Whether to resolve the thread"
+      mr_discussions:
+        description: "List discussion items for a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_merge_request_discussion_note:
+        description: "Delete a discussion note on a merge request"
+        arguments:
+          discussion_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      update_merge_request_discussion_note:
+        description: "Update a discussion note on a merge request"
+        arguments:
+          body:
+            type: "string"
+            required: false
+            description: "The content of the note or reply"
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a thread"
+          merge_request_iid:
+            type: "string"
+            required: false
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: false
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or complete URL-encoded path to project"
+          resolved:
+            type: "boolean"
+            required: false
+            description: "Resolve or unresolve the note"
+      create_merge_request_discussion_note:
+        description: "Add a new discussion note to an existing merge request thread"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the note or reply"
+          created_at:
+            type: "string"
+            required: false
+            description: "Date the note was created at (ISO 8601 format)"
+          discussion_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_merge_request_note:
+        description: "Add a new note to a merge request"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the note or reply"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_merge_request_note:
+        description: "Delete an existing merge request note"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request_note:
+        description: "Get a specific note for a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_merge_request_notes:
+        description: "List notes for a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          order_by:
+            type: "string"
+            required: false
+            description: "The field to sort the notes by"
+            enum: ["created_at", "updated_at"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          sort:
+            type: "string"
+            required: false
+            description: "The sort order of the notes"
+            enum: ["asc", "desc"]
+      update_merge_request_note:
+        description: "Modify an existing merge request note"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the note or reply"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      get_draft_note:
+        description: "Get a single draft note from a merge request"
+        arguments:
+          draft_note_id:
+            type: "string"
+            required: true
+            description: "The ID of the draft note"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_draft_notes:
+        description: "List draft notes for a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_draft_note:
+        description: "Create a draft note for a merge request"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the draft note"
+          in_reply_to_discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion the draft note replies to"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          position:
+            type: "object"
+            required: false
+            description: "Position when creating a diff note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          resolve_discussion:
+            type: "boolean"
+            required: false
+            description: "Whether to resolve the discussion when publishing"
+      update_draft_note:
+        description: "Update an existing draft note"
+        arguments:
+          body:
+            type: "string"
+            required: false
+            description: "The content of the draft note"
+          draft_note_id:
+            type: "string"
+            required: true
+            description: "The ID of the draft note"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          position:
+            type: "object"
+            required: false
+            description: "Position when creating a diff note"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          resolve_discussion:
+            type: "boolean"
+            required: false
+            description: "Whether to resolve the discussion when publishing"
+      delete_draft_note:
+        description: "Delete a draft note"
+        arguments:
+          draft_note_id:
+            type: "string"
+            required: true
+            description: "The ID of the draft note"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      publish_draft_note:
+        description: "Publish a single draft note"
+        arguments:
+          draft_note_id:
+            type: "string"
+            required: true
+            description: "The ID of the draft note"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      bulk_publish_draft_notes:
+        description: "Publish all draft notes for a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_merge_request_emoji_reactions:
+        description: "List all emoji reactions on a merge request"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_merge_request_note_emoji_reactions:
+        description: "List all emoji reactions on a merge request note. Pass discussion_id for discussion thread replies."
+        arguments:
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_merge_request_emoji_reaction:
+        description: "Add an emoji reaction to a merge request (e.g. thumbsup, rocket, eyes)"
+        arguments:
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the emoji without colons (e.g. 'thumbsup', 'rocket', 'eyes')"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_merge_request_emoji_reaction:
+        description: "Remove an emoji reaction from a merge request"
+        arguments:
+          award_id:
+            type: "string"
+            required: true
+            description: "The ID of the emoji reaction to delete"
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_merge_request_note_emoji_reaction:
+        description: "Add an emoji reaction to a merge request note. Pass discussion_id for discussion thread replies."
+        arguments:
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the emoji without colons (e.g. 'thumbsup', 'rocket', 'eyes')"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_merge_request_note_emoji_reaction:
+        description: "Remove an emoji reaction from a merge request note. Pass discussion_id for discussion thread replies."
+        arguments:
+          award_id:
+            type: "string"
+            required: true
+            description: "The ID of the emoji reaction to delete"
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          merge_request_iid:
+            type: "string"
+            required: true
+            description: "The IID of a merge request"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      update_issue_note:
+        description: "Modify an existing issue thread note"
+        arguments:
+          body:
+            type: "string"
+            required: false
+            description: "The content of the note or reply"
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a thread"
+          issue_iid:
+            type: "string"
+            required: false
+            description: "The IID of an issue"
+          note_id:
+            type: "string"
+            required: false
+            description: "The ID of a thread note"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or complete URL-encoded path to project"
+          resolved:
+            type: "boolean"
+            required: false
+            description: "Resolve or unresolve the note"
+      create_issue_note:
+        description: "Add a note to an issue, optionally replying to a discussion thread"
+        arguments:
+          body:
+            type: "string"
+            required: true
+            description: "The content of the note or reply"
+          created_at:
+            type: "string"
+            required: false
+            description: "Date the note was created at (ISO 8601 format)"
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a thread. If provided, replies to that thread; otherwise creates a top-level note"
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_issue_emoji_reactions:
+        description: "List all emoji reactions on an issue"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_issue_note_emoji_reactions:
+        description: "List all emoji reactions on an issue note. Pass discussion_id for discussion thread replies."
+        arguments:
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_issue_emoji_reaction:
+        description: "Add an emoji reaction to an issue (e.g. thumbsup, rocket, eyes)"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the emoji without colons (e.g. 'thumbsup', 'rocket', 'eyes')"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_issue_emoji_reaction:
+        description: "Remove an emoji reaction from an issue"
+        arguments:
+          award_id:
+            type: "string"
+            required: true
+            description: "The ID of the emoji reaction to delete"
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      create_issue_note_emoji_reaction:
+        description: "Add an emoji reaction to an issue note. Pass discussion_id for discussion thread replies."
+        arguments:
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          name:
+            type: "string"
+            required: true
+            description: "Name of the emoji without colons (e.g. 'thumbsup', 'rocket', 'eyes')"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      delete_issue_note_emoji_reaction:
+        description: "Remove an emoji reaction from an issue note. Pass discussion_id for discussion thread replies."
+        arguments:
+          award_id:
+            type: "string"
+            required: true
+            description: "The ID of the emoji reaction to delete"
+          discussion_id:
+            type: "string"
+            required: false
+            description: "The ID of a discussion thread. Required for notes that are discussion replies; omit for top-level notes."
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The IID of an issue"
+          note_id:
+            type: "string"
+            required: true
+            description: "The ID of a note (comment or thread reply)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+      list_issues:
+        description: "List issues (default: created by current user; use scope='all' for all)"
+        arguments:
+          assignee_id:
+            type: "string"
+            required: false
+            description: "Return issues assigned to the given user ID (user id, none, or any). Mutually exclusive with assignee_username."
+          assignee_username:
+            type: "array"
+            required: false
+            description: "Return issues assigned to the given username. Mutually exclusive with assignee_id."
+          author_id:
+            type: "string"
+            required: false
+            description: "Return issues created by the given user ID. Mutually exclusive with author_username."
+          author_username:
+            type: "string"
+            required: false
+            description: "Return issues created by the given username. Mutually exclusive with author_id."
+          confidential:
+            type: "boolean"
+            required: false
+            description: "Filter confidential or public issues"
+          created_after:
+            type: "string"
+            required: false
+            description: "Return issues created after the given time"
+          created_before:
+            type: "string"
+            required: false
+            description: "Return issues created before the given time"
+          due_date:
+            type: "string"
+            required: false
+            description: "Return issues that have the due date"
+          issue_type:
+            type: "string"
+            required: false
+            description: "Filter to a given type of issue. One of issue, incident, test_case or task"
+            enum: ["issue", "incident", "test_case", "task"]
+          iteration_id:
+            type: "string"
+            required: false
+            description: "Return issues assigned to the given iteration ID. None returns issues that do not belong to an iteration. Any returns issues that belong to an iteration."
+          labels:
+            type: "array"
+            required: false
+            description: "Array of label names"
+          milestone:
+            type: "string"
+            required: false
+            description: "Milestone title"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or URL-encoded path (optional - if not provided, lists issues across all accessible projects)"
+          scope:
+            type: "string"
+            required: false
+            description: "Return issues from a specific scope"
+            enum: ["created_by_me", "assigned_to_me", "all"]
+          search:
+            type: "string"
+            required: false
+            description: "Search for specific terms"
+          state:
+            type: "string"
+            required: false
+            description: "Return issues with a specific state"
+            enum: ["opened", "closed", "all"]
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return issues updated after the given time"
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return issues updated before the given time"
+          with_labels_details:
+            type: "boolean"
+            required: false
+            description: "Return more details for each label"
+      my_issues:
+        description: "List issues assigned to the authenticated user"
+        arguments:
+          created_after:
+            type: "string"
+            required: false
+            description: "Return issues created after the given time (ISO 8601)"
+          created_before:
+            type: "string"
+            required: false
+            description: "Return issues created before the given time (ISO 8601)"
+          labels:
+            type: "array"
+            required: false
+            description: "Array of label names to filter by"
+          milestone:
+            type: "string"
+            required: false
+            description: "Milestone title to filter by"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (default: 20, max: 100)"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or URL-encoded path (optional to search across all accessible projects)"
+          search:
+            type: "string"
+            required: false
+            description: "Search for specific terms in title and description"
+          state:
+            type: "string"
+            required: false
+            description: "Return issues with a specific state (default: opened)"
+            enum: ["opened", "closed", "all"]
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return issues updated after the given time (ISO 8601)"
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return issues updated before the given time (ISO 8601)"
+      get_issue:
+        description: "Get details of a specific issue"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the project issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      update_issue:
+        description: "Update an issue"
+        arguments:
+          assignee_ids:
+            type: "array"
+            required: false
+            description: "Array of user IDs to assign issue to"
+          confidential:
+            type: "boolean"
+            required: false
+            description: "Set the issue to be confidential"
+          description:
+            type: "string"
+            required: false
+            description: "The description of the issue"
+          discussion_locked:
+            type: "boolean"
+            required: false
+            description: "Flag to lock discussions"
+          due_date:
+            type: "string"
+            required: false
+            description: "Date the issue is due (YYYY-MM-DD)"
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the project issue"
+          issue_type:
+            type: "string"
+            required: false
+            description: "The type of issue. One of issue, incident, test_case or task."
+            enum: ["issue", "incident", "test_case", "task"]
+          labels:
+            type: "array"
+            required: false
+            description: "Array of label names"
+          milestone_id:
+            type: "string"
+            required: false
+            description: "Milestone ID to assign"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          state_event:
+            type: "string"
+            required: false
+            description: "Update issue state (close/reopen)"
+            enum: ["close", "reopen"]
+          title:
+            type: "string"
+            required: false
+            description: "The title of the issue"
+          weight:
+            type: "number"
+            required: false
+            description: "Weight of the issue (numeric, typically hours of work)"
+      update_issue_description_patch:
+        description: "Apply a patch (search/replace or unified diff) to an issue description. Reduces token usage by allowing small changes without sending the full description. Supports dry_run to preview changes and create_note to summarize updates."
+        arguments:
+          allow_multiple:
+            type: "boolean"
+            required: false
+            description: "For search_replace: allow multiple matches to all be replaced (default: false \u2014 fail on duplicate)"
+          create_note:
+            type: "boolean"
+            required: false
+            description: "If true, add a note summarizing the change after update"
+          dry_run:
+            type: "boolean"
+            required: false
+            description: "If true, preview changes without updating the issue"
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the project issue"
+          patch:
+            type: "string"
+            required: true
+            description: "The patch content to apply to the issue description"
+          patch_type:
+            type: "string"
+            required: true
+            description: "Type of patch format to apply"
+            enum: ["search_replace", "unified_diff"]
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      delete_issue:
+        description: "Delete an issue"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the project issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_todos:
+        description: "List GitLab to-do items for the current user"
+        arguments:
+          action:
+            type: "string"
+            required: false
+            description: "Filter by to-do action"
+            enum: ["assigned", "mentioned", "build_failed", "marked", "approval_required", "unmergeable", "directly_addressed", "merge_train_removed", "member_access_requested"]
+          author_id:
+            type: "number"
+            required: false
+            description: "Filter by author ID"
+          group_id:
+            type: "number"
+            required: false
+            description: "Filter by group ID"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "number"
+            required: false
+            description: "Filter by project ID"
+          state:
+            type: "string"
+            required: false
+            description: "Filter by to-do state"
+            enum: ["pending", "done"]
+          type:
+            type: "string"
+            required: false
+            description: "Filter by to-do target type"
+            enum: ["Issue", "MergeRequest", "Commit", "Epic", "DesignManagement::Design", "AlertManagement::Alert", "Project", "Namespace", "Vulnerability", "WikiPage::Meta"]
+      mark_todo_done:
+        description: "Mark a GitLab to-do item as done"
+        arguments:
+          id:
+            type: "number"
+            required: true
+            description: "The ID of the to-do item"
+      mark_all_todos_done:
+        description: "Mark all pending GitLab to-do items as done for the current user"
+        arguments: {}
+      list_issue_links:
+        description: "List all issue links for a specific issue"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of a project's issue"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_issue_discussions:
+        description: "List discussions for an issue"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of the project issue"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      get_issue_link:
+        description: "Get a specific issue link"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of a project's issue"
+          issue_link_id:
+            type: "string"
+            required: true
+            description: "ID of an issue relationship"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      create_issue_link:
+        description: "Create an issue link between two issues"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of a project's issue"
+          link_type:
+            type: "string"
+            required: false
+            description: "The type of the relation, defaults to relates_to"
+            enum: ["relates_to", "blocks", "is_blocked_by"]
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          target_issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of a target project's issue"
+          target_project_id:
+            type: "string"
+            required: true
+            description: "The ID or URL-encoded path of a target project"
+      delete_issue_link:
+        description: "Delete an issue link"
+        arguments:
+          issue_iid:
+            type: "string"
+            required: true
+            description: "The internal ID of a project's issue"
+          issue_link_id:
+            type: "string"
+            required: true
+            description: "The ID of an issue relationship"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_namespaces:
+        description: "List all namespaces (users and groups) available to the current user. Filter by kind='group' for groups only."
+        arguments:
+          owned:
+            type: "boolean"
+            required: false
+            description: "Filter for namespaces owned by current user"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          search:
+            type: "string"
+            required: false
+            description: "Search term for namespaces"
+      get_namespace:
+        description: "Get details of a namespace (user or group) by ID or path. Groups are namespaces with kind='group'."
+        arguments:
+          namespace_id:
+            type: "string"
+            required: true
+            description: "Namespace ID or full path"
+      verify_namespace:
+        description: "Verify if a namespace path exists. Use parent_id to scope the check to a specific parent namespace \u2014 required for nested namespaces where the same path may exist under different parents."
+        arguments:
+          parent_id:
+            type: "integer"
+            required: false
+            description: "Parent namespace ID; required to correctly resolve paths in nested namespaces where the same path may exist under different parents"
+          path:
+            type: "string"
+            required: true
+            description: "Namespace path to verify"
+      get_project:
+        description: "Get details of a specific project"
+        arguments:
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_projects:
+        description: "List projects accessible by the current user"
+        arguments:
+          archived:
+            type: "boolean"
+            required: false
+            description: "Filter for archived projects"
+          membership:
+            type: "boolean"
+            required: false
+            description: "Filter for projects where current user is a member"
+          min_access_level:
+            type: "number"
+            required: false
+            description: "Filter by minimum access level"
+          order_by:
+            type: "string"
+            required: false
+            description: "Return projects ordered by field"
+            enum: ["id", "name", "path", "created_at", "updated_at", "last_activity_at"]
+          owned:
+            type: "boolean"
+            required: false
+            description: "Filter for projects owned by current user"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          search:
+            type: "string"
+            required: false
+            description: "Search term for projects"
+          search_namespaces:
+            type: "boolean"
+            required: false
+            description: "Needs to be true if search is full path"
+          simple:
+            type: "boolean"
+            required: false
+            description: "Return only limited fields"
+          sort:
+            type: "string"
+            required: false
+            description: "Return projects sorted in ascending or descending order"
+            enum: ["asc", "desc"]
+          topic:
+            type: "string"
+            required: false
+            description: "Filter by topic (projects tagged with this topic)"
+          visibility:
+            type: "string"
+            required: false
+            description: "Filter by project visibility"
+            enum: ["public", "internal", "private"]
+          with_issues_enabled:
+            type: "boolean"
+            required: false
+            description: "Filter projects with issues feature enabled"
+          with_merge_requests_enabled:
+            type: "boolean"
+            required: false
+            description: "Filter projects with merge requests feature enabled"
+      update_project:
+        description: "Update project settings such as description, visibility, default branch, and feature access levels"
+        arguments:
+          builds_access_level:
+            type: "string"
+            required: false
+            description: "CI/CD pipelines feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          container_registry_access_level:
+            type: "string"
+            required: false
+            description: "Container registry feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          default_branch:
+            type: "string"
+            required: false
+            description: "Default branch name"
+          description:
+            type: "string"
+            required: false
+            description: "Project description"
+          environments_access_level:
+            type: "string"
+            required: false
+            description: "Environments feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          forking_access_level:
+            type: "string"
+            required: false
+            description: "Forking feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          issues_access_level:
+            type: "string"
+            required: false
+            description: "Issues feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          merge_method:
+            type: "string"
+            required: false
+            description: "Merge method"
+            enum: ["merge", "rebase_merge", "ff"]
+          merge_requests_access_level:
+            type: "string"
+            required: false
+            description: "Merge requests feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          name:
+            type: "string"
+            required: false
+            description: "Project display name"
+          only_allow_merge_if_all_discussions_are_resolved:
+            type: "boolean"
+            required: false
+            description: "Require all discussions to be resolved before merge"
+          only_allow_merge_if_pipeline_succeeds:
+            type: "boolean"
+            required: false
+            description: "Require successful pipeline before merge"
+          package_registry_access_level:
+            type: "string"
+            required: false
+            description: "Package registry feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          pages_access_level:
+            type: "string"
+            required: false
+            description: "Pages feature visibility"
+            enum: ["disabled", "private", "enabled", "public"]
+          path:
+            type: "string"
+            required: false
+            description: "Project path/slug"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or complete URL-encoded path to project"
+          remove_source_branch_after_merge:
+            type: "boolean"
+            required: false
+            description: "Remove source branches after merge by default"
+          request_access_enabled:
+            type: "boolean"
+            required: false
+            description: "Allow users to request access"
+          snippets_access_level:
+            type: "string"
+            required: false
+            description: "Snippets feature visibility"
+            enum: ["disabled", "private", "enabled"]
+          squash_option:
+            type: "string"
+            required: false
+            description: "Squash commits setting"
+            enum: ["never", "always", "default_on", "default_off"]
+          topics:
+            type: "array"
+            required: false
+            description: "Project topics"
+          visibility:
+            type: "string"
+            required: false
+            description: "Project visibility"
+            enum: ["private", "internal", "public"]
+          wiki_access_level:
+            type: "string"
+            required: false
+            description: "Wiki feature visibility"
+            enum: ["disabled", "private", "enabled"]
+      list_project_members:
+        description: "List members of a GitLab project"
+        arguments:
+          include_inheritance:
+            type: "boolean"
+            required: false
+            description: "Include inherited members. Defaults to false."
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (default: 20, max: 100)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          query:
+            type: "string"
+            required: false
+            description: "Search for members by name or username"
+          skip_users:
+            type: "array"
+            required: false
+            description: "User IDs to exclude"
+          user_ids:
+            type: "array"
+            required: false
+            description: "Filter by user IDs"
+      list_labels:
+        description: "List labels for a project"
+        arguments:
+          include_ancestor_groups:
+            type: "boolean"
+            required: false
+            description: "Include ancestor groups"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          search:
+            type: "string"
+            required: false
+            description: "Keyword to filter labels by"
+          with_counts:
+            type: "boolean"
+            required: false
+            description: "Whether to include issue and merge request counts"
+      get_label:
+        description: "Get a single label from a project"
+        arguments:
+          include_ancestor_groups:
+            type: "boolean"
+            required: false
+            description: "Include ancestor groups"
+          label_id:
+            type: "string"
+            required: true
+            description: "The ID or title of a project's label"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      create_label:
+        description: "Create a new label in a project"
+        arguments:
+          color:
+            type: "string"
+            required: true
+            description: "The color of the label given in 6-digit hex notation with leading '#' sign"
+          description:
+            type: "string"
+            required: false
+            description: "The description of the label"
+          name:
+            type: "string"
+            required: true
+            description: "The name of the label"
+          priority:
+            type: ["number", "null"]
+            required: false
+            description: "The priority of the label"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      update_label:
+        description: "Update an existing label in a project"
+        arguments:
+          color:
+            type: "string"
+            required: false
+            description: "The color of the label given in 6-digit hex notation with leading '#' sign"
+          description:
+            type: "string"
+            required: false
+            description: "The new description of the label"
+          label_id:
+            type: "string"
+            required: true
+            description: "The ID or title of a project's label"
+          new_name:
+            type: "string"
+            required: false
+            description: "The new name of the label"
+          priority:
+            type: ["number", "null"]
+            required: false
+            description: "The new priority of the label"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      delete_label:
+        description: "Delete a label from a project"
+        arguments:
+          label_id:
+            type: "string"
+            required: true
+            description: "The ID or title of a project's label"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_group_projects:
+        description: "List projects in a group"
+        arguments:
+          archived:
+            type: "boolean"
+            required: false
+            description: "Filter for archived projects"
+          group_id:
+            type: "string"
+            required: true
+            description: "Group ID or path"
+          include_subgroups:
+            type: "boolean"
+            required: false
+            description: "Include projects from subgroups"
+          min_access_level:
+            type: "number"
+            required: false
+            description: "Filter by minimum access level"
+          order_by:
+            type: "string"
+            required: false
+            description: "Field to sort by"
+            enum: ["name", "path", "created_at", "updated_at", "last_activity_at"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          search:
+            type: "string"
+            required: false
+            description: "Search term to filter projects"
+          sort:
+            type: "string"
+            required: false
+            description: "Sort direction"
+            enum: ["asc", "desc"]
+          starred:
+            type: "boolean"
+            required: false
+            description: "Filter by starred projects"
+          statistics:
+            type: "boolean"
+            required: false
+            description: "Include project statistics"
+          topic:
+            type: "string"
+            required: false
+            description: "Filter by topic (projects tagged with this topic)"
+          visibility:
+            type: "string"
+            required: false
+            description: "Filter by project visibility"
+            enum: ["public", "internal", "private"]
+          with_custom_attributes:
+            type: "boolean"
+            required: false
+            description: "Include custom attributes"
+          with_issues_enabled:
+            type: "boolean"
+            required: false
+            description: "Filter projects with issues feature enabled"
+          with_merge_requests_enabled:
+            type: "boolean"
+            required: false
+            description: "Filter projects with merge requests feature enabled"
+          with_programming_language:
+            type: "string"
+            required: false
+            description: "Filter by programming language"
+          with_security_reports:
+            type: "boolean"
+            required: false
+            description: "Include security reports"
+      get_repository_tree:
+        description: "List files and directories in a repository"
+        arguments:
+          page_token:
+            type: "string"
+            required: false
+            description: "Token for keyset pagination. Use the next_page_token value returned in the previous response to retrieve the next page."
+          pagination:
+            type: "string"
+            required: false
+            description: "Pagination method. Use 'keyset' for keyset-based pagination (required for repositories with many files). Non-keyset calls keep the legacy array response for backward compatibility; that legacy response shape is deprecated and may be removed in a future major release. Keyset calls return a structured response with items and next_page_token when more pages are available."
+          path:
+            type: "string"
+            required: false
+            description: "The path inside the repository"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of results to show per page"
+          project_id:
+            type: "string"
+            required: true
+            description: "The ID or URL-encoded path of the project"
+          recursive:
+            type: "boolean"
+            required: false
+            description: "Boolean value to get a recursive tree"
+          ref:
+            type: "string"
+            required: false
+            description: "The name of a repository branch or tag. Defaults to the default branch."
+      validate_ci_lint:
+        description: "Validate provided GitLab CI/CD YAML content for a project"
+        arguments:
+          content:
+            type: "string"
+            required: true
+            description: "GitLab CI/CD YAML content to validate"
+          dry_run:
+            type: "boolean"
+            required: false
+            description: "Run pipeline creation simulation"
+          include_jobs:
+            type: "boolean"
+            required: false
+            description: "Include jobs in the lint response"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          ref:
+            type: "string"
+            required: false
+            description: "Branch or tag context for dry_run validation"
+      validate_project_ci_lint:
+        description: "Validate an existing .gitlab-ci.yml configuration for a project"
+        arguments:
+          content_ref:
+            type: "string"
+            required: false
+            description: "Commit SHA, branch, or tag to read the existing CI config from"
+          dry_run:
+            type: "boolean"
+            required: false
+            description: "Run pipeline creation simulation"
+          dry_run_ref:
+            type: "string"
+            required: false
+            description: "Branch or tag context for dry_run validation"
+          include_jobs:
+            type: "boolean"
+            required: false
+            description: "Include jobs in the lint response"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_ci_catalog_resources:
+        description: "List GitLab CI/CD Catalog resources/components visible to the user"
+        arguments:
+          after:
+            type: "string"
+            required: false
+            description: "GraphQL cursor for the next page"
+          first:
+            type: "integer"
+            required: false
+            description: "Number of resources to return (default: 20, max: 100)"
+          group_ids:
+            type: "array"
+            required: false
+            description: "Filter to catalog resources in these group IDs"
+          scope:
+            type: "string"
+            required: false
+            description: "Catalog resource scope"
+            enum: ["ALL", "NAMESPACES"]
+          search:
+            type: "string"
+            required: false
+            description: "Search catalog resources by name or description"
+          sort:
+            type: "string"
+            required: false
+            description: "Sort order"
+            enum: ["CREATED_ASC", "CREATED_DESC", "LATEST_RELEASED_AT_ASC", "LATEST_RELEASED_AT_DESC", "NAME_ASC", "NAME_DESC", "STAR_COUNT_ASC", "STAR_COUNT_DESC", "USAGE_COUNT_ASC", "USAGE_COUNT_DESC"]
+          topics:
+            type: "array"
+            required: false
+            description: "Filter by project topic names"
+          verification_level:
+            type: "string"
+            required: false
+            description: "Filter by verification level"
+            enum: ["GITLAB_MAINTAINED", "GITLAB_PARTNER_MAINTAINED", "UNVERIFIED", "VERIFIED_CREATOR_MAINTAINED", "VERIFIED_CREATOR_SELF_MANAGED"]
+      get_ci_catalog_resource:
+        description: "Get details for a GitLab CI/CD Catalog resource, including versions and components"
+        arguments:
+          component_limit:
+            type: "integer"
+            required: false
+            description: "Number of components per version to include (default: 20, max: 50)"
+          component_name:
+            type: "string"
+            required: false
+            description: "Filter returned components by component name"
+          full_path:
+            type: "string"
+            required: false
+            description: "CI/CD Catalog resource full project path. Required when id is omitted."
+          id:
+            type: "string"
+            required: false
+            description: "CI/CD Catalog resource global ID. Required when full_path is omitted."
+          include_readme:
+            type: "boolean"
+            required: false
+            description: "Include version README content"
+          version_limit:
+            type: "integer"
+            required: false
+            description: "Number of versions to include (default: 5, max: 20)"
+      list_merge_requests:
+        description: "List merge requests (without project_id: user's MRs; with project_id: project MRs)"
+        arguments:
+          approved_by_usernames:
+            type: "array"
+            required: false
+            description: "Returns merge requests approved by the given usernames (array)."
+          assignee_id:
+            type: "string"
+            required: false
+            description: "Return MRs assigned to the given user ID (integer), 'none', or 'any'. Mutually exclusive with assignee_username."
+          assignee_username:
+            type: "string"
+            required: false
+            description: "Returns merge requests assigned to the given username. Mutually exclusive with assignee_id."
+          author_id:
+            type: "string"
+            required: false
+            description: "Returns merge requests created by the given user ID (integer). Mutually exclusive with author_username."
+          author_username:
+            type: "string"
+            required: false
+            description: "Returns merge requests created by the given username. Mutually exclusive with author_id."
+          created_after:
+            type: "string"
+            required: false
+            description: "Return merge requests created after the given time"
+          created_before:
+            type: "string"
+            required: false
+            description: "Return merge requests created before the given time"
+          labels:
+            type: "array"
+            required: false
+            description: "Array of label names"
+          milestone:
+            type: "string"
+            required: false
+            description: "Milestone title"
+          order_by:
+            type: "string"
+            required: false
+            description: "Return merge requests ordered by the given field"
+            enum: ["created_at", "updated_at", "priority", "label_priority", "milestone_due", "popularity"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or URL-encoded path (optional - if not provided, lists all merge requests the user has access to)"
+          reviewer_id:
+            type: "string"
+            required: false
+            description: "Returns merge requests which have the user as a reviewer. Must be an integer, 'none', or 'any'. Mutually exclusive with reviewer_username."
+          reviewer_username:
+            type: "string"
+            required: false
+            description: "Returns merge requests which have the user as a reviewer by username. Mutually exclusive with reviewer_id."
+          scope:
+            type: "string"
+            required: false
+            description: "Return merge requests from a specific scope"
+            enum: ["created_by_me", "assigned_to_me", "all"]
+          search:
+            type: "string"
+            required: false
+            description: "Search for specific terms"
+          sort:
+            type: "string"
+            required: false
+            description: "Return merge requests sorted in ascending or descending order"
+            enum: ["asc", "desc"]
+          source_branch:
+            type: "string"
+            required: false
+            description: "Return merge requests from a specific source branch"
+          state:
+            type: "string"
+            required: false
+            description: "Return merge requests with a specific state"
+            enum: ["opened", "closed", "locked", "merged", "all"]
+          target_branch:
+            type: "string"
+            required: false
+            description: "Return merge requests targeting a specific branch"
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return merge requests updated after the given time"
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return merge requests updated before the given time"
+          wip:
+            type: "string"
+            required: false
+            description: "Filter merge requests against their wip status"
+            enum: ["yes", "no"]
+          with_labels_details:
+            type: "boolean"
+            required: false
+            description: "Return more details for each label"
+      get_users:
+        description: "Get GitLab user details by usernames"
+        arguments:
+          usernames:
+            type: "array"
+            required: true
+            description: "Array of usernames to search for"
+      get_user:
+        description: "Get user details by ID"
+        arguments:
+          user_id:
+            type: "string"
+            required: true
+            description: "The ID of the user"
+      whoami:
+        description: "Get current authenticated user details"
+        arguments: {}
+      list_commits:
+        description: "List repository commits with filtering options"
+        arguments:
+          all:
+            type: "boolean"
+            required: false
+            description: "Retrieve every commit from the repository"
+          author:
+            type: "string"
+            required: false
+            description: "Search commits by commit author"
+          first_parent:
+            type: "boolean"
+            required: false
+            description: "Follow only the first parent commit upon seeing a merge commit"
+          order:
+            type: "string"
+            required: false
+            description: "List commits in order"
+            enum: ["default", "topo"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          path:
+            type: "string"
+            required: false
+            description: "The file path"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          ref_name:
+            type: "string"
+            required: false
+            description: "The name of a repository branch, tag or revision range, or if not given the default branch"
+          since:
+            type: "string"
+            required: false
+            description: "Only commits after or on this date are returned in ISO 8601 format YYYY-MM-DDTHH:MM:SSZ"
+          trailers:
+            type: "boolean"
+            required: false
+            description: "Parse and include Git trailers for every commit"
+          until:
+            type: "string"
+            required: false
+            description: "Only commits before or on this date are returned in ISO 8601 format YYYY-MM-DDTHH:MM:SSZ"
+          with_stats:
+            type: "boolean"
+            required: false
+            description: "Stats about each commit are added to the response"
+      get_commit:
+        description: "Get details of a specific commit"
+        arguments:
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          sha:
+            type: "string"
+            required: true
+            description: "The commit hash or name of a repository branch or tag"
+          stats:
+            type: "boolean"
+            required: false
+            description: "Include commit stats"
+      get_commit_diff:
+        description: "Get changes/diffs of a specific commit"
+        arguments:
+          full_diff:
+            type: "boolean"
+            required: false
+            description: "Whether to return the full diff or only first page (default: false)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          sha:
+            type: "string"
+            required: true
+            description: "The commit hash or name of a repository branch or tag"
+      get_file_blame:
+        description: "Get git blame for a file at a given ref. Each entry maps a contiguous range of source lines to the commit that last changed them (id, author, authored_date, message). Use range_start/range_end to limit blame to specific lines."
+        arguments:
+          file_path:
+            type: "string"
+            required: true
+            description: "The full path of the file to blame, relative to repo root"
+          project_id:
+            type: "string"
+            required: false
+            description: "Project ID or complete URL-encoded path to project"
+          range_end:
+            type: "integer"
+            required: false
+            description: "Last line of the blame range (inclusive, 1-based). Both range[start] and range[end] must be set together."
+          range_start:
+            type: "integer"
+            required: false
+            description: "First line of the blame range (inclusive, 1-based). Both range[start] and range[end] must be set together."
+          ref:
+            type: "string"
+            required: true
+            description: "The name of branch, tag or commit (required by GitLab blame API)"
+      list_commit_statuses:
+        description: "List statuses for a commit"
+        arguments:
+          all:
+            type: "boolean"
+            required: false
+            description: "Return all statuses, not only latest ones"
+          name:
+            type: "string"
+            required: false
+            description: "Filter statuses by status name or context"
+          order_by:
+            type: "string"
+            required: false
+            description: "Field to order statuses by"
+            enum: ["id", "pipeline_id"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          pipeline_id:
+            type: "number"
+            required: false
+            description: "Filter statuses by pipeline ID"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          ref:
+            type: "string"
+            required: false
+            description: "Filter statuses by Git ref"
+          sha:
+            type: "string"
+            required: true
+            description: "The commit hash or name of a repository branch or tag"
+          sort:
+            type: "string"
+            required: false
+            description: "Sort direction"
+            enum: ["asc", "desc"]
+          stage:
+            type: "string"
+            required: false
+            description: "Filter statuses by build stage"
+      create_commit_status:
+        description: "Create or update the status of a commit"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Alias for name. Provide either name or context, not both."
+          coverage:
+            type: "number"
+            required: false
+            description: "Total code coverage for this status"
+          description:
+            type: "string"
+            required: false
+            description: "Short status description"
+          name:
+            type: "string"
+            required: false
+            description: "Status name. GitLab defaults to 'default' when omitted."
+          pipeline_id:
+            type: "number"
+            required: false
+            description: "Pipeline ID to attach the status to"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or complete URL-encoded path to project"
+          ref:
+            type: "string"
+            required: false
+            description: "The branch or tag ref"
+          sha:
+            type: "string"
+            required: true
+            description: "The commit hash to set the status on"
+          state:
+            type: "string"
+            required: true
+            description: "Commit status state"
+            enum: ["pending", "running", "success", "failed", "canceled", "skipped"]
+          target_url:
+            type: "string"
+            required: false
+            description: "Target URL associated with this status"
+      list_group_iterations:
+        description: "List group iterations with filtering options"
+        arguments:
+          group_id:
+            type: "string"
+            required: true
+            description: "Group ID or URL-encoded path"
+          include_ancestors:
+            type: "boolean"
+            required: false
+            description: "Include iterations for group and its ancestors. Defaults to true."
+          include_descendants:
+            type: "boolean"
+            required: false
+            description: "Include iterations for group and its descendants. Defaults to false."
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          search:
+            type: "string"
+            required: false
+            description: "Return only iterations with a title matching the provided string."
+          search_in:
+            type: "array"
+            required: false
+            description: "Fields in which fuzzy search should be performed with the query given in the argument search. The available options are title and cadence_title. Default is [title]."
+          state:
+            type: "string"
+            required: false
+            description: "Return opened, upcoming, current, closed, or all iterations."
+            enum: ["opened", "upcoming", "current", "closed", "all"]
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return only iterations updated after the given datetime. Expected in ISO 8601 format (2019-03-15T08:00:00Z)."
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return only iterations updated before the given datetime. Expected in ISO 8601 format (2019-03-15T08:00:00Z)."
+      upload_markdown:
+        description: "Upload a file for use in markdown content"
+        arguments:
+          file_path:
+            type: "string"
+            required: true
+            description: "Path to the file to upload"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path of the project"
+      download_attachment:
+        description: "Download an uploaded file from a project (images returned as base64; use local_path to save to disk)"
+        arguments:
+          filename:
+            type: "string"
+            required: true
+            description: "The filename of the upload"
+          local_path:
+            type: "string"
+            required: false
+            description: "Local path to save the file (optional, defaults to current directory)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path of the project"
+          secret:
+            type: "string"
+            required: true
+            description: "The 32-character secret of the upload"
+      health_check:
+        description: "Verify server status and authentication"
+        arguments: {}
+      list_events:
+        description: "List events for the authenticated user (before/after: YYYY-MM-DD)"
+        arguments:
+          action:
+            type: "string"
+            required: false
+            description: "If defined, returns events with the specified action type"
+          after:
+            type: "string"
+            required: false
+            description: "If defined, Returns events created after the specified date (YYYY-MM-DD format). To include events on 2025-08-29, use after=2025-08-28"
+          before:
+            type: "string"
+            required: false
+            description: "If defined, Returns events created before the specified date (YYYY-MM-DD format). To include events on 2025-08-29, use before=2025-08-30"
+          page:
+            type: "number"
+            required: false
+            description: "Returns the specified results page. Default: 1"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of results per page. Default: 20"
+          scope:
+            type: "string"
+            required: false
+            description: "Include all events across a user's projects"
+          sort:
+            type: "string"
+            required: false
+            description: "Direction to sort the results by creation date. Default: desc"
+            enum: ["asc", "desc"]
+          target_type:
+            type: "string"
+            required: false
+            description: "If defined, returns events with the specified target type"
+            enum: ["epic", "issue", "merge_request", "milestone", "note", "project", "snippet", "user"]
+      get_project_events:
+        description: "List events for a project (before/after: YYYY-MM-DD)"
+        arguments:
+          action:
+            type: "string"
+            required: false
+            description: "If defined, returns events with the specified action type"
+          after:
+            type: "string"
+            required: false
+            description: "If defined, Returns events created after the specified date (YYYY-MM-DD format). To include events on 2025-08-29, use after=2025-08-28"
+          before:
+            type: "string"
+            required: false
+            description: "If defined, Returns events created before the specified date (YYYY-MM-DD format). To include events on 2025-08-29, use before=2025-08-30"
+          page:
+            type: "number"
+            required: false
+            description: "Returns the specified results page. Default: 1"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of results per page. Default: 20"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          sort:
+            type: "string"
+            required: false
+            description: "Direction to sort the results by creation date. Default: desc"
+            enum: ["asc", "desc"]
+          target_type:
+            type: "string"
+            required: false
+            description: "If defined, returns events with the specified target type"
+            enum: ["epic", "issue", "merge_request", "milestone", "note", "project", "snippet", "user"]
+      list_pipelines:
+        description: "List pipelines with filtering options"
+        arguments:
+          order_by:
+            type: "string"
+            required: false
+            description: "Order pipelines by"
+            enum: ["id", "status", "ref", "updated_at", "user_id"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          ref:
+            type: "string"
+            required: false
+            description: "The ref of pipelines"
+          scope:
+            type: "string"
+            required: false
+            description: "The scope of pipelines"
+            enum: ["running", "pending", "finished", "branches", "tags"]
+          sha:
+            type: "string"
+            required: false
+            description: "The SHA of pipelines"
+          sort:
+            type: "string"
+            required: false
+            description: "Sort pipelines"
+            enum: ["asc", "desc"]
+          status:
+            type: "string"
+            required: false
+            description: "The status of pipelines"
+            enum: ["created", "waiting_for_resource", "preparing", "pending", "running", "success", "failed", "canceled", "skipped", "manual", "scheduled"]
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return pipelines updated after the specified date"
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return pipelines updated before the specified date"
+          username:
+            type: "string"
+            required: false
+            description: "The username of the user who triggered pipelines"
+          yaml_errors:
+            type: "boolean"
+            required: false
+            description: "Returns pipelines with invalid configurations"
+      get_pipeline:
+        description: "Get details of a specific pipeline"
+        arguments:
+          pipeline_id:
+            type: "string"
+            required: true
+            description: "The ID of the pipeline"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_deployments:
+        description: "List deployments with filtering options"
+        arguments:
+          environment:
+            type: "string"
+            required: false
+            description: "Filter by environment name"
+          order_by:
+            type: "string"
+            required: false
+            description: "Order deployments by"
+            enum: ["id", "iid", "created_at", "updated_at", "ref", "status", "environment"]
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          ref:
+            type: "string"
+            required: false
+            description: "Filter by ref"
+          sha:
+            type: "string"
+            required: false
+            description: "Filter by commit SHA (if supported by your GitLab version)"
+          sort:
+            type: "string"
+            required: false
+            description: "Sort deployments"
+            enum: ["asc", "desc"]
+          status:
+            type: "string"
+            required: false
+            description: "Filter by deployment status"
+          updated_after:
+            type: "string"
+            required: false
+            description: "Return deployments updated after the specified date"
+          updated_before:
+            type: "string"
+            required: false
+            description: "Return deployments updated before the specified date"
+      get_deployment:
+        description: "Get details of a specific deployment"
+        arguments:
+          deployment_id:
+            type: "string"
+            required: true
+            description: "The ID of the deployment"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_environments:
+        description: "List environments in a project"
+        arguments:
+          name:
+            type: "string"
+            required: false
+            description: "Return environments with this exact name"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          search:
+            type: "string"
+            required: false
+            description: "Search environments by name"
+          states:
+            type: "string"
+            required: false
+            description: "Filter environments by state"
+            enum: ["available", "stopped"]
+      get_environment:
+        description: "Get details of a specific environment"
+        arguments:
+          environment_id:
+            type: "string"
+            required: true
+            description: "The ID of the environment"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_pipeline_jobs:
+        description: "List all jobs in a specific pipeline"
+        arguments:
+          include_retried:
+            type: "boolean"
+            required: false
+            description: "Whether to include retried jobs"
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          pipeline_id:
+            type: "string"
+            required: true
+            description: "The ID of the pipeline"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          scope:
+            type: "string"
+            required: false
+            description: "The scope of jobs to show"
+            enum: ["created", "pending", "running", "failed", "success", "canceled", "skipped", "manual"]
+      list_pipeline_trigger_jobs:
+        description: "List trigger jobs (bridges) in a pipeline"
+        arguments:
+          page:
+            type: "number"
+            required: false
+            description: "Page number for pagination (default: 1)"
+          per_page:
+            type: "number"
+            required: false
+            description: "Number of items per page (max: 100, default: 20)"
+          pipeline_id:
+            type: "string"
+            required: true
+            description: "The ID of the pipeline"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          scope:
+            type: "string"
+            required: false
+            description: "The scope of trigger jobs to show"
+            enum: ["canceled", "canceling", "created", "failed", "manual", "pending", "preparing", "running", "scheduled", "skipped", "success", "waiting_for_resource"]
+      get_pipeline_job:
+        description: "Get details of a GitLab pipeline job number"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          limit:
+            type: "number"
+            required: false
+            description: "Maximum number of lines to return from the end of the log (default: 1000)"
+          offset:
+            type: "number"
+            required: false
+            description: "Number of lines to skip from the end of the log (default: 0)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      get_pipeline_job_output:
+        description: "Get the output/trace of a pipeline job with optional pagination"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          limit:
+            type: "number"
+            required: false
+            description: "Maximum number of lines to return from the end of the log (default: 1000)"
+          offset:
+            type: "number"
+            required: false
+            description: "Number of lines to skip from the end of the log (default: 0)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      create_pipeline:
+        description: "Create a new pipeline for a branch or tag"
+        arguments:
+          inputs:
+            type: "object"
+            required: false
+            description: "Input parameters for the pipeline (key-value pairs for spec:inputs)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          ref:
+            type: "string"
+            required: true
+            description: "The branch or tag to run the pipeline on"
+          variables:
+            type: "array"
+            required: false
+            description: "An array of variables to use for the pipeline"
+      retry_pipeline:
+        description: "Retry a failed or canceled pipeline"
+        arguments:
+          pipeline_id:
+            type: "string"
+            required: true
+            description: "The ID of the pipeline to retry"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      cancel_pipeline:
+        description: "Cancel a running pipeline"
+        arguments:
+          pipeline_id:
+            type: "string"
+            required: true
+            description: "The ID of the pipeline to cancel"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      play_pipeline_job:
+        description: "Run a manual pipeline job"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          job_variables_attributes:
+            type: "array"
+            required: false
+            description: "Custom job variables to use when running the job"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      retry_pipeline_job:
+        description: "Retry a failed or canceled pipeline job"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      cancel_pipeline_job:
+        description: "Cancel a running pipeline job"
+        arguments:
+          force:
+            type: "boolean"
+            required: false
+            description: "Force cancellation of the job"
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      list_job_artifacts:
+        description: "List artifact files in a job's archive"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          path:
+            type: "string"
+            required: false
+            description: "Directory path within the artifacts archive (defaults to root)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+          recursive:
+            type: "boolean"
+            required: false
+            description: "Whether to list artifacts recursively"
+      download_job_artifacts:
+        description: "Download job artifact archive (zip) and save to a local path"
+        arguments:
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          local_path:
+            type: "string"
+            required: false
+            description: "Local directory to save the artifact archive (defaults to current directory)"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      get_job_artifact_file:
+        description: "Get content of a single file from a job's artifacts"
+        arguments:
+          artifact_path:
+            type: "string"
+            required: true
+            description: "Path to the file within the artifacts archive"
+          job_id:
+            type: "string"
+            required: true
+            description: "The ID of the job"
+          project_id:
+            type: "string"
+            required: true
+            description: "Project ID or URL-encoded path"
+      discover_tools:
+        description: "Discover and activate additional tool categories for this session. Available categories: merge_requests, issues, repositories, branches, projects, labels, ci, groups, pipelines, milestones, wiki, releases, tags, users, workitems, webhooks, search, variables, dependency_proxy. Already-active categories are listed in the response."
+        arguments:
+          category:
+            type: "string"
+            required: false
+            description: "Toolset category to activate (e.g. 'pipelines', 'wiki'). Omit to list available categories."

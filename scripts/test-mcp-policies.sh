@@ -4,6 +4,12 @@
 #
 # All backends are aggregated behind the single ToolHive vMCP (/mcp/vmcp); tools
 #   surface prefixed by workload (e.g. kubernetes_resources_get) with no allowlist.
+#   With the vMCP tool-discovery optimizer on (thv vmcp serve --optimizer, the
+#   default), tools/list exposes only two meta-tools — find_tool (search) and
+#   call_tool (invoke by name) — so real tools are discovered via find_tool and
+#   invoked through call_tool{tool_name, parameters}, which mcp-cerbos-shim unwraps
+#   before its Cerbos lookup. This suite detects the optimizer and probes that same
+#   path so the guardrail is exercised exactly as it is in production.
 #   Enforced policy under test:
 #     Cerbos Secret block — kubernetes_resources_get/kubernetes_resources_list on a
 #                           Secret must be denied at tools/call time.
@@ -32,6 +38,8 @@ SECRET_NAME="policy-test-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom 2>/dev/null | 
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; BOLD='\033[1m'; NC='\033[0m'
 PASS=0; FAIL=0
+# Set to 1 in section 1 when the vMCP optimizer (find_tool/call_tool) is detected.
+OPTIMIZER=0
 
 pass() { echo -e "  ${GREEN}✓ $*${NC}"; ((PASS++)); }
 fail() { echo -e "  ${RED}✗ $*${NC}"; ((FAIL++)); }
@@ -99,25 +107,58 @@ except Exception as e:
 " <<< "$resp"
 }
 
-# Call a tool. Prints raw SSE/JSON response. Returns the HTTP status code via stdout of mcp_http_code.
-call_tool() {
-  local url="$1" tool="$2" args_json="$3"
+# Query the vMCP optimizer's find_tool and print discoverable tool names, one per
+# line. keyword drives the ranked FTS5 search (underscore tool names don't tokenize
+# well as keywords — use the backend name); description adds semantic context.
+find_tool_names() {
+  local url="$1" description="$2" keyword="$3"
   local payload
   payload=$(python3 -c "
 import json, sys
-print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':sys.argv[1],'arguments':json.loads(sys.argv[2])}}))
-" "$tool" "$args_json")
-  mcp_post "$url" "$payload" "$SESSION_ID"
+print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':'find_tool','arguments':{'tool_description':sys.argv[1],'tool_keywords':[sys.argv[2]]}}}))
+" "$description" "$keyword")
+  local resp; resp=$(mcp_post "$url" "$payload" "$SESSION_ID")
+  echo "$resp" | python3 -c "
+import sys, json
+raw = sys.stdin.read()
+lines = [l[5:].strip() for l in raw.split('\n') if l.startswith('data:')]
+body = lines[0] if lines else raw
+try:
+    d = json.loads(body)
+    inner = json.loads(d['result']['content'][0]['text'])
+    for t in (inner.get('tools') or []):
+        print(t['name'])
+except Exception:
+    pass
+"
+}
+
+# Build a tools/call payload for a real backend tool. When OPTIMIZER=1 the tool is
+# invoked through the vMCP optimizer's call_tool meta-tool ({tool_name, parameters}),
+# which mcp-cerbos-shim unwraps before its Cerbos lookup — the same path an agent
+# takes. When off, the tool is called directly by name.
+_tool_call_payload() {
+  local tool="$1" args_json="$2"
+  OPTIMIZER="$OPTIMIZER" python3 -c "
+import json, os, sys
+tool, args = sys.argv[1], json.loads(sys.argv[2])
+if os.environ.get('OPTIMIZER') == '1':
+    params = {'name': 'call_tool', 'arguments': {'tool_name': tool, 'parameters': args}}
+else:
+    params = {'name': tool, 'arguments': args}
+print(json.dumps({'jsonrpc': '2.0', 'id': 3, 'method': 'tools/call', 'params': params}))
+" "$tool" "$args_json"
+}
+
+# Call a tool. Prints raw SSE/JSON response. Returns the HTTP status code via stdout of mcp_http_code.
+call_tool() {
+  local url="$1" tool="$2" args_json="$3"
+  mcp_post "$url" "$(_tool_call_payload "$tool" "$args_json")" "$SESSION_ID"
 }
 
 call_tool_code() {
   local url="$1" tool="$2" args_json="$3"
-  local payload
-  payload=$(python3 -c "
-import json, sys
-print(json.dumps({'jsonrpc':'2.0','id':3,'method':'tools/call','params':{'name':sys.argv[1],'arguments':json.loads(sys.argv[2])}}))
-" "$tool" "$args_json")
-  mcp_http_code "$url" "$payload" "$SESSION_ID"
+  mcp_http_code "$url" "$(_tool_call_payload "$tool" "$args_json")" "$SESSION_ID"
 }
 
 # Parse "is this a Cerbos-denied response?" from a tools/call SSE response.
@@ -169,18 +210,35 @@ TOOLS=$(get_tools "$VMCP_URL")
 
 # Tool selection is done in the vMCP (aggregation.tools, per backend); agentgateway
 # adds no per-tool allowlist in this setup (it could in a centralized one). Just
-# confirm the vMCP is aggregating and exposing tools, prefixed by workload
-# ({workload}_<tool>).
+# confirm the vMCP is exposing tools.
 TOOL_COUNT=$(echo "$TOOLS" | grep -c . || true)
 if [[ "$TOOL_COUNT" -gt 0 ]]; then
-  pass "vMCP exposes ${TOOL_COUNT} aggregated tools"
+  pass "vMCP exposes ${TOOL_COUNT} tools at the surface"
 else
   fail "vMCP exposed no tools — backends down or vMCP not aggregating?"
 fi
 
-# The Cerbos Secret block (section 2) depends on these exact kubernetes tool names.
+# With the optimizer on, tools/list carries only find_tool + call_tool; the real
+# tools are behind find_tool. Detect that and switch section 2's probes to the
+# call_tool path (set OPTIMIZER=1). Otherwise tools surface raw ({workload}_<tool>).
+if echo "$TOOLS" | grep -qx "call_tool" && echo "$TOOLS" | grep -qx "find_tool"; then
+  OPTIMIZER=1
+  pass "vMCP optimizer on — probing tools via find_tool / call_tool"
+fi
+
+# Section 2's Cerbos Secret block depends on these exact kubernetes tool names, so
+# confirm they exist: discoverable via find_tool (optimizer) or listed raw.
+if [[ "$OPTIMIZER" -eq 1 ]]; then
+  DISCOVERED=$(find_tool_names "$VMCP_URL" "get and list kubernetes resources" "kubernetes")
+fi
 for must_have in "kubernetes_resources_get" "kubernetes_resources_list"; do
-  if echo "$TOOLS" | grep -qx "$must_have"; then
+  if [[ "$OPTIMIZER" -eq 1 ]]; then
+    if echo "$DISCOVERED" | grep -qx "$must_have"; then
+      pass "tool discoverable via find_tool: ${must_have}"
+    else
+      fail "tool NOT discoverable via find_tool: ${must_have} (kubernetes backend down?)"
+    fi
+  elif echo "$TOOLS" | grep -qx "$must_have"; then
     pass "tool present: ${must_have}"
   else
     fail "tool MISSING from vMCP: ${must_have} (kubernetes backend down?)"
