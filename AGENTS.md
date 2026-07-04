@@ -54,9 +54,9 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   `csi-driver-host-path`, whose upstream deploy pulls sidecar RBAC from five sibling repos at
   apply time (incompatible with Flux's network-isolated build), so its manifests are vendored;
   the snapshot CRDs/controller are still Flux-sourced from `external-snapshotter`.
-- **Storage/backup** — the agent `data` PVC uses the `csi-hostpath-sc` StorageClass
-  (`storage.dataStorageClassName` in `charts/agent`) so Velero CSI-snapshots it; `gitrepos`/`models`
-  stay on the default `local-path` StorageClass (reclonable/reseeded, so no snapshot support needed).
+- **Storage/backup** — the agent `data`, `gitrepos`, and `models` PVCs all use the `csi-hostpath-sc`
+  StorageClass (`storage.{data,gitrepos,models}StorageClassName` in `charts/agent`) so Velero
+  CSI-snapshots them.
 - **Secrets model** — plain Kubernetes Secrets are the source of truth for cluster secrets (Kind
   etcd). No secret values live in git; the setup scripts (`scripts/install/setup-secrets-platform.sh`,
   `setup-secrets-agent.sh`) generate crypto material (CAs, certs, SSH keys, random tokens) and read
