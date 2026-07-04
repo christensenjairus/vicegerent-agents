@@ -76,6 +76,7 @@ repo_yaml_files() {
     -path './.cache' -prune -o \
     -path './.flux-crd-schemas' -prune -o \
     -path './charts/*/templates/*' -prune -o \
+    -path './docs/available-mcp-tools/*' -prune -o \
     -type f -name '*.yaml' -print0
 }
 

@@ -6,19 +6,27 @@ per-workload endpoints, before ToolHive's vMCP collapses them behind
 find_tool/call_tool), so each server's full tools/list catalog is enumerated
 directly with its input-schema argument names.
 
+Both streamable-http backends and legacy HTTP+SSE backends (e.g. grafana) are
+probed — the transport reported by `thv vmcp init` selects the handshake. Only
+backends actually running in the group are discoverable: servers disabled or
+absent on this machine (e.g. grafana/notion when not enabled) won't appear.
+
 Two output formats:
   csv   flat rows (server,tool,tool_description,argument,type,required) — grep/sheets
-  yaml  nested server -> tool -> argument tree — the committed available-tools.yaml
-        reference (regenerate with: scripts/probe-mcp-tools.py --format yaml
-        -o host/mcp/available-tools.yaml). Useful for spotting a missing tool and
-        for seeing which arguments a cerbos policy can key on.
+  yaml  nested server -> tool -> argument tree — the per-server reference files under
+        docs/available-mcp-tools/. Useful for spotting a missing tool and for seeing
+        which arguments a cerbos policy can key on.
 
 Usage:
   scripts/probe-mcp-tools.py                             # all backends -> CSV on stdout
   scripts/probe-mcp-tools.py gitlab                      # one backend by name
   scripts/probe-mcp-tools.py gitlab linear               # several backends
-  scripts/probe-mcp-tools.py --format yaml -o tools.yaml # regenerate the YAML reference
-  scripts/probe-mcp-tools.py --list                      # just list backends+URLs
+  scripts/probe-mcp-tools.py --list                      # backends + transport + URL
+  # regenerate one reference file:
+  scripts/probe-mcp-tools.py gitlab --format yaml -o docs/available-mcp-tools/gitlab.yaml
+  # regenerate all of them:
+  for s in $(scripts/probe-mcp-tools.py --list | cut -f1); do \
+    scripts/probe-mcp-tools.py "$s" --format yaml -o "docs/available-mcp-tools/$s.yaml"; done
 
 Env / flags:
   --group NAME    ToolHive group to init (default: vicegerent)
@@ -35,7 +43,14 @@ import json
 import re
 import subprocess
 import sys
+import threading
+import urllib.error
+import urllib.parse
 import urllib.request
+
+# A default urllib User-Agent ("Python-urllib/3.x") gets 403'd by the WAF in front
+# of remote MCPs (e.g. Notion behind Cloudflare); send a real one.
+USER_AGENT = "probe-mcp-tools/1 (+https://gitlab/vicegerent-agents)"
 
 INIT = {
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
@@ -47,6 +62,27 @@ INIT = {
 INITIALIZED = {"jsonrpc": "2.0", "method": "notifications/initialized", "params": {}}
 LIST = {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}}
 
+
+def _urlopen(req, timeout):
+    """urlopen that turns an HTTPError into a diagnostic RuntimeError (status +
+    Server/cf-ray headers + body snippet) so 4xx/5xx failures say who rejected us."""
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        snippet = ""
+        try:
+            snippet = e.read().decode("utf-8", "replace").strip().replace("\n", " ")[:300]
+        except Exception:  # pylint: disable=broad-except
+            pass
+        bits = [f"HTTP {e.code} {e.reason}"]
+        for h in ("Server", "cf-ray", "WWW-Authenticate"):
+            v = e.headers.get(h) if e.headers else None
+            if v:
+                bits.append(f"{h}={v}")
+        if snippet:
+            bits.append(f"body={snippet}")
+        raise RuntimeError("; ".join(bits)) from None
+
 BACKEND_RE = re.compile(
     r"-\s+name:\s*(?P<name>\S+)\s*\n"
     r"\s*url:\s*(?P<url>\S+)\s*\n"
@@ -55,14 +91,14 @@ BACKEND_RE = re.compile(
 
 
 def discover_backends(group):
-    """Return [(name, url), ...] from `thv vmcp init`."""
+    """Return [(name, url, transport), ...] from `thv vmcp init`."""
     out = subprocess.run(
         ["thv", "vmcp", "init", "--group", group, "--output", "-"],
-        capture_output=True, text=True,
+        capture_output=True, text=True, check=False,
     )
     if out.returncode != 0:
         sys.exit(f"thv vmcp init failed:\n{out.stderr.strip()}")
-    return [(m["name"], m["url"]) for m in
+    return [(m["name"], m["url"], m["transport"]) for m in
             (m.groupdict() for m in BACKEND_RE.finditer(out.stdout))]
 
 
@@ -72,32 +108,123 @@ def _parse_body(raw):
     return json.loads(data[0] if data else raw)
 
 
-def _post(url, payload, session=None):
+def _post(url, payload, session=None, version=None):
     """POST one JSON-RPC message. Returns (parsed_body_or_None, response_headers)."""
     headers = {
+        "User-Agent": USER_AGENT,
         "Content-Type": "application/json",
         "Accept": "application/json, text/event-stream",
     }
     if session:
         headers["Mcp-Session-Id"] = session
+    # Spec: post-init requests SHOULD echo the negotiated version; remote servers
+    # (e.g. Notion) reject requests that omit it.
+    if version:
+        headers["MCP-Protocol-Version"] = version
     req = urllib.request.Request(
         url, data=json.dumps(payload).encode(), method="POST", headers=headers)
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with _urlopen(req, timeout=20) as r:
         body = r.read().decode()
         hdrs = dict(r.headers)
     return (_parse_body(body) if body.strip() else None), hdrs
 
 
-def list_tools(url):
+def list_tools(url, transport="streamable-http"):
     """MCP handshake against one backend; return the tools/list array."""
-    _, hdrs = _post(url, INIT)
+    if (transport or "").lower() in ("sse", "http-sse", "server-sent-events"):
+        return _list_tools_sse(url)
+    return _list_tools_streamable(url)
+
+
+def _list_tools_streamable(url):
+    """Streamable-HTTP transport: session id in a header, replies inline (JSON/SSE)."""
+    body, hdrs = _post(url, INIT)
     session = hdrs.get("Mcp-Session-Id") or hdrs.get("mcp-session-id")
+    version = (body or {}).get("result", {}).get("protocolVersion")
     try:
-        _post(url, INITIALIZED, session)  # best-effort; some servers require it
+        _post(url, INITIALIZED, session, version)  # best-effort; some servers require it
     except Exception:
         pass
-    body, _ = _post(url, LIST, session)
+    body, _ = _post(url, LIST, session, version)
     return (body or {}).get("result", {}).get("tools", [])
+
+
+def _list_tools_sse(sse_url, timeout=30):
+    """Legacy HTTP+SSE transport (e.g. grafana): open a GET event stream, learn the
+    POST endpoint from the first `endpoint` event, then correlate JSON-RPC replies
+    that arrive back on the stream."""
+    replies = {}          # id -> message
+    endpoint = {}         # {"url": ...}
+    err = {}              # {"e": Exception}
+    got_endpoint = threading.Event()
+    got_init = threading.Event()
+    got_list = threading.Event()
+
+    def reader():
+        try:
+            req = urllib.request.Request(
+                sse_url,
+                headers={"User-Agent": USER_AGENT, "Accept": "text/event-stream"})
+            stream = _urlopen(req, timeout=timeout)
+            event, data_lines = None, []
+            for raw in stream:
+                line = raw.decode("utf-8", "replace").rstrip("\r\n")
+                if line.startswith("event:"):
+                    event = line[6:].strip()
+                elif line.startswith("data:"):
+                    data_lines.append(line[5:].lstrip())
+                elif line == "":  # blank line dispatches the accumulated event
+                    data = "\n".join(data_lines)
+                    if event == "endpoint" and data:
+                        endpoint["url"] = urllib.parse.urljoin(sse_url, data)
+                        got_endpoint.set()
+                    elif data:
+                        msg = None
+                        try:
+                            msg = json.loads(data)
+                        except Exception:  # pylint: disable=broad-except
+                            pass
+                        if isinstance(msg, dict) and "id" in msg:
+                            replies[msg["id"]] = msg
+                            if msg["id"] == 1:
+                                got_init.set()
+                            elif msg["id"] == 2:
+                                got_list.set()
+                    event, data_lines = None, []
+                if got_list.is_set():
+                    break
+            stream.close()
+        except Exception as e:  # pylint: disable=broad-except  # surface to main thread
+            err["e"] = e
+            got_endpoint.set()
+            got_init.set()
+            got_list.set()
+
+    threading.Thread(target=reader, daemon=True).start()
+
+    def post(payload):
+        req = urllib.request.Request(
+            endpoint["url"], data=json.dumps(payload).encode(), method="POST",
+            headers={"User-Agent": USER_AGENT, "Content-Type": "application/json"})
+        with _urlopen(req, timeout=timeout) as r:
+            r.read()
+
+    if not got_endpoint.wait(timeout):
+        raise RuntimeError("SSE: no endpoint event within timeout")
+    if "e" in err:
+        raise err["e"]
+    post(INIT)
+    got_init.wait(timeout)  # wait for the init result before announcing initialized
+    try:
+        post(INITIALIZED)
+    except Exception:
+        pass
+    post(LIST)
+    if not got_list.wait(timeout):
+        raise RuntimeError("SSE: no tools/list reply within timeout")
+    if "e" in err:
+        raise err["e"]
+    return replies.get(2, {}).get("result", {}).get("tools", [])
 
 
 def tool_rows(server, tools):
@@ -181,11 +308,12 @@ def emit_yaml(obj, indent=0):
 def write_yaml(out, group, results):
     """results: list of (server, tools-list). Emit the available-tools.yaml tree."""
     total_tools = sum(len(t) for _, t in results)
-    out.write("# available-tools.yaml — catalog of every tool exposed by the running\n")
-    out.write("# vicegerent MCP backends, with each tool's arguments (type, required,\n")
-    out.write("# description, enum). Reference for spotting missing tools and for writing\n")
-    out.write("# cerbos argument-level policies. GENERATED — do not edit by hand.\n")
-    out.write("# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml\n")
+    servers = ", ".join(s for s, _ in results) or "(none)"
+    out.write("# Catalog of every tool exposed by the running vicegerent MCP backend(s),\n")
+    out.write("# with each tool's arguments (type, required, description, enum). Reference\n")
+    out.write("# for spotting missing tools and for writing cerbos argument-level policies.\n")
+    out.write("# GENERATED — do not edit by hand.\n")
+    out.write(f"# Regenerate: scripts/probe-mcp-tools.py {servers} --format yaml -o <this-file>\n")
     out.write(f"group: {group}\n")
     out.write(f"tool_count: {total_tools}\n")
     tree = {}
@@ -213,23 +341,23 @@ def main():
 
     if args.servers:
         want = set(args.servers)
-        known = {n for n, _ in backends}
+        known = {n for n, _, _ in backends}
         missing = want - known
         if missing:
             sys.exit(f"Unknown backend(s): {', '.join(sorted(missing))}. "
                      f"Available: {', '.join(sorted(known))}")
-        backends = [(n, u) for n, u in backends if n in want]
+        backends = [b for b in backends if b[0] in want]
 
     if args.list_only:
-        for n, u in backends:
-            print(f"{n}\t{u}")
+        for n, u, transport in backends:
+            print(f"{n}\t{transport}\t{u}")
         return
 
     results = []
-    for name, url in backends:
+    for name, url, transport in backends:
         try:
-            tools = list_tools(url)
-        except Exception as e:
+            tools = list_tools(url, transport)
+        except Exception as e:  # pylint: disable=broad-except  # report + skip one backend
             print(f"# {name}: probe failed ({e})", file=sys.stderr)
             continue
         if not tools:
@@ -238,7 +366,7 @@ def main():
         print(f"# {name}: {len(tools)} tools", file=sys.stderr)
         results.append((name, tools))
 
-    out = open(args.output, "w", newline="") if args.output else sys.stdout
+    out = open(args.output, "w", newline="", encoding="utf-8") if args.output else sys.stdout
     try:
         if args.format == "yaml":
             write_yaml(out, args.group, results)

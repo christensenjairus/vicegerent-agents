@@ -36,4 +36,5 @@ repos:
         language: system
         entry: scripts/validate.sh
         files: \.(ya?ml)$
+        exclude: ^docs/available-mcp-tools/.+\.ya?ml$
         pass_filenames: false
