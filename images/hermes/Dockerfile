@@ -265,6 +265,16 @@ COPY patches/0012-execute-code-pattern-silence.py /tmp/0012-execute-code-pattern
 RUN /opt/hermes/.venv/bin/python /tmp/0012-execute-code-pattern-silence.py
 RUN rm -f /tmp/0012-execute-code-pattern-silence.py
 
+# Patch tools/mcp_tool.py to scope the MCP circuit breaker per-backend for
+# vMCP optimizer aggregation. One flaky backend (e.g. alertmanager timing
+# out) was tripping the shared "vmcp" server breaker and blocking all ~11
+# aggregated backends for 60s, not just the flaky one. Vicegerent-specific
+# fix (not an upstream issue) — unique to the vMCP optimizer's call_tool
+# meta-tool aggregation pattern this repo uses.
+COPY patches/0013-mcp-circuit-breaker-vmcp-backend-scope.py /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
+RUN /opt/hermes/.venv/bin/python /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
+RUN rm -f /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
