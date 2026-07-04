@@ -110,8 +110,7 @@ spec:
                 cp /reload/hermes-config/config.yaml /opt/data/config.yaml
               fi
               touch /opt/data/.restart_pending.json
-              # shutil.copytree preserves image source permissions (dr-xr-xr-x); make all skill dirs writable.
-              find /opt/data/skills -type d -perm 555 -exec chmod u+w {} +
+              find /opt/data/skills -type d -perm 555 -exec chmod u+w {} + 2>/dev/null || true
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
