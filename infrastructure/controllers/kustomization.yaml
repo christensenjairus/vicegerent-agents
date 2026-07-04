@@ -11,4 +11,5 @@ resources:
   - mcp-cerbos-shim
   - host-firewall
   - victoria-logs
+  - csi-driver-host-path
   - velero

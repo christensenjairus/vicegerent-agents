@@ -13,12 +13,14 @@ initContainers:
     volumeMounts:
       - mountPath: /target
         name: plugins
-# No CSI on this Kind cluster; use File System Backup (Kopia) instead of snapshots.
+# CSI uses EnableCSI + a labeled VolumeSnapshotClass, not a VSL; this only gates the legacy VSL.
 snapshotsEnabled: false
 # Avoid an empty global Secret; the per-BSL credential below is the only one needed.
 credentials:
   useSecret: false
 configuration:
+  # Enable Velero's built-in CSI snapshotting for CSI-backed PVCs (the agent data PVC).
+  features: EnableCSI
   backupStorageLocation:
     - name: vicegerent
       provider: aws
@@ -48,5 +50,6 @@ schedules:
     template:
       ttl: 168h
       storageLocation: vicegerent
-      defaultVolumesToFsBackup: true
+      snapshotVolumes: true
+      defaultVolumesToFsBackup: false
       includedNamespaces: [agent-sandbox]
