@@ -38,13 +38,7 @@ spec:
               # chown -R: stale uid-0 dirs from old subPath design cause EPERM on reseed; idempotent on fresh PVCs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
-              # /opt/data/home/.hermes/mnemosyne/models is the models PVC's mount point, nested
-              # under /opt/data/home. Kubelet auto-creates the missing parent scaffold dirs
-              # (/opt/data/home, .hermes, mnemosyne) as root:hermes with no group-write bit --
-              # fsGroup fixes the group but not the mode, so seed-data (uid 10000, no root) can't
-              # write ~/.gitconfig or anything else expecting a writable $HOME. Mounting models
-              # here too (prepare-run runs as root) lets us fix it before seed-data ever touches it.
-              # Non-recursive: only fix the scaffold chain, not the mounted models PVC's own content.
+              # models PVC mount forces kubelet to scaffold /opt/data/home as root:hermes with no group-write; fix it here (non-recursive, skips the mounted models content) before seed-data (uid 10000) needs to write under $HOME.
               mkdir -p /opt/data/home/.hermes/mnemosyne
               chown 10000:10000 /opt/data/home /opt/data/home/.hermes /opt/data/home/.hermes/mnemosyne
           securityContext:
@@ -65,6 +59,8 @@ spec:
           args:
             - |-
               set -euo pipefail
+              # /etc/passwd gives uid 10000 a home of /opt/data, but the main container's HOME is /opt/data/home -- match it so git config --global lands where it's actually read.
+              export HOME=/opt/data/home
               # fastembed reads HERMES_HOME/cache; the local LLM reads ~/.hermes — different dirs.
               fastembed_dest="/opt/data/cache/fastembed"
               llm_dest="/opt/data/home/.hermes/mnemosyne/models"
