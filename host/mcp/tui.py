@@ -10,7 +10,7 @@ Keybindings (k9s-flavoured):
   ctrl+s        start the stack
   ctrl+k        stop (kill) the supervised stack
   ctrl+r        restart the supervised stack
-  1-4           switch log tabs (vmcp, ghostunnel, supervisord, caffeinate)
+  1-5           switch log tabs (vmcp, ghostunnel, rclone-s3, supervisord, caffeinate)
   r             refresh now
   ?             help
   q / esc       quit
@@ -48,7 +48,7 @@ from vicegerent_mcp import (
     tail_log_iter,
 )
 
-LOG_TABS = ("vmcp", "ghostunnel", "supervisord", "caffeinate")
+LOG_TABS = ("vmcp", "ghostunnel", "rclone-s3", "supervisord", "caffeinate")
 
 
 def _proc_markup(state: str) -> str:
@@ -98,8 +98,9 @@ class HelpScreen(ModalScreen):
 |-----|-----|
 | `1` | vmcp |
 | `2` | ghostunnel |
-| `3` | supervisord |
-| `4` | caffeinate |
+| `3` | rclone-s3 |
+| `4` | supervisord |
+| `5` | caffeinate |
 
 ## General
 | Key | Action |
@@ -142,8 +143,9 @@ class HostMCPApp(App):
         Binding("ctrl+r", "restart_stack", "Restart", show=True),
         Binding("1", "tab_vmcp", "vmcp", show=False),
         Binding("2", "tab_ghostunnel", "ghostunnel", show=False),
-        Binding("3", "tab_supervisord", "supervisord", show=False),
-        Binding("4", "tab_caffeinate", "caffeinate", show=False),
+        Binding("3", "tab_rclone_s3", "rclone-s3", show=False),
+        Binding("4", "tab_supervisord", "supervisord", show=False),
+        Binding("5", "tab_caffeinate", "caffeinate", show=False),
         Binding("question_mark", "help", "Help", show=True),
         Binding("q", "quit", "Quit", show=True),
         Binding("escape", "quit", "Quit", show=False),
@@ -295,6 +297,9 @@ class HostMCPApp(App):
 
     def action_tab_ghostunnel(self) -> None:
         self._activate_tab("ghostunnel")
+
+    def action_tab_rclone_s3(self) -> None:
+        self._activate_tab("rclone-s3")
 
     def action_tab_supervisord(self) -> None:
         self._activate_tab("supervisord")
