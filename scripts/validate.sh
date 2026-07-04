@@ -180,7 +180,7 @@ repo_kustomizations | while IFS= read -r -d $'\0' file; do
 done
 
 cerbos_policy_dir="infrastructure/controllers/cerbos/policies/defs"
-cluster_vars_file="clusters/personal/cluster-vars.yaml"
+cluster_vars_file="clusters/work/cluster-vars.yaml"
 if [[ -d "$cerbos_policy_dir" ]]; then
   if command -v cerbos >/dev/null 2>&1; then
     echo "INFO - Compiling and testing Cerbos policies"
@@ -200,7 +200,7 @@ if [[ -d "$cerbos_policy_dir" ]]; then
   fi
 fi
 
-egress_values_file="apps/personal/egress-proxy/values.yaml"
+egress_values_file="apps/work/egress-proxy/values.yaml"
 egress_chart_dir="charts/egress-proxy"
 if [[ -f "$egress_values_file" && -f "$cluster_vars_file" ]]; then
   echo "INFO - Rendering egress-proxy chart with cluster-vars and validating scrub.py"

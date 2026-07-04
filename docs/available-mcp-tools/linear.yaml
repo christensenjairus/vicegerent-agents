@@ -1,0 +1,1308 @@
+# available-tools.yaml — catalog of every tool exposed by the running
+# vicegerent MCP backends, with each tool's arguments (type, required,
+# description, enum). Reference for spotting missing tools and for writing
+# cerbos argument-level policies. GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+group: vicegerent
+tool_count: 47
+servers:
+  linear:
+    tool_count: 47
+    tools:
+      get_attachment:
+        description: "Retrieve an attachment's content by ID."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Attachment ID"
+      prepare_attachment_upload:
+        description: "Prepare a direct Linear file upload for an existing issue. Workflow: 1. Call this tool with issue, filename, contentType, and size. 2. Upload raw bytes with PUT to uploadRequest.url outside MCP. 3. All headers in uploadRequest.headers are part of the signed request, so send them verbatim. 4. After PUT succeeds, call create_attachment_from_upload with assetUrl to link it to the issue. Do not base64-encode or transform the file. Use curl --data-binary @path or fetch(url, { method: 'PUT', body: blob }). Omitting or modifying any signed header, including casing, will return HTTP 403. The signed URL must be used within 60 seconds or it will expire. Upload sequencing: Prepare, PUT, and finalize one file before calling this tool for another file. Do not batch multiple prepare_attachment_upload calls before starting the PUTs because earlier signed URLs can expire while later files are prepared. Example: curl -X PUT --data-binary @file.png \\ -H \"content-type: image/png\" \\ -H \"x-goog-content-length-range: N,N\" \\ -H \"cache-control: public, max-age=31536000\" \\ -H 'Content-Disposition: attachment; filename=\"file.png\"' \\ \"<uploadRequest.url>\""
+        arguments:
+          issue:
+            type: "string"
+            required: true
+            description: "Issue ID or identifier (e.g., LIN-123)"
+          filename:
+            type: "string"
+            required: true
+            description: "Filename for the upload, e.g. screenshot.png"
+          contentType:
+            type: "string"
+            required: true
+            description: "MIME type, e.g. image/png or application/pdf"
+          size:
+            type: "integer"
+            required: true
+            description: "Exact file size in bytes. Must be smaller than 2 GB."
+          title:
+            type: "string"
+            required: false
+            description: "Suggested attachment title for the finalize step"
+          subtitle:
+            type: "string"
+            required: false
+            description: "Suggested attachment subtitle for the finalize step"
+      create_attachment_from_upload:
+        description: "Link an already-uploaded Linear assetUrl to an existing issue as an attachment. Use this only after: 1. prepare_attachment_upload returned an assetUrl and uploadRequest. 2. The client successfully PUT raw file bytes to uploadRequest.url. This tool does not upload file content. It only creates the Linear attachment row. If the direct upload failed or the signed URL expired, rerun prepare_attachment_upload and upload again."
+        arguments:
+          issue:
+            type: "string"
+            required: true
+            description: "Issue ID or identifier (e.g., LIN-123)"
+          assetUrl:
+            type: "string"
+            required: true
+            description: "Linear upload assetUrl returned by prepare_attachment_upload"
+          title:
+            type: "string"
+            required: false
+            description: "Attachment title. Defaults to filename or asset URL"
+          subtitle:
+            type: "string"
+            required: false
+            description: "Optional attachment subtitle"
+      create_attachment:
+        description: "Deprecated fallback for tiny files only. Accepts base64 file content and uploads it through the MCP worker, which can consume large amounts of agent context. Prefer `prepare_attachment_upload` plus direct PUT plus `create_attachment_from_upload`."
+        arguments:
+          issue:
+            type: "string"
+            required: true
+            description: "Issue ID or identifier (e.g., LIN-123)"
+          base64Content:
+            type: "string"
+            required: true
+            description: "Deprecated base64-encoded file content to upload"
+          filename:
+            type: "string"
+            required: true
+            description: "Filename for the upload (e.g., 'screenshot.png')"
+          contentType:
+            type: "string"
+            required: true
+            description: "MIME type for the upload (e.g., 'image/png', 'application/pdf')"
+          title:
+            type: "string"
+            required: false
+            description: "Optional title for the attachment"
+          subtitle:
+            type: "string"
+            required: false
+            description: "Optional subtitle for the attachment"
+      delete_attachment:
+        description: "Delete an attachment by ID"
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Attachment ID"
+      list_agent_skills:
+        description: "List Linear Agent skills available to the authenticated user."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+      get_agent_skill:
+        description: "Retrieve a Linear Agent skill by ID, including its full markdown instructions."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Agent skill ID"
+      list_comments:
+        description: "List comments on a Linear issue, project, initiative, document, or project milestone. Provide exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, or `milestoneId`. For issues, projects, and initiatives this returns both top-level discussion threads and inline description comments. Inline (anchored) comments carry a non-null `quotedText` set to the snippet of description text they reference."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          issueId:
+            type: "string"
+            required: false
+            description: "Issue ID or identifier (e.g., LIN-123) (provide exactly one parent)"
+          projectId:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug (provide exactly one parent)"
+          initiativeId:
+            type: "string"
+            required: false
+            description: "Initiative name or ID (provide exactly one parent)"
+          documentId:
+            type: "string"
+            required: false
+            description: "Document ID or slug (provide exactly one parent)"
+          milestoneId:
+            type: "string"
+            required: false
+            description: "Milestone UUID (provide exactly one parent). Resolve milestone names via `list_milestones` first."
+      save_comment:
+        description: "Create or update a comment on a Linear issue, project, initiative, document, or project milestone. If `id` is provided, updates the existing comment; otherwise creates a new one. To start a new thread, pass `body` and exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, or `milestoneId` \u2014 comments on issues/projects/initiatives become top-level discussion threads; comments on documents/milestones become description comments. To reply to an existing thread, pass `parentId` and `body`; the reply inherits the parent's thread type, so no entity reference is needed."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Comment ID. If provided, updates the existing comment"
+          issueId:
+            type: "string"
+            required: false
+            description: "Issue ID or identifier (e.g., LIN-123) (provide exactly one parent)"
+          projectId:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug (provide exactly one parent)"
+          initiativeId:
+            type: "string"
+            required: false
+            description: "Initiative name or ID (provide exactly one parent)"
+          documentId:
+            type: "string"
+            required: false
+            description: "Document ID or slug (provide exactly one parent)"
+          milestoneId:
+            type: "string"
+            required: false
+            description: "Milestone UUID (provide exactly one parent). Resolve milestone names via `list_milestones` first."
+          parentId:
+            type: "string"
+            required: false
+            description: "Parent comment ID (for replies, only when creating)"
+          body:
+            type: "string"
+            required: true
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+      delete_comment:
+        description: "Delete a Linear comment. Inline description comments (those with non-null `quotedText`) anchor a mark in the editor, so their root cannot be deleted \u2014 delete the replies individually or resolve the thread instead."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Comment ID"
+      list_cycles:
+        description: "Retrieve cycles for a specific Linear team"
+        arguments:
+          teamId:
+            type: "string"
+            required: true
+            description: "Team ID"
+          type:
+            type: "string"
+            required: false
+            description: "Filter: current, previous, next, or all"
+            enum: ["current", "previous", "next"]
+      get_document:
+        description: "Retrieve a Linear document by ID or slug"
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Document ID or slug"
+      list_documents:
+        description: "List documents in the user's Linear workspace"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search query"
+          projectId:
+            type: "string"
+            required: false
+            description: "Filter by project ID"
+          initiativeId:
+            type: "string"
+            required: false
+            description: "Filter by initiative ID"
+          teamId:
+            type: "string"
+            required: false
+            description: "Filter by team ID"
+          creatorId:
+            type: "string"
+            required: false
+            description: "Filter by creator ID"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      save_document:
+        description: "Create or update a Linear document. If `id` is provided, updates the existing document; otherwise creates a new one. When creating, `title` is required and exactly one parent (`project`, `issue`, `initiative`, `cycle`, or `team`) must be specified. On update, passing a parent reparents the document."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Document ID or slug to update. Omit to create a new document."
+          title:
+            type: "string"
+            required: false
+            description: "Document title (required when creating)"
+          content:
+            type: "string"
+            required: false
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+          project:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug"
+          issue:
+            type: "string"
+            required: false
+            description: "Issue ID or identifier (e.g., LIN-123)"
+          initiative:
+            type: "string"
+            required: false
+            description: "Initiative name or ID"
+          cycle:
+            type: "string"
+            required: false
+            description: "Cycle name, number, or ID. When passing a name or number, also pass `team` to disambiguate."
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID. Attaches the document to the team, unless `cycle` is also passed, in which case it disambiguates the cycle."
+          icon:
+            type: "string"
+            required: false
+            description: "Icon name or emoji code (e.g. \"Rocket\" or \":eagle:\"), not a raw Unicode emoji"
+          color:
+            type: "string"
+            required: false
+            description: "Hex color"
+      extract_images:
+        description: "Extract and fetch images from markdown content. Use this to view screenshots, diagrams, or other images embedded in Linear issues, comments, or documents. Pass the markdown content (e.g., issue description) and receive the images as viewable data."
+        arguments:
+          markdown:
+            type: "string"
+            required: true
+            description: "Markdown content containing image references (e.g., issue description, comment body)"
+      get_issue:
+        description: "Retrieve detailed information about an issue by ID, including attachments and git branch name"
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Issue ID or identifier (e.g., LIN-123)"
+          includeRelations:
+            type: "boolean"
+            required: false
+            description: "Include blocking/related/duplicate relations"
+          includeCustomerNeeds:
+            type: "boolean"
+            required: false
+            description: "Include associated customer needs"
+          includeReleases:
+            type: "boolean"
+            required: false
+            description: "Include associated releases"
+      list_issues:
+        description: "List issues in the user's Linear workspace. For my issues, use \"me\" as the assignee. Use \"null\" for no assignee."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search issue title or description"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID"
+          state:
+            type: "string"
+            required: false
+            description: "State type, name, or ID"
+          cycle:
+            type: "string"
+            required: false
+            description: "Cycle name, number, or ID"
+          label:
+            type: "string"
+            required: false
+            description: "Label name or ID"
+          assignee:
+            type: "string|null"
+            required: false
+            description: "User ID, name, email, or \"me\""
+          delegate:
+            type: "string"
+            required: false
+            description: "Agent name or ID. When the user asks to delegate to \"Linear\" or \"the Linear agent\", this refers to the \"Linear\" app user specifically"
+          project:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug"
+          release:
+            type: "string"
+            required: false
+            description: "Release ID or slug"
+          priority:
+            type: "number"
+            required: false
+            description: "0=None, 1=Urgent, 2=High, 3=Medium, 4=Low"
+          parentId:
+            type: "string"
+            required: false
+            description: "Parent issue ID or identifier (e.g., LIN-123)"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      save_issue:
+        description: "Create or update a Linear issue. If `id` is provided, updates the existing issue; otherwise creates a new one. When creating, `title` and `team` are required. Note: use `assignee` (not `assigneeId`) to set the assignee \u2014 it accepts a user ID, name, email, or \"me\"."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Only for updating an existing issue. Pass the issue ID or identifier (e.g., LIN-123). Do NOT pass this parameter when creating a new issue."
+          title:
+            type: "string"
+            required: false
+            description: "Issue title (required when creating)"
+          description:
+            type: "string"
+            required: false
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID (required when creating)"
+          cycle:
+            type: "string|null"
+            required: false
+            description: "Cycle name, number, or ID. Null to remove"
+          milestone:
+            type: "string"
+            required: false
+            description: "Milestone name or ID"
+          priority:
+            type: "number"
+            required: false
+            description: "0=None, 1=Urgent, 2=High, 3=Medium, 4=Low"
+          project:
+            type: "string|null"
+            required: false
+            description: "Project name, ID, or slug. Null to remove"
+          state:
+            type: "string"
+            required: false
+            description: "State type, name, or ID"
+          assignee:
+            type: "string|null"
+            required: false
+            description: "User ID, name, email, or \"me\". Null to remove"
+          delegate:
+            type: "string|null"
+            required: false
+            description: "Agent name or ID. When the user asks to delegate to \"Linear\" or \"the Linear agent\", this refers to the \"Linear\" app user specifically. Null to remove"
+          labels:
+            type: "array"
+            required: false
+            description: "Label names or IDs"
+          dueDate:
+            type: "string"
+            required: false
+            description: "Due date (ISO format)"
+          parentId:
+            type: "string|null"
+            required: false
+            description: "Parent issue ID or identifier (e.g., LIN-123). Null to remove"
+          estimate:
+            type: "number|null"
+            required: false
+            description: "Issue estimate value. On create, pass null or omit for no estimate. On update, pass null to clear the estimate; omitting leaves it unchanged. 0 is a real estimate only on teams that allow zero estimates."
+          links:
+            type: "array"
+            required: false
+            description: "Link attachments to add [{url, title}]. Append-only; existing links are never removed"
+          setReleases:
+            type: "array"
+            required: false
+            description: "Replace all releases on the issue with these. Cannot be combined with addReleases/removeReleases"
+          addReleases:
+            type: "array"
+            required: false
+            description: "Release IDs or slugs to add. Append-only; existing releases are never removed"
+          removeReleases:
+            type: "array"
+            required: false
+            description: "Release IDs or slugs to remove. Only valid when updating an existing issue"
+          blocks:
+            type: "array"
+            required: false
+            description: "Issue IDs/identifiers this blocks. Append-only; existing relations are never removed"
+          blockedBy:
+            type: "array"
+            required: false
+            description: "Issue IDs/identifiers blocking this. Append-only; existing relations are never removed"
+          relatedTo:
+            type: "array"
+            required: false
+            description: "Related issue IDs/identifiers. Append-only; existing relations are never removed"
+          duplicateOf:
+            type: "string|null"
+            required: false
+            description: "Duplicate of issue ID/identifier. Null to remove"
+          removeBlocks:
+            type: "array"
+            required: false
+            description: "Issue IDs/identifiers to stop blocking"
+          removeBlockedBy:
+            type: "array"
+            required: false
+            description: "Issue IDs/identifiers to remove as blockers of this issue"
+          removeRelatedTo:
+            type: "array"
+            required: false
+            description: "Related issue IDs/identifiers to remove"
+      list_issue_statuses:
+        description: "List available issue statuses in a Linear team"
+        arguments:
+          team:
+            type: "string"
+            required: true
+            description: "Team name or ID"
+      get_issue_status:
+        description: "Retrieve detailed information about an issue status in Linear by name or ID"
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Status ID"
+          name:
+            type: "string"
+            required: true
+            description: "Status name"
+          team:
+            type: "string"
+            required: true
+            description: "Team name or ID"
+      list_issue_labels:
+        description: "List available issue labels in a Linear workspace or team"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          name:
+            type: "string"
+            required: false
+            description: "Filter by name"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID"
+      create_issue_label:
+        description: "Create a new Linear issue label"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Label name"
+          description:
+            type: "string"
+            required: false
+            description: "Label description"
+          color:
+            type: "string"
+            required: false
+            description: "Hex color code"
+          teamId:
+            type: "string"
+            required: false
+            description: "Team UUID (omit for workspace label)"
+          parent:
+            type: "string"
+            required: false
+            description: "Parent label group name"
+          isGroup:
+            type: "boolean"
+            required: false
+            description: "Is label group (not directly applicable)"
+      list_projects:
+        description: "List projects in the user's Linear workspace"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 50)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search project name"
+          state:
+            type: "string"
+            required: false
+            description: "State type, name, or ID"
+          initiative:
+            type: "string"
+            required: false
+            description: "Initiative name or ID"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID"
+          member:
+            type: "string"
+            required: false
+            description: "User ID, name, email, or \"me\""
+          label:
+            type: "string"
+            required: false
+            description: "Label name or ID"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeMilestones:
+            type: "boolean"
+            required: false
+            description: "Include milestones"
+          includeMembers:
+            type: "boolean"
+            required: false
+            description: "Include project members"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      get_project:
+        description: "Retrieve details of a specific project in Linear"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "Project name, ID, or slug"
+          includeMilestones:
+            type: "boolean"
+            required: false
+            description: "Include milestones"
+          includeMembers:
+            type: "boolean"
+            required: false
+            description: "Include project members"
+          includeResources:
+            type: "boolean"
+            required: false
+            description: "Include resources (documents, links, attachments)"
+      save_project:
+        description: "Create or update a Linear project. If `id` is provided, updates the existing project; otherwise creates a new one. When creating, `name` and at least one team (via `addTeams` or `setTeams`) are required."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Project ID. If provided, updates the existing project"
+          name:
+            type: "string"
+            required: false
+            description: "Project name (required when creating)"
+          icon:
+            type: "string"
+            required: false
+            description: "Icon name or emoji code (e.g. \"Rocket\" or \":eagle:\"), not a raw Unicode emoji"
+          color:
+            type: "string"
+            required: false
+            description: "Hex color"
+          summary:
+            type: "string"
+            required: false
+            description: "Short summary (max 255 chars)"
+          description:
+            type: "string"
+            required: false
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+          state:
+            type: "string"
+            required: false
+            description: "Project state"
+          startDate:
+            type: "string"
+            required: false
+            description: "Start date (ISO format). Pair with startDateResolution to indicate precision (e.g. month, quarter)"
+          startDateResolution:
+            type: "string"
+            required: false
+            description: "Start date resolution"
+            enum: ["halfYear", "month", "quarter", "year"]
+          targetDate:
+            type: "string"
+            required: false
+            description: "Target date (ISO format). Pair with targetDateResolution to indicate precision (e.g. month, quarter)"
+          targetDateResolution:
+            type: "string"
+            required: false
+            description: "Target date resolution"
+            enum: ["halfYear", "month", "quarter", "year"]
+          priority:
+            type: "integer"
+            required: false
+            description: "0=None, 1=Urgent, 2=High, 3=Medium, 4=Low"
+          addTeams:
+            type: "array"
+            required: false
+            description: "Team name or ID to add"
+          removeTeams:
+            type: "array"
+            required: false
+            description: "Team name or ID to remove"
+          setTeams:
+            type: "array"
+            required: false
+            description: "Replace all teams with these. Cannot combine with addTeams/removeTeams"
+          labels:
+            type: "array"
+            required: false
+            description: "Label names or IDs"
+          lead:
+            type: "string|null"
+            required: false
+            description: "User ID, name, email, or \"me\". Null to remove"
+          addInitiatives:
+            type: "array"
+            required: false
+            description: "Initiative names/IDs to add"
+          removeInitiatives:
+            type: "array"
+            required: false
+            description: "Initiative names/IDs to remove"
+          setInitiatives:
+            type: "array"
+            required: false
+            description: "Replace all initiatives with these. Cannot combine with addInitiatives/removeInitiatives"
+      list_project_labels:
+        description: "List available project labels in the Linear workspace"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          name:
+            type: "string"
+            required: false
+            description: "Filter by name"
+      list_release_pipelines:
+        description: "List release pipelines in the workspace."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search pipeline name"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID"
+          type:
+            type: "string"
+            required: false
+            description: "Pipeline type: continuous | scheduled"
+            enum: ["continuous", "scheduled"]
+          isProduction:
+            type: "boolean"
+            required: false
+            description: "Filter by production pipeline flag"
+          includeStages:
+            type: "boolean"
+            required: false
+            description: "Include each pipeline's stages"
+          includeTeams:
+            type: "boolean"
+            required: false
+            description: "Include each pipeline's teams"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      list_releases:
+        description: "List releases in the workspace, with optional filtering by pipeline, stage, version, and text."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search release name or version"
+          pipeline:
+            type: "string"
+            required: false
+            description: "Release pipeline ID, slug, or exact name"
+          stage:
+            type: "string"
+            required: false
+            description: "Release stage ID or exact name"
+          stageType:
+            type: "string"
+            required: false
+            description: "Filter by stage lifecycle type"
+            enum: ["planned", "started", "completed", "canceled"]
+          version:
+            type: "string"
+            required: false
+            description: "Exact version match"
+          hasReleaseNotes:
+            type: "boolean"
+            required: false
+            description: "Filter to releases that do (true) or do not (false) have release notes"
+          includeReleaseNotes:
+            type: "boolean"
+            required: false
+            description: "Include associated release notes"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      get_release:
+        description: "Retrieve details of a release by ID or slug."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Release ID or slug"
+          includeReleaseNotes:
+            type: "boolean"
+            required: false
+            description: "Include associated release notes"
+      save_release:
+        description: "Create or update a release. If `id` is provided, updates the existing release; otherwise creates a new one. When creating, `name` and `pipeline` are required. Release status is modeled as the release pipeline stage."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Release ID or slug to update. Omit to create a new release."
+          name:
+            type: "string"
+            required: false
+            description: "Release name (required when creating)"
+          description:
+            type: "string"
+            required: false
+            description: "Release description"
+          version:
+            type: "string"
+            required: false
+            description: "Version identifier"
+          pipeline:
+            type: "string"
+            required: false
+            description: "Release pipeline ID, slug, or exact name (required when creating)"
+          stage:
+            type: "string"
+            required: false
+            description: "Release stage ID, exact name, or lifecycle type within the release pipeline"
+          startDate:
+            type: "string|null"
+            required: false
+            description: "Estimated start date (ISO YYYY-MM-DD, null to remove)"
+          targetDate:
+            type: "string|null"
+            required: false
+            description: "Estimated completion date (ISO YYYY-MM-DD, null to remove)"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Import/create timestamp (ISO DateTime)"
+          startedAt:
+            type: "string|null"
+            required: false
+            description: "Started timestamp (ISO DateTime, null to remove)"
+          completedAt:
+            type: "string|null"
+            required: false
+            description: "Completed timestamp (ISO DateTime, null to remove)"
+          commitSha:
+            type: "string"
+            required: false
+            description: "Commit SHA associated with the release"
+      list_release_notes:
+        description: "List release notes in the workspace, optionally filtered by pipeline or covered release."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search release notes title"
+          pipeline:
+            type: "string"
+            required: false
+            description: "Release pipeline ID, slug, or exact name"
+          release:
+            type: "string"
+            required: false
+            description: "Release ID or slug"
+          includeContent:
+            type: "boolean"
+            required: false
+            description: "Include markdown release notes content"
+          includeReleases:
+            type: "boolean"
+            required: false
+            description: "Include associated releases"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      get_release_note:
+        description: "Retrieve release notes by ID or slug, including markdown content."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "Release notes ID or slug"
+          includeReleases:
+            type: "boolean"
+            required: false
+            description: "Include associated releases"
+      save_release_note:
+        description: "Create or update release notes. If `id` is provided, updates the existing release notes; otherwise creates a new one. When creating, `pipeline` and either `releases` or a release range are required."
+        arguments:
+          id:
+            type: "string"
+            required: false
+            description: "Release notes ID or slug to update. Omit to create new release notes."
+          pipeline:
+            type: "string"
+            required: false
+            description: "Release pipeline ID, slug, or exact name (required when creating)"
+          title:
+            type: "string"
+            required: false
+            description: "Release notes title"
+          content:
+            type: "string"
+            required: false
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+          releases:
+            type: "array"
+            required: false
+            description: "Release IDs or slugs to include in the note"
+          rangeFromRelease:
+            type: "string"
+            required: false
+            description: "Oldest release ID or slug in the note range"
+          rangeToRelease:
+            type: "string"
+            required: false
+            description: "Newest release ID or slug in the note range"
+      get_diff:
+        description: "Exact lookup for a Linear diff. Use with review URLs, GitHub PR URLs, Linear full identifiers, UUIDs, or slugs."
+        arguments:
+          urlOrId:
+            type: "string"
+            required: true
+            description: "Linear review URL, diff slug, pull request ID, Linear full identifier, or GitHub PR URL"
+      list_diffs:
+        description: "List Linear diff pull requests visible to the authenticated user"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Broad search by title, branch, PR number, or bare slug"
+          owner:
+            type: "string"
+            required: false
+            description: "Filter returned diffs by repository owner"
+          repo:
+            type: "string"
+            required: false
+            description: "Filter returned diffs by repository name"
+          status:
+            type: "string"
+            required: false
+            description: "Filter returned diffs by pull request status"
+      get_diff_threads:
+        description: "Exact lookup for diff threads. Use with review URLs, GitHub PR URLs, Linear full identifiers, UUIDs, or slugs."
+        arguments:
+          urlOrId:
+            type: "string"
+            required: true
+            description: "Linear review URL, diff slug, pull request ID, Linear full identifier, or GitHub PR URL"
+          threadId:
+            type: "string"
+            required: false
+            description: "Optional top-level thread/comment ID to return"
+          resolved:
+            type: "boolean"
+            required: false
+            description: "Filter returned threads by resolved state"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+      list_milestones:
+        description: "List all milestones in a Linear project"
+        arguments:
+          project:
+            type: "string"
+            required: true
+            description: "Project name, ID, or slug"
+      get_milestone:
+        description: "Retrieve details of a specific milestone by ID or name"
+        arguments:
+          project:
+            type: "string"
+            required: true
+            description: "Project name, ID, or slug"
+          query:
+            type: "string"
+            required: true
+            description: "Milestone name or ID"
+      save_milestone:
+        description: "Create or update a milestone in a Linear project. If `id` is provided, updates the existing milestone; otherwise creates a new one. When creating, `name` is required."
+        arguments:
+          project:
+            type: "string"
+            required: true
+            description: "Project name, ID, or slug"
+          id:
+            type: "string"
+            required: false
+            description: "Milestone name or ID"
+          name:
+            type: "string"
+            required: false
+            description: "Milestone name (required when creating)"
+          description:
+            type: "string"
+            required: false
+            description: "Milestone description"
+          targetDate:
+            type: "string|null"
+            required: false
+            description: "Target completion date (ISO format, null to remove)"
+      list_teams:
+        description: "List teams in the user's Linear workspace"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Search query"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+      get_team:
+        description: "Retrieve details of a specific Linear team"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "Team UUID, key, or name"
+      list_users:
+        description: "Retrieve users in the Linear workspace"
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          query:
+            type: "string"
+            required: false
+            description: "Filter by name or email"
+          team:
+            type: "string"
+            required: false
+            description: "Team name or ID"
+      get_user:
+        description: "Retrieve details of a specific Linear user"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "User ID, name, email, or \"me\""
+      search_documentation:
+        description: "Search Linear's documentation to learn about features and usage"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "Search query"
+          page:
+            type: "number"
+            required: false
+            description: "Page number"
+      get_status_updates:
+        description: "List or get project/initiative status updates. Pass `id` to get a specific update, or filter to list."
+        arguments:
+          limit:
+            type: "number"
+            required: false
+            description: "Max results (default 50, max 250)"
+          cursor:
+            type: "string"
+            required: false
+            description: "Next page cursor"
+          orderBy:
+            type: "string"
+            required: false
+            description: "Sort: createdAt | updatedAt"
+            enum: ["createdAt", "updatedAt"]
+          type:
+            type: "string"
+            required: true
+            description: "Type of status update"
+            enum: ["project", "initiative"]
+          id:
+            type: "string"
+            required: false
+            description: "Status update ID - if provided, returns this specific update"
+          project:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug"
+          initiative:
+            type: "string"
+            required: false
+            description: "Initiative name or ID"
+          user:
+            type: "string"
+            required: false
+            description: "User ID, name, email, or \"me\""
+          createdAt:
+            type: "string"
+            required: false
+            description: "Created after: ISO-8601 date/duration (e.g., -P1D)"
+          updatedAt:
+            type: "string"
+            required: false
+            description: "Updated after: ISO-8601 date/duration (e.g., -P1D)"
+          includeArchived:
+            type: "boolean"
+            required: false
+            description: "Include archived items"
+      save_status_update:
+        description: "Create or update a project/initiative status update. Omit `id` to create, provide `id` to update."
+        arguments:
+          type:
+            type: "string"
+            required: true
+            description: "Type of status update"
+            enum: ["project", "initiative"]
+          id:
+            type: "string"
+            required: false
+            description: "Status update ID - if provided, updates this existing update"
+          project:
+            type: "string"
+            required: false
+            description: "Project name, ID, or slug"
+          initiative:
+            type: "string"
+            required: false
+            description: "Initiative name or ID"
+          body:
+            type: "string"
+            required: false
+            description: "Content as Markdown. Do not escape the string \u2014 use literal newlines and special characters, not escape sequences. To mention a user, use @displayName (e.g., @johndoe)"
+          health:
+            type: "string"
+            required: false
+            description: "onTrack | atRisk | offTrack"
+            enum: ["onTrack", "atRisk", "offTrack"]
+          isDiffHidden:
+            type: "boolean"
+            required: false
+            description: "Deprecated. Hide diff with previous update (create only)"
+      delete_status_update:
+        description: "Delete (archive) a project or initiative status update."
+        arguments:
+          type:
+            type: "string"
+            required: true
+            description: "Type of status update"
+            enum: ["project", "initiative"]
+          id:
+            type: "string"
+            required: true
+            description: "Status update ID"
