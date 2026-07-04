@@ -38,6 +38,15 @@ spec:
               # chown -R: stale uid-0 dirs from old subPath design cause EPERM on reseed; idempotent on fresh PVCs.
               mkdir -p /opt/data/.codex /opt/data/.claude
               chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
+              # /opt/data/home/.hermes/mnemosyne/models is the models PVC's mount point, nested
+              # under /opt/data/home. Kubelet auto-creates the missing parent scaffold dirs
+              # (/opt/data/home, .hermes, mnemosyne) as root:hermes with no group-write bit --
+              # fsGroup fixes the group but not the mode, so seed-data (uid 10000, no root) can't
+              # write ~/.gitconfig or anything else expecting a writable $HOME. Mounting models
+              # here too (prepare-run runs as root) lets us fix it before seed-data ever touches it.
+              # Non-recursive: only fix the scaffold chain, not the mounted models PVC's own content.
+              mkdir -p /opt/data/home/.hermes/mnemosyne
+              chown 10000:10000 /opt/data/home /opt/data/home/.hermes /opt/data/home/.hermes/mnemosyne
           securityContext:
             runAsUser: 0
             runAsGroup: 0
@@ -47,6 +56,8 @@ spec:
               mountPath: /run
             - name: data
               mountPath: /opt/data
+            - name: models
+              mountPath: /opt/data/home/.hermes/mnemosyne/models
         - name: seed-data
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
           imagePullPolicy: Always
