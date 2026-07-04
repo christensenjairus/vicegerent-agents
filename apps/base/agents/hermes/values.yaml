@@ -7,6 +7,9 @@ slack:
   commandName: hermes
 obsidian:
   vaultPath: /workspace/knowledge-vault
+git:
+  userName: felix
+  userEmail: felix@hahomelabs.com
 config: |-
   model:
     provider: anthropic
