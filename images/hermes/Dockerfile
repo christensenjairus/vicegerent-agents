@@ -31,7 +31,11 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.1"
 
 # requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
+# ENV covers non-login shells (exec sessions); /etc/profile.d re-prepends it since Debian's /etc/profile
+# unconditionally reassigns PATH for non-root UIDs in login shells (Hermes terminal()'s bash -l snapshot).
 ENV PATH="/opt/hermes/.venv/bin:${PATH}"
+RUN printf 'export PATH="/opt/hermes/.venv/bin:$PATH"\n' > /etc/profile.d/00-hermes-venv-path.sh \
+    && chmod 644 /etc/profile.d/00-hermes-venv-path.sh
 
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
