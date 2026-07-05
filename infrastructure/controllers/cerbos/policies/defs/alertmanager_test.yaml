@@ -1,0 +1,65 @@
+---
+# Fixtures use durationSeconds values straddling the work cap (86400s/24h) and
+# the personal cap (1209600s/14d) — validate.sh compiles against
+# clusters/work/cluster-vars.yaml, so the "exceeds work cap" fixtures are what
+# actually get exercised in CI; the personal-cap comment documents the wider
+# personal allowance for a human reading this file, not a second compiled
+# variant.
+name: alertmanager_silence_guardrails_test
+description: createSilence calls whose duration exceeds the cap are denied; calls
+  within the cap are allowed. deleteSilence is denied unconditionally (no ownership
+  info reaches the shim). Read-only calls are unaffected (unmapped by the shim, never
+  reach this policy).
+options:
+  now: '2026-07-05T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  short_silence:
+    id: HighMemoryUsage
+    kind: alertmanager_silence
+    attr: {durationSeconds: '3600'}  # 1h, well under either cap
+  at_work_cap_silence:
+    id: HighMemoryUsage
+    kind: alertmanager_silence
+    attr: {durationSeconds: '86400'}  # exactly the work cap; not > cap, so allowed
+  over_work_cap_silence:
+    id: HighMemoryUsage
+    kind: alertmanager_silence
+    attr: {durationSeconds: '172800'}  # 48h, exceeds the work 24h cap
+  existing_silence_to_delete:
+    id: 6f9d3a2e-1234-4567-8901-abcdef012345
+    kind: alertmanager_silence
+tests:
+  - name: createSilence within or at the cap is allowed
+    input:
+      principals: [hermes]
+      resources: [short_silence, at_work_cap_silence]
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: short_silence
+        actions: {create: EFFECT_ALLOW}
+      - principal: hermes
+        resource: at_work_cap_silence
+        actions: {create: EFFECT_ALLOW}
+  - name: createSilence exceeding the cap is denied
+    input:
+      principals: [hermes]
+      resources: [over_work_cap_silence]
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: over_work_cap_silence
+        actions: {create: EFFECT_DENY}
+  - name: deleteSilence is always denied regardless of which silence
+    input:
+      principals: [hermes]
+      resources: [existing_silence_to_delete]
+      actions: [delete]
+    expected:
+      - principal: hermes
+        resource: existing_silence_to_delete
+        actions: {delete: EFFECT_DENY}

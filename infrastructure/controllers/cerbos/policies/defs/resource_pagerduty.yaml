@@ -1,0 +1,47 @@
+---
+# pagerduty_incident policy: deny manage_incidents calls that change anything
+# other than status=acknowledged/resolved (+ the optional resolution note that
+# accompanies a resolve) — blocks reopening to "triggered", and blocks
+# priority/escalation_level/assignments/incident_type/title/conference_bridge
+# changes; allow everything else, including add_note_to_incident. The shim's
+# pagerdutyManageAttr helper (helpers_pagerduty.go) parses manage_incidents'
+# single manage_request arg (PagerDuty's own bulk-update body — an array of
+# per-incident {id, status, ...} objects) to compute hasOutOfScopeChange; any
+# single out-of-scope entry in the batch denies the WHOLE call (this shim
+# can't selectively apply a partial batch). No bulk-size cap: the operator
+# doesn't want a count limit, they want a field allowlist — 250 acks in one
+# call is no more dangerous than 1 once every non-ack/resolve field is denied.
+# NOTE: PagerDuty's manage_incidents body has no service_id field at all — it
+# addresses incidents purely by id — so true per-service scoping ("only let
+# the agent touch incidents on the devops service") is not mechanically
+# available from this call's own arguments; the status/field allowlist above
+# is the achievable substitute for least-privilege here. create_incident,
+# add_responders, and start_incident_workflow are removed from the tool
+# allowlist entirely (toolhive-servers.json) rather than policy-limited,
+# since there's no useful partial-scope to enforce on them short of an
+# outright block. Read-only tools (get_incident, list_incidents, schedules,
+# on-calls, services, teams, users, escalation policies) are unmapped and pass.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: pagerduty_incident
+  rules:
+    - name: deny-non-ack-resolve-change
+      actions: [manage]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.hasOutOfScopeChange) &&
+            request.resource.attr.hasOutOfScopeChange == "true"
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only acknowledge or resolve PagerDuty incidents (optionally"
+            + " with a resolution note). Reopening to 'triggered', and priority/escalation/"
+            + "assignment/title/conference-bridge changes, are not allowed."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

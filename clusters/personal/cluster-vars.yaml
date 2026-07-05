@@ -66,3 +66,8 @@ data:
   # mechanism (infra-controllers' postBuild.substituteFrom covers all of
   # infrastructure/controllers/**, including mapping.yaml).
   notionScratchpadPageId: 393de8859710809c9f5ec57a91d2c81a  # pragma: allowlist secret (Notion page id)
+
+  # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
+  # createSilence's duration is capped by this value; personal machine gets a
+  # longer leash than work.
+  alertmanagerMaxSilenceSeconds: '1209600'  # 14 days
