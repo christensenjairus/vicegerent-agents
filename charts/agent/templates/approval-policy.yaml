@@ -14,6 +14,7 @@ data:
       - script execution via -e/-c flag
       - shell command via -c/-lc flag
       - script execution via heredoc
+      - shell execution via heredoc
       # --- Arbitrary script execution — this sandbox's isolation boundary is
       # the pod/network layer, not the approval gate. Silences the separate
       # execute_code whole-script approval gate (0012 patch). ---
@@ -33,6 +34,7 @@ data:
       - recursive world/other-writable (long flag)
       - recursive chown to root
       - recursive chown to root (long flag)
+      - overwrite system config
       # --- No Docker socket ---
       - docker compose restart/stop/kill/down (container lifecycle)
       - docker restart/stop/kill (container lifecycle)
