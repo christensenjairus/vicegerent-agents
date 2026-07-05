@@ -313,6 +313,28 @@ COPY patches/0014-auxiliary-anthropic-gateway-host.py /tmp/0014-auxiliary-anthro
 RUN /opt/hermes/.venv/bin/python /tmp/0014-auxiliary-anthropic-gateway-host.py
 RUN rm -f /tmp/0014-auxiliary-anthropic-gateway-host.py
 
+# Patch 0014 fixed Anthropic gateway-host trust at the resolution layer, but
+# a persisted credential-pool entry can silently reintroduce a raw
+# api.anthropic.com host: agent/credential_pool.py seeds/re-seeds an
+# anthropic pool entry's base_url from a hardcoded default whenever
+# ANTHROPIC_BASE_URL isn't set (this platform uses model.base_url instead),
+# and that entry persists on the data volume across pod restarts and image
+# rebuilds. tools/delegate_tool.py leases this pool for every subagent and
+# unconditionally trusts the entry's base_url in run_agent.py's
+# _swap_credential(), overwriting the correctly-constructed gateway URL
+# right before the subagent's first call. Reproduced live on a freshly
+# rebuilt pod with 0014 confirmed present: subagent turns hit
+# base_url=https://api.anthropic.com (blocked by the sealed egress
+# boundary), fail over to the OpenAI fallback, which is separately
+# quota-exhausted. Fixes both the seed-time and use-time windows: seeding
+# now consults the same _resolve_anthropic_base_url_override() helper 0014
+# introduced, and _swap_credential() re-derives the base_url through it on
+# every lease so an already-stale persisted entry self-heals instead of
+# requiring a manual pool-file wipe. Depends on 0014 (imports its helper).
+COPY patches/0016-credential-pool-anthropic-base-url.py /tmp/0016-credential-pool-anthropic-base-url.py
+RUN /opt/hermes/.venv/bin/python /tmp/0016-credential-pool-anthropic-base-url.py
+RUN rm -f /tmp/0016-credential-pool-anthropic-base-url.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
