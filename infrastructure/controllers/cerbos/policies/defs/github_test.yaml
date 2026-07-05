@@ -72,7 +72,7 @@ resources:
     kind: github_repo
     attr: {owner: someoneelse, repo: some-repo, branch: main}
   review_approve_own_pr:
-    # pull_request_review_write with event=APPROVE — HAH-65 self-approval hole.
+    # pull_request_review_write with event=APPROVE — HAH-65, blocked unconditionally.
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', event: APPROVE}
