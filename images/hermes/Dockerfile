@@ -251,13 +251,21 @@ COPY patches/0008-approval-tirith-only-mode.py /tmp/0008-approval-tirith-only-mo
 RUN /opt/hermes/.venv/bin/python /tmp/0008-approval-tirith-only-mode.py
 RUN rm -f /tmp/0008-approval-tirith-only-mode.py
 
-# Patch tools/mcp_tool.py so the MCP circuit breaker doesn't trip on business
-# errors (isError=true relayed as a JSON "error" key) — only real transport/auth
-# failures should count toward the 3-strike "server unreachable" breaker.
-# Remove once upstream Hermes lands #47918/#47955 (hermes-agent #47851/#11113).
-COPY patches/0009-mcp-circuit-breaker-business-errors.py /tmp/0009-mcp-circuit-breaker-business-errors.py
-RUN /opt/hermes/.venv/bin/python /tmp/0009-mcp-circuit-breaker-business-errors.py
-RUN rm -f /tmp/0009-mcp-circuit-breaker-business-errors.py
+# Patch tools/mcp_tool.py: two MCP circuit-breaker fixes, merged into one
+# patch since they touch the same function (_make_tool_handler's _handler).
+# (1) Don't trip the breaker on business errors (isError=true relayed as a
+#     JSON "error" key) — only real transport/auth failures should count
+#     toward the 3-strike "server unreachable" breaker. Remove once upstream
+#     Hermes lands #47918/#47955 (hermes-agent #47851/#11113).
+# (2) Scope the breaker per-backend for vMCP optimizer aggregation. One
+#     flaky backend (e.g. alertmanager timing out) was tripping the shared
+#     "vmcp" server breaker and blocking all ~11 aggregated backends for
+#     60s, not just the flaky one. Vicegerent-specific fix (not an upstream
+#     issue) — unique to the vMCP optimizer's call_tool meta-tool
+#     aggregation pattern this repo uses.
+COPY patches/0009-mcp-circuit-breaker.py /tmp/0009-mcp-circuit-breaker.py
+RUN /opt/hermes/.venv/bin/python /tmp/0009-mcp-circuit-breaker.py
+RUN rm -f /tmp/0009-mcp-circuit-breaker.py
 
 # Patch tools/web_tools.py so web_extract only registers when an
 # extract-capable backend (firecrawl/tavily/exa/parallel) is configured.
@@ -278,16 +286,6 @@ RUN rm -f /tmp/0011-web-extract-capability-check.py
 COPY patches/0012-execute-code-pattern-silence.py /tmp/0012-execute-code-pattern-silence.py
 RUN /opt/hermes/.venv/bin/python /tmp/0012-execute-code-pattern-silence.py
 RUN rm -f /tmp/0012-execute-code-pattern-silence.py
-
-# Patch tools/mcp_tool.py to scope the MCP circuit breaker per-backend for
-# vMCP optimizer aggregation. One flaky backend (e.g. alertmanager timing
-# out) was tripping the shared "vmcp" server breaker and blocking all ~11
-# aggregated backends for 60s, not just the flaky one. Vicegerent-specific
-# fix (not an upstream issue) — unique to the vMCP optimizer's call_tool
-# meta-tool aggregation pattern this repo uses.
-COPY patches/0013-mcp-circuit-breaker-vmcp-backend-scope.py /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
-RUN /opt/hermes/.venv/bin/python /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
-RUN rm -f /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
 
 # Patch agent/auxiliary_client.py so background/auxiliary Anthropic calls
 # (approval checks, title generation, memory compression, vision fallback)
