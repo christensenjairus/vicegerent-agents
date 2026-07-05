@@ -16,3 +16,12 @@ patches:
     target:
       kind: Deployment
       name: (kustomize-controller|helm-controller|source-controller)
+  # React immediately to changes in postBuild.substituteFrom/valuesFrom
+  # ConfigMaps/Secrets instead of waiting for the next interval tick.
+  - patch: |
+      - op: add
+        path: /spec/template/spec/containers/0/args/-
+        value: --watch-configs-label-selector=owner!=helm
+    target:
+      kind: Deployment
+      name: (kustomize-controller|helm-controller)
