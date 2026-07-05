@@ -305,6 +305,33 @@ COPY patches/0014-auxiliary-anthropic-gateway-host.py /tmp/0014-auxiliary-anthro
 RUN /opt/hermes/.venv/bin/python /tmp/0014-auxiliary-anthropic-gateway-host.py
 RUN rm -f /tmp/0014-auxiliary-anthropic-gateway-host.py
 
+# Patch hermes_cli/runtime_provider.py: the "does model.base_url back native
+# Anthropic resolution" check (cfg_provider == "anthropic" then
+# _anthropic_base_url_override_ok(cfg_base_url)) was copy-pasted verbatim in
+# THREE separate call sites (credential-pool path, explicit-override path,
+# env-var/fallback path in resolve_runtime_provider()). All three currently
+# agree and correctly resolve to this platform's agentgateway /anthropic
+# route, but nothing enforces that agreement -- a future edit to any one
+# copy can silently desync it from the other two. Since delegate_task's
+# subagent credential resolution (_resolve_delegation_credentials in
+# tools/delegate_tool.py, triggered by this platform's delegation.provider:
+# anthropic config) can route through any of these three paths depending on
+# credential-pool state, a desync here would surface as subagents
+# intermittently calling https://api.anthropic.com directly instead of the
+# gateway -- non-deterministic, hard to repro, hit live during a
+# delegate_task fan-out (agent.log: two ThreadPoolExecutor worker threads
+# both APIConnectionError'd against base_url=https://api.anthropic.com,
+# then failed over to OpenAI which was quota-exhausted). Fixes this class of
+# bug by factoring the three copies into one _resolve_anthropic_base_url_override()
+# helper. Pure refactor -- same inputs, same outputs, verified against 5
+# behavioral test cases (gateway URL honored, non-anthropic provider
+# ignored, stale non-Anthropic URL rejected, empty base_url, official
+# api.anthropic.com honored). Remove once upstream consolidates these call
+# sites itself.
+COPY patches/0015-anthropic-base-url-single-source.py /tmp/0015-anthropic-base-url-single-source.py
+RUN /opt/hermes/.venv/bin/python /tmp/0015-anthropic-base-url-single-source.py
+RUN rm -f /tmp/0015-anthropic-base-url-single-source.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
