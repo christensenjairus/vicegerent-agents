@@ -114,8 +114,13 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
    method}` to build a Cerbos resource (standardizing kind/apiResource via the
    `canonicalK8s` helper). A CEL eval failure denies (the shim's own
    malfunction; never send a half-built resource).
-5. Calls Cerbos `IsAllowed`. Denied or Cerbos error returns `AuthorizationError`. Allowed
-   returns `Pass{}` — unless the tool's mapping carries a `force` block (literal key/value
+5. Calls Cerbos `CheckResources` (via the `authz.Decider` interface). Denied or Cerbos error
+   returns `AuthorizationError`; the deny reason is the matched rule's policy-authored `output`
+   (see `policies/defs/*.yaml` `output:` blocks, e.g. `deny-self-approve`'s "use REQUEST_CHANGES
+   instead") when the rule has one configured, falling back to a generic backend-agnostic
+   message when it doesn't. This is what lets a calling agent understand *why* it was blocked and
+   self-correct instead of retrying blind or silently downgrading its own intent — see HAH-65/72.
+   Allowed returns `Pass{}` — unless the tool's mapping carries a `force` block (literal key/value
    overrides, e.g. GitHub PR create/update forcing `draft: true`), in which case it returns
    `Mutated{}` with those keys rewritten into the call's arguments (re-wrapped into
    `call_tool{tool_name,parameters}` first if the call arrived that way). `force` only ever

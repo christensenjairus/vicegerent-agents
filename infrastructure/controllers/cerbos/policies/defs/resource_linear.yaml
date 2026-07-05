@@ -24,6 +24,10 @@ resourcePolicy:
             has(request.resource.attr.teamId) &&
             !(request.resource.attr.teamId in
             [${linearAllowedTeams}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only create/update Linear issues for the DEVOPS team."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

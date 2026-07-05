@@ -20,6 +20,11 @@ resourcePolicy:
             (has(request.resource.attr.uid) && request.resource.attr.uid in ["${grafanaDeniedDatasourceUid}"])
             ||
             (has(request.resource.attr.name) && request.resource.attr.name in ["${grafanaDeniedDatasourceName}"])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent is not allowed to query this Grafana datasource. Choose a"
+            + " different datasource."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

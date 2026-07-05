@@ -71,6 +71,26 @@ resources:
     id: someoneelse/some-repo
     kind: github_repo
     attr: {owner: someoneelse, repo: some-repo, branch: main}
+  review_approve_own_pr:
+    # pull_request_review_write with event=APPROVE — HAH-65 self-approval hole.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', event: APPROVE}
+  review_request_changes:
+    # Same tool, different event — must stay allowed.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', event: REQUEST_CHANGES}
+  review_comment:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', event: COMMENT}
+  review_pending_no_event:
+    # method=create with no 'event' (pending review, not yet submitted) — no
+    # event attr at all, same has()-guard pattern as the branch check above.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: ''}
 tests:
   - name: calls confined to an allowed repo are allowed
     input:
@@ -146,4 +166,27 @@ tests:
         actions: {access: EFFECT_ALLOW}
       - principal: hermes
         resource: create_pull_request_against_main
+        actions: {access: EFFECT_ALLOW}
+  - name: approving a pull request is denied regardless of repo/branch; other review
+      events are allowed
+    input:
+      principals: [hermes]
+      resources:
+        - review_approve_own_pr
+        - review_request_changes
+        - review_comment
+        - review_pending_no_event
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: review_approve_own_pr
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: review_request_changes
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: review_comment
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: review_pending_no_event
         actions: {access: EFFECT_ALLOW}

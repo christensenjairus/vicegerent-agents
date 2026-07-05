@@ -16,6 +16,7 @@ import (
 // would send to Cerbos, and force allow/deny/error verdicts.
 type stubDecider struct {
 	allow   bool
+	reason  string // policy-authored deny output; "" exercises the denyMessage fallback
 	err     error
 	gotType string
 	gotID   string
@@ -25,16 +26,16 @@ type stubDecider struct {
 }
 
 func (s *stubDecider) IsAllowed(_ context.Context, _ string, _ []string,
-	resourceType, resourceID string, attr map[string]string, action string) (bool, error) {
+	resourceType, resourceID string, attr map[string]string, action string) (bool, string, error) {
 	s.calls++
 	s.gotType, s.gotID, s.gotAttr, s.gotAct = resourceType, resourceID, attr, action
 	// Mirror the real Cerbos PDP, which rejects an empty resource.id with
 	// InvalidArgument before evaluating policy. Without this, the mock hides
 	// the empty-id bug that broke listResources in-cluster.
 	if resourceID == "" {
-		return false, fmt.Errorf("validation error: resources[0].resource.id: value is required")
+		return false, "", fmt.Errorf("validation error: resources[0].resource.id: value is required")
 	}
-	return s.allow, s.err
+	return s.allow, s.reason, s.err
 }
 
 // testMapping mirrors the design's k8s backend (deny-default) plus a permissive
@@ -289,11 +290,12 @@ func TestCheckRequest_ListResourcesReachesPolicy(t *testing.T) {
 	})
 }
 
-// TestCheckRequest_PolicyDenyMessageIsGeneric pins the client-facing contract:
-// a policy deny returns the generic, backend-agnostic message verbatim and must
-// NOT leak the probed resource type or action (those go only to the shim log).
+// TestCheckRequest_PolicyDenyMessageIsGeneric pins the client-facing contract
+// for a deny whose matched Cerbos rule carries no `output`: the shim falls
+// back to the generic, backend-agnostic denyMessage and must NOT leak the
+// probed resource type or action (those go only to the shim log).
 func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
-	d := &stubDecider{allow: false}
+	d := &stubDecider{allow: false} // reason: "" — no policy output configured
 	s := newTestServer(t, d)
 	r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
 		toolCall("getResource", map[string]any{"kind": "Secret", "name": "x"})))
@@ -309,6 +311,31 @@ func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
 	}
 	if strings.Contains(got, "Secret") || strings.Contains(got, "k8s_resource") || strings.Contains(got, "getResource") {
 		t.Errorf("deny message leaks probed resource/action to client: %q", got)
+	}
+}
+
+// TestCheckRequest_PolicyDenyMessageSurfacesOutput covers the opposite case:
+// when the matched Cerbos deny rule DOES carry an `output` (e.g.
+// resource_github.yaml's deny-self-approve — HAH-65/72), the shim must
+// surface that exact policy-authored reason to the caller verbatim instead of
+// falling back to the generic denyMessage. This is what lets the calling
+// agent understand *why* a call was blocked and self-correct (e.g. retry with
+// REQUEST_CHANGES) instead of silently giving up or retrying blind.
+func TestCheckRequest_PolicyDenyMessageSurfacesOutput(t *testing.T) {
+	const reason = "This agent is not allowed to approve pull requests (event=APPROVE). Use event=COMMENT or REQUEST_CHANGES instead, or ask a human to approve."
+	d := &stubDecider{allow: false, reason: reason}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+		toolCall("getResource", map[string]any{"kind": "Secret", "name": "x"})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isDeny(r) {
+		t.Fatalf("expected deny")
+	}
+	got := r.GetError().GetReason()
+	if got != reason {
+		t.Errorf("client reason did not surface policy output:\n got=%q\nwant=%q", got, reason)
 	}
 }
 

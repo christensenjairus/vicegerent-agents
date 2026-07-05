@@ -30,7 +30,15 @@ const toolsCall = "tools/call"
 // match github.com/stacklok/toolhive/pkg/vmcp/optimizer.CallToolInput.
 const callToolMeta = "call_tool"
 
-// denyMessage omits resource/action to avoid leaking probed state; detail goes to shim log.
+// denyMessage is the fallback used when Cerbos denies a call but the matched
+// deny rule carries no policy `output` (see policies/defs/*.yaml `output:`
+// blocks). It intentionally omits resource/action to avoid leaking probed
+// state; detail goes to the shim log. Prefer adding an `output` to the rule
+// over relying on this generic string — see HAH-65/72: without a specific
+// reason, a calling agent has no way to distinguish "try a different
+// approach" (self-approve blocked, use REQUEST_CHANGES instead) from
+// "this whole avenue is closed" (protected branch, wrong project), and burns
+// retries rediscovering the boundary by trial and error.
 const denyMessage = "Access denied by security policy. This is an intentional restriction, not a tool error; try a different resource or action."
 
 // Principal is a fixed audit constant (not an authz control; policy denies only by resource).
@@ -127,15 +135,24 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return deny(fmt.Sprintf("policy input eval: %v", err)), nil
 	}
 
-	allowed, err := s.decider.IsAllowed(ctx,
+	allowed, reason, err := s.decider.IsAllowed(ctx,
 		s.principal.ID, s.principal.Roles,
 		res.ResourceType, res.ID, res.Attr, res.Action)
 	if err != nil {
 		return deny(fmt.Sprintf("authorization check failed: %v", err)), nil
 	}
 	if !allowed {
-		log.Printf("deny: %s on %s (tool=%s backend=%s)", res.Action, res.ResourceType, cp.Name, backend)
-		return deny(denyMessage), nil
+		log.Printf("deny: %s on %s (tool=%s backend=%s reason=%q)", res.Action, res.ResourceType, cp.Name, backend, reason)
+		// Surface the policy-authored reason (Cerbos rule `output`) when present
+		// so the calling agent understands *why* and what to do instead (e.g.
+		// "use REQUEST_CHANGES instead of APPROVE") rather than retrying blindly
+		// or silently downgrading its own intent. Falls back to the generic
+		// denyMessage when the matched rule has no output configured.
+		msg := denyMessage
+		if reason != "" {
+			msg = reason
+		}
+		return deny(msg), nil
 	}
 
 	if len(tool.Force) == 0 {

@@ -15,6 +15,10 @@ resourcePolicy:
           expr: >-
             request.resource.attr.kind == "Secret" ||
             request.resource.attr.apiResource == "secrets"
+      output:
+        when:
+          ruleActivated: >-
+            "This agent is not allowed to read Kubernetes Secrets."
     - name: deny-no-kind
       actions: ['*']
       effect: EFFECT_DENY
@@ -24,6 +28,10 @@ resourcePolicy:
           expr: >-
             request.resource.attr.kind == "" &&
             request.resource.attr.apiResource == ""
+      output:
+        when:
+          ruleActivated: >-
+            "Could not resolve a Kubernetes resource kind for this call."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
