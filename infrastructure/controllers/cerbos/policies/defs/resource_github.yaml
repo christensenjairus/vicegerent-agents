@@ -1,10 +1,10 @@
 ---
 # github_repo policy: deny any GitHub call whose owner/repo isn't in the allowed
 # list (${githubAllowedRepos}, from clusters/personal/cluster-vars.yaml), or
-# whose branch arg names a protected branch (main/master/production), or a
+# whose branch arg names a protected branch (main/master/production), or any
 # pull_request_review_write call whose event is APPROVE (HAH-65 — the bot must
-# never approve its own or anyone's PR; comment/request-changes/resolve-thread
-# are unaffected); allow everything else. The shim maps every repo-bearing
+# never approve ANY pull request, full stop, regardless of who opened it;
+# comment/request-changes/resolve-thread are unaffected); allow everything else. The shim maps every repo-bearing
 # GitHub tool to this resource, carrying owner+repo (always populated) and
 # branch (populated only for push_files/create_or_update_file/create_branch —
 # the tools that write or name a branch directly; everything else, including
@@ -47,7 +47,7 @@ resourcePolicy:
           ruleActivated: >-
             "Direct writes to protected branch '" + request.resource.attr.branch
             + "' are not allowed. Use a feature branch and open a pull/merge request."
-    - name: deny-self-approve
+    - name: deny-approve
       actions: ['*']
       effect: EFFECT_DENY
       roles: ['*']
