@@ -1,4 +1,4 @@
-# gopls is built in a throwaway stage; GOTOOLCHAIN=auto handles newer Renovate bumps.
+# Also supplies the Go toolchain (/usr/local/go) copied into the final image below.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
 ARG GOPLS_VERSION=v0.22.0
 FROM golang:1.26 AS gopls
@@ -80,8 +80,15 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
     && rm /tmp/terraform-ls.zip \
     && terraform-ls version
 
-# Copy gopls only; no Go toolchain in final image.
-COPY --from=gopls /out/gopls /usr/local/bin/gopls
+# Full Go toolchain so agents can build/test Go code (e.g. mcp-cerbos-shim).
+COPY --from=gopls /usr/local/go /usr/local/go
+ENV PATH="/usr/local/go/bin:${PATH}" \
+    GOPROXY=https://proxy.golang.org,direct \
+    GOSUMDB=sum.golang.org \
+    GOTOOLCHAIN=local
+RUN printf 'export PATH="/usr/local/go/bin:$PATH"\n' >> /etc/profile.d/00-hermes-venv-path.sh \
+    && go version
+COPY --from=gopls /out/gopls /usr/local/go/bin/gopls
 
 # hermes-lcm must live in Hermes' bundled context_engine tree, not ~/.hermes/plugins.
 # renovate: datasource=github-releases depName=stephenschoettler/hermes-lcm

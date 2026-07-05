@@ -50,9 +50,10 @@ data:
   # the chart splitLists each one. apexWildcardDomains get an exact match AND a
   # *.<domain> wildcard; exactOnlyDomains get an exact match only. (httpbin.io stays
   # hardcoded in the chart: a redaction-test-suite target, not a user-facing
-  # destination.)
+  # destination.) Go proxy/sumdb/GCS added for `go mod download` (GCS is where
+  # proxy.golang.org redirects zip fetches — golang/go#45248).
   apexWildcardDomains: github.com,githubusercontent.com
-  exactOnlyDomains: pypi.org,files.pythonhosted.org
+  exactOnlyDomains: pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,storage.googleapis.com
 
   # Grafana datasource this machine's agents may NOT read from
   # (resource_grafana.yaml). Matched by uid or by name — whichever the calling
