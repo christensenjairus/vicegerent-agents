@@ -29,7 +29,7 @@
       "description": "GitLab MCP, scoped to issue read+write and the full merge-request lifecycle short of merging or approving (branch/file/commit ops, create/update/review/comment) plus label lookups, plus read-only pipeline status/log tools. approve_merge_request/unapprove_merge_request are excluded (HAH-64) so the bot can never rubber-stamp its own or anyone else's MR. No repo/group/project allowlist — the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, create_pipeline/retry_pipeline/cancel_pipeline (the mutating pipeline tools USE_PIPELINE also unlocks — only the 5 read ones are allowlisted below), all CI/CD variable tools, execute_graphql (arbitrary API access — would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded. The Cerbos guardrail (defs/resource_gitlab.yaml) additionally blocks push_files/create_or_update_file/create_branch from targeting a protected branch (main/master/production).",
       "enabled": false,
       "type": "npx",
-      "package": "@zereight/mcp-gitlab@2.1.29",
+      "package": "@zereight/mcp-gitlab@2.1.30",
       "env": {"USE_PIPELINE": "true"},
       "secrets": [{"name": "gitlab_token", "target": "GITLAB_PERSONAL_ACCESS_TOKEN"}],
       "params": [
