@@ -282,6 +282,22 @@ COPY patches/0013-mcp-circuit-breaker-vmcp-backend-scope.py /tmp/0013-mcp-circui
 RUN /opt/hermes/.venv/bin/python /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
 RUN rm -f /tmp/0013-mcp-circuit-breaker-vmcp-backend-scope.py
 
+# Patch agent/auxiliary_client.py so background/auxiliary Anthropic calls
+# (approval checks, title generation, memory compression, vision fallback)
+# trust our in-cluster agentgateway proxy, not just api.anthropic.com.
+# _is_anthropic_compatible_host() only allowlisted the literal hostname
+# api.anthropic.com, so model.base_url (the agentgateway /anthropic route —
+# see AGENTS.md "Environment") was silently discarded and the aux client
+# fell back to a direct api.anthropic.com call, which the sealed egress
+# boundary blocks, producing a bare connection error that Hermes correctly
+# but confusingly treats as an Anthropic outage and fails over to OpenAI.
+# Fix mirrors hermes_cli.runtime_provider's existing /anthropic path-suffix
+# trust rule already used for the main client. Remove once upstream unifies
+# the main-client and auxiliary-client Anthropic-host trust logic.
+COPY patches/0014-auxiliary-anthropic-gateway-host.py /tmp/0014-auxiliary-anthropic-gateway-host.py
+RUN /opt/hermes/.venv/bin/python /tmp/0014-auxiliary-anthropic-gateway-host.py
+RUN rm -f /tmp/0014-auxiliary-anthropic-gateway-host.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
