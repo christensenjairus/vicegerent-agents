@@ -28,6 +28,11 @@ resourcePolicy:
             != "" && !request.resource.attr.outwardKey.startsWith("${jiraProjectKey}-"))
             || (has(request.resource.attr.epicKey) && request.resource.attr.epicKey
             != "" && !request.resource.attr.epicKey.startsWith("${jiraProjectKey}-"))
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only act on the ${jiraProjectKey} Jira project. The"
+            + " targeted project/issue/epic is outside that scope."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

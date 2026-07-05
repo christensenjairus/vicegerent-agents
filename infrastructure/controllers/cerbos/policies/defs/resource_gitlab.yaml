@@ -19,6 +19,11 @@ resourcePolicy:
           expr: >-
             has(request.resource.attr.branch) && request.resource.attr.branch != ""
             && request.resource.attr.branch in ["main", "master", "production"]
+      output:
+        when:
+          ruleActivated: >-
+            "Direct writes to protected branch '" + request.resource.attr.branch
+            + "' are not allowed. Use a feature branch and open a merge request."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

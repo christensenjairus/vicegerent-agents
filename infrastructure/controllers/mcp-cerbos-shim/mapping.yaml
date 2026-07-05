@@ -109,7 +109,17 @@ backends:
       github_assign_copilot_to_issue: *github_repo
       github_get_label: *github_repo
       github_pull_request_read: *github_repo
-      github_pull_request_review_write: *github_repo
+      # pull_request_review_write carries a review 'event' arg
+      # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending).
+      # HAH-65: Cerbos denies event==APPROVE so the bot can never approve its
+      # own (or anyone's) PR; comment/request-changes/resolve-thread untouched.
+      github_pull_request_review_write:
+        <<: *github_repo
+        attr:
+          owner: get(args,'owner','')
+          repo: get(args,'repo','')
+          branch: get(args,'branch','')
+          event: get(args,'event','')
       github_add_reply_to_pull_request_comment: *github_repo
       github_add_comment_to_pending_review: *github_repo
       # create/update_pull_request force draft: true regardless of what's sent —
