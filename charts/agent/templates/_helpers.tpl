@@ -109,7 +109,7 @@ model:
 fallback_providers:
   - provider: custom
     model: gpt-5.4
-    base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai
+    base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1
     key_env: OPENAI_API_KEY
 compression:
   threshold: 0.50
