@@ -113,3 +113,13 @@ fix lands upstream. (Numbering is sparse — 0002/0003/0010 were dropped.)
   from the other two. Remove once upstream unifies the auxiliary-client
   and main-client Anthropic-host trust logic and de-duplicates the three
   call sites itself.
+- `0016-credential-pool-anthropic-base-url.py` — stop the persisted
+  Anthropic credential-pool entry (`agent/credential_pool.py`) from silently
+  reintroducing a raw `api.anthropic.com` host that 0014 already fixed at
+  the resolution layer: `_seed_from_env()` now consults the same
+  `_resolve_anthropic_base_url_override()` helper before falling back to a
+  hardcoded default, and `run_agent.py`'s `_swap_credential()` (leased by
+  every `delegate_task()` subagent before its first call) re-derives the
+  base_url through that helper on every lease, self-healing already-stale
+  persisted entries. Depends on 0014. Remove once the credential pool
+  itself understands gateway-style Anthropic base_url overrides.
