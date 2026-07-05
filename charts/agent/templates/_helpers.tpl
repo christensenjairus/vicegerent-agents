@@ -106,6 +106,11 @@ providers:
 model:
   default: claude-sonnet-5
   context_length: 1000000
+fallback_providers:
+  - provider: custom
+    model: gpt-5.4
+    base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai
+    key_env: OPENAI_API_KEY
 compression:
   threshold: 0.50
 prompt_caching:
