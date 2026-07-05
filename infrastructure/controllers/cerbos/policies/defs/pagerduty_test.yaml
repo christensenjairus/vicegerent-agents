@@ -1,0 +1,66 @@
+---
+name: pagerduty_incident_guardrails_test
+description: manage_incidents calls that change anything other than status=acknowledged/resolved
+  (+ resolution) are denied, regardless of batch size; ack/resolve-only calls of any
+  size are allowed. add_note_to_incident and all read-only tools are unaffected.
+options:
+  now: '2026-07-05T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  small_ack_batch:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'false'}
+  large_ack_only_batch:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'false'}  # no bulk-count cap; a big ack-only batch is fine
+  batch_with_priority_change:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'true'}
+  batch_with_title_change:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'true'}
+  note_add:
+    id: PT4KHLK
+    kind: pagerduty_incident
+tests:
+  - name: ack/resolve-only batches of any size are allowed
+    input:
+      principals: [hermes]
+      resources: [small_ack_batch, large_ack_only_batch]
+      actions: [manage]
+    expected:
+      - principal: hermes
+        resource: small_ack_batch
+        actions: {manage: EFFECT_ALLOW}
+      - principal: hermes
+        resource: large_ack_only_batch
+        actions: {manage: EFFECT_ALLOW}
+  - name: any non-ack/resolve field change (priority, escalation, assignment, title,
+      triggered) is denied even in a single-incident call
+    input:
+      principals: [hermes]
+      resources: [batch_with_priority_change, batch_with_title_change]
+      actions: [manage]
+    expected:
+      - principal: hermes
+        resource: batch_with_priority_change
+        actions: {manage: EFFECT_DENY}
+      - principal: hermes
+        resource: batch_with_title_change
+        actions: {manage: EFFECT_DENY}
+  - name: add_note_to_incident (unmapped attrs) is allowed
+    input:
+      principals: [hermes]
+      resources: [note_add]
+      actions: [annotate]
+    expected:
+      - principal: hermes
+        resource: note_add
+        actions: {annotate: EFFECT_ALLOW}

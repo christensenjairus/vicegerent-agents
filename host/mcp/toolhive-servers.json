@@ -205,7 +205,7 @@
     },
     {
       "name": "pagerduty",
-      "description": "PagerDuty, scoped via --tools to Incidents (read+write) plus read-only schedules/on-call, services, teams, users, escalation policies.",
+      "description": "PagerDuty, trimmed to read-only incident/schedule/on-call/service/team/user lookups plus ack/resolve/note on existing incidents (manage_incidents, add_note_to_incident) via --tools. create_incident, add_responders, and start_incident_workflow are intentionally NOT exposed — the operator only wants triage actions on incidents PagerDuty already created, not incident creation or responder escalation from the agent. manage_incidents is further scoped by Cerbos (defs/resource_pagerduty.yaml) to ack/resolve-only field changes (no bulk-count cap — a field allowlist makes batch size irrelevant to the risk); PagerDuty's own manage_incidents body has no service_id field, so true per-service scoping isn't mechanically available here.",
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/pagerduty",
@@ -213,7 +213,7 @@
       "tools": [
         "get_incident", "list_incidents", "get_past_incidents", "get_related_incidents",
         "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
-        "create_incident", "manage_incidents", "add_note_to_incident", "add_responders",
+        "manage_incidents", "add_note_to_incident",
         "get_schedule", "list_schedules", "list_schedule_users", "list_oncalls",
         "get_service", "list_services", "get_team", "list_teams", "list_team_members",
         "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"

@@ -1,0 +1,50 @@
+---
+# alertmanager_silence policy: deny createSilence calls whose duration exceeds
+# this machine's cap (${alertmanagerMaxSilenceSeconds}, from
+# clusters/*/cluster-vars.yaml — work is capped at 24h, personal at 14d); deny
+# deleteSilence outright. The shim's alertmanagerAttr helper
+# (helpers_alertmanager.go) converts createSilence's free-form `duration`
+# string ("30m","2h","1d") into durationSeconds, defaulting an omitted
+# duration to Alertmanager's own documented 2h rather than bypassing the cap.
+# deleteSilence carries only a silenceId (a UUID) — no ownership info at all
+# reaches the shim, and this shim never calls back to Alertmanager to look up
+# a silence's actual creator, so "don't delete a silence that isn't mine"
+# cannot be verified from the call itself. The honest fallback for an
+# unverifiable precondition is deny, not a best-effort/fake check, so
+# deleteSilence is denied unconditionally until/unless a live-lookup path
+# exists. Every other Alertmanager tool (getAlerts, getSilences, etc.) is
+# read-only and unmapped, and passes.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: alertmanager_silence
+  rules:
+    - name: deny-silence-too-long
+      actions: [create]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.durationSeconds) &&
+            int(request.resource.attr.durationSeconds) > ${alertmanagerMaxSilenceSeconds}
+      output:
+        when:
+          ruleActivated: >-
+            "Silence duration exceeds this agent's cap of ${alertmanagerMaxSilenceSeconds}
+            seconds."
+            + " Create a shorter silence, or ask a human to extend it."
+    - name: deny-delete-silence
+      actions: [delete]
+      effect: EFFECT_DENY
+      roles: ['*']
+      output:
+        when:
+          ruleActivated: >-
+            "This agent cannot delete Alertmanager silences: the call carries no"
+            + " verifiable ownership information, so it can't confirm the silence"
+            + " belongs to it. Ask a human to delete it, or let it expire."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']
