@@ -287,48 +287,31 @@ COPY patches/0012-execute-code-pattern-silence.py /tmp/0012-execute-code-pattern
 RUN /opt/hermes/.venv/bin/python /tmp/0012-execute-code-pattern-silence.py
 RUN rm -f /tmp/0012-execute-code-pattern-silence.py
 
-# Patch agent/auxiliary_client.py so background/auxiliary Anthropic calls
-# (approval checks, title generation, memory compression, vision fallback)
-# trust our in-cluster agentgateway proxy, not just api.anthropic.com.
-# _is_anthropic_compatible_host() only allowlisted the literal hostname
-# api.anthropic.com, so model.base_url (the agentgateway /anthropic route —
-# see AGENTS.md "Environment") was silently discarded and the aux client
-# fell back to a direct api.anthropic.com call, which the sealed egress
-# boundary blocks, producing a bare connection error that Hermes correctly
-# but confusingly treats as an Anthropic outage and fails over to OpenAI.
-# Fix mirrors hermes_cli.runtime_provider's existing /anthropic path-suffix
-# trust rule already used for the main client. Remove once upstream unifies
-# the main-client and auxiliary-client Anthropic-host trust logic.
+# Trust our in-cluster agentgateway proxy for Anthropic traffic in BOTH the
+# auxiliary client (agent/auxiliary_client.py -- approval checks, title
+# generation, memory compression, vision fallback) and the main/subagent
+# runtime resolver (hermes_cli/runtime_provider.py -- delegate_task()
+# subagent credentials). Both independently defaulted to a hostname-only
+# allowlist ("api.anthropic.com" literal) that excludes model.base_url's
+# agentgateway /anthropic route (see AGENTS.md "Environment"), so calls
+# fell back to a direct api.anthropic.com request, which the sealed egress
+# boundary blocks -- producing a connection error Hermes treats as an
+# Anthropic outage and fails over to OpenAI, burning its quota on what was
+# never an outage. Hit live during a delegate_task fan-out (agent.log: two
+# ThreadPoolExecutor worker threads both APIConnectionError'd against
+# base_url=https://api.anthropic.com, then failed over to OpenAI which was
+# quota-exhausted). Also de-duplicates the runtime_provider.py override
+# check that was copy-pasted verbatim across its three Anthropic
+# resolution call sites (credential-pool path, explicit-override path,
+# env-var/fallback path), so a future edit to one copy can't silently
+# desync it from the other two. Both edits are a pure trust/refactor
+# change -- same inputs, same outputs on the runtime_provider.py side.
+# Remove once upstream unifies the auxiliary-client and main-client
+# Anthropic-host trust logic and de-duplicates the three call sites
+# itself.
 COPY patches/0014-auxiliary-anthropic-gateway-host.py /tmp/0014-auxiliary-anthropic-gateway-host.py
 RUN /opt/hermes/.venv/bin/python /tmp/0014-auxiliary-anthropic-gateway-host.py
 RUN rm -f /tmp/0014-auxiliary-anthropic-gateway-host.py
-
-# Patch hermes_cli/runtime_provider.py: the "does model.base_url back native
-# Anthropic resolution" check (cfg_provider == "anthropic" then
-# _anthropic_base_url_override_ok(cfg_base_url)) was copy-pasted verbatim in
-# THREE separate call sites (credential-pool path, explicit-override path,
-# env-var/fallback path in resolve_runtime_provider()). All three currently
-# agree and correctly resolve to this platform's agentgateway /anthropic
-# route, but nothing enforces that agreement -- a future edit to any one
-# copy can silently desync it from the other two. Since delegate_task's
-# subagent credential resolution (_resolve_delegation_credentials in
-# tools/delegate_tool.py, triggered by this platform's delegation.provider:
-# anthropic config) can route through any of these three paths depending on
-# credential-pool state, a desync here would surface as subagents
-# intermittently calling https://api.anthropic.com directly instead of the
-# gateway -- non-deterministic, hard to repro, hit live during a
-# delegate_task fan-out (agent.log: two ThreadPoolExecutor worker threads
-# both APIConnectionError'd against base_url=https://api.anthropic.com,
-# then failed over to OpenAI which was quota-exhausted). Fixes this class of
-# bug by factoring the three copies into one _resolve_anthropic_base_url_override()
-# helper. Pure refactor -- same inputs, same outputs, verified against 5
-# behavioral test cases (gateway URL honored, non-anthropic provider
-# ignored, stale non-Anthropic URL rejected, empty base_url, official
-# api.anthropic.com honored). Remove once upstream consolidates these call
-# sites itself.
-COPY patches/0015-anthropic-base-url-single-source.py /tmp/0015-anthropic-base-url-single-source.py
-RUN /opt/hermes/.venv/bin/python /tmp/0015-anthropic-base-url-single-source.py
-RUN rm -f /tmp/0015-anthropic-base-url-single-source.py
 
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.

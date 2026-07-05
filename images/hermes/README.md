@@ -103,3 +103,13 @@ fix lands upstream. (Numbering is sparse — 0002/0003/0010 were dropped.)
   socket, egress-locked, non-root), not this gate. Silenced via
   `execute_code` in `approval-policy.yaml`'s `pattern_silence` list. Remove
   once upstream lets a single silence list cover both approval paths.
+- `0014-auxiliary-anthropic-gateway-host.py` — trust our in-cluster
+  agentgateway `/anthropic` proxy route for Anthropic traffic in both the
+  auxiliary client (`agent/auxiliary_client.py`) and the main/subagent
+  runtime resolver (`hermes_cli/runtime_provider.py`); also de-duplicates
+  the resolver's override-check logic that was copy-pasted across its
+  three Anthropic resolution call sites (credential-pool, explicit-override,
+  env-var/fallback), so a future edit to one copy can't silently desync it
+  from the other two. Remove once upstream unifies the auxiliary-client
+  and main-client Anthropic-host trust logic and de-duplicates the three
+  call sites itself.
