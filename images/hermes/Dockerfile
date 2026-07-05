@@ -30,6 +30,9 @@ LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.1"
 
+# requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
+ENV PATH="/opt/hermes/.venv/bin:${PATH}"
+
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
