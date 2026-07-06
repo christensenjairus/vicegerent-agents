@@ -28,11 +28,13 @@ Alertmanager `createSilence` calls over the configured duration cap (`deleteSile
 no ownership-based deny — see `defs/resource_alertmanager.yaml`), PagerDuty
 `manage_incidents` calls that change anything other than status=acknowledged/resolved,
 Notion `update-page` calls that set `command: replace_content` or
-`allow_deleting_content: true`, and Firecrawl `firecrawl_interact` calls that carry raw
-`code` to execute in the browser session (`prompt`-only interaction remains allowed).
+`allow_deleting_content: true` (and, via a shim-side live ancestry check, any `update-page`
+targeting a page not under the agent's Scratchpad tree — see "How it works"), and Firecrawl
+`firecrawl_interact` calls that carry raw `code` to execute in the browser session
+(`prompt`-only interaction remains allowed). Notion `create-pages` calls whose parent isn't
+the Scratchpad folder are also denied (a deny, not a mutation — see below).
 GitLab has no Cerbos-mapped tools or policy at all (its git file/branch-write tools were
-dropped from the allowlist instead). (Notion `create-pages` is also mapped, but as a
-`force` rewrite of its `parent` to the Scratchpad folder — a mutation, not a deny; see
+dropped from the allowlist instead). (Notion `create-pages` is also mapped; see
 "How it works".)
 
 | Layer | Job |
@@ -79,10 +81,13 @@ Consequences:
   exactly like a create). `linear_save_comment`/`linear_save_project` target
   an existing comment/project by id and carry no team of their own, so
   they're unmapped.
-  `notion_notion-create-pages` is also mapped, but only to carry a `force`
-  parent-rewrite (allow-all Cerbos policy); its siblings
-  `notion_notion-update-page`/`notion_notion-create-comment` are unmapped (they
-  target an existing page by id, not a folder). Everything else passes untouched.
+  `notion_notion-create-pages` is mapped to a Cerbos deny on any parent other
+  than the Scratchpad folder (`defs/resource_notion.yaml`'s
+  `deny-create-outside-scratchpad` rule), and `notion_notion-update-page` is
+  mapped both to the destructive-command Cerbos deny AND to a shim-side live
+  ancestry gate (HAH-88) that denies updates to any page not under the
+  Scratchpad tree. `notion_notion-create-comment` stays unmapped. Everything
+  else passes untouched.
 
 The shim mapping and Cerbos rules exist to *deny* protected resources, not to permit
 tools. To allow or disallow a tool outright, change the exposed tool set (ToolHive's
@@ -130,7 +135,18 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
    method}` to build a Cerbos resource (standardizing kind/apiResource via the
    `canonicalK8s` helper). A CEL eval failure denies (the shim's own
    malfunction; never send a half-built resource).
-5. Calls Cerbos `CheckResources` (via the `authz.Decider` interface). Denied or Cerbos error
+5. For the one tool that needs live state Cerbos can't see —
+   `notion_notion-update-page` (resource `notion_page`, action `update`) — runs a
+   Scratchpad **ancestry gate** BEFORE Cerbos: it calls `notion_notion-fetch` back
+   through the gateway/vMCP (`internal/upstream`) once for the target page and denies
+   unless the returned `<ancestor-path>` contains the Scratchpad page id from the
+   `NOTION_SCRATCHPAD_PAGE_ID` env var (`deployment.yaml`, same
+   `${notionScratchpadPageId}` cluster-var create-pages's Cerbos rule checks — one
+   id, two independent readers). This is the only network round trip in the request
+   path; it fails **closed** (deny) on lookup timeout/error/malformed result or an
+   unconfigured gate. `notion_notion-fetch` must stay unmapped (`defaultAction: allow`)
+   so this re-entrant call isn't itself gated — see `internal/upstream/client.go`.
+6. Calls Cerbos `CheckResources` (via the `authz.Decider` interface). Denied or Cerbos error
    returns `AuthorizationError`; the deny reason is the matched rule's policy-authored `output`
    (see `policies/defs/*.yaml` `output:` blocks, e.g. `deny-self-approve`'s "use REQUEST_CHANGES
    instead") when the rule has one configured, falling back to a generic backend-agnostic
@@ -146,9 +162,11 @@ It never returns `header_mutation` or `metadata` (the gateway applies `metadata`
 `Pass`, so leaving it empty is part of the contract); `mutated` is set only for a `force`-mapped
 tool on allow, otherwise it's `pass` or `error`.
 
-The shim makes **no policy decisions**; it standardizes fields and delegates
-the verdict, with one narrow exception: a `force` block is a fixed, unconditional rewrite
-(never derived from the call's own args), not a judgment call. Every *deny* is Cerbos's
+The shim delegates the verdict to Cerbos for almost everything; it standardizes fields
+and forwards, with two narrow exceptions. A `force` block is a fixed, unconditional rewrite
+(never derived from the call's own args), not a judgment call. And the Notion update-page
+ancestry gate (step 5) is a shim-side deny — Cerbos can't make it, since resolving a page's
+ancestors needs a network lookup and Cerbos has no I/O. Every *other* deny is Cerbos's
 (Secrets, and a kind-bearing call whose kind can't be resolved as `kind==""`/`deny-no-kind`);
 everything else passes the guardrail by default — tool selection is handled upstream
 (ToolHive, or an agentgateway allowlist in a centralized setup), not here. The shim only
