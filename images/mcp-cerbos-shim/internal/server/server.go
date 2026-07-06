@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -16,10 +17,26 @@ import (
 	config "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/authz"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/upstream"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
 )
 
 const toolsCall = "tools/call"
+
+// The Notion update-page ancestry gate keys off the mapped resource, not the
+// tool-name string, so renaming the tool in mapping.yaml keeps the gate intact
+// as long as it keeps this resourceType/action pair (matches the update rule in
+// defs/resource_notion.yaml).
+const (
+	notionPageResource = "notion_page"
+	notionUpdateAction = "update"
+)
+
+// notionAncestryTimeout bounds the single live notion-fetch the ancestry gate
+// makes, so one update-page call can't hang the whole CheckRequest (the gateway
+// is FailClosed, so a hang would deny anyway — but only after its own longer
+// timeout, holding the connection open meanwhile).
+const notionAncestryTimeout = 5 * time.Second
 
 // callToolMeta is the vMCP optimizer's (thv vmcp serve --optimizer/--optimizer-embedding)
 // meta-tool name. With the optimizer on, vMCP exposes only find_tool/call_tool instead
@@ -54,11 +71,40 @@ type Server struct {
 	engine    *eval.Engine
 	decider   authz.Decider
 	principal Principal
+
+	// notionAncestry, when set, gates notion_notion-update-page to pages under
+	// the Scratchpad tree via a live notion-fetch lookup — a network round trip
+	// the CEL/Cerbos path can't make (it's pure/synchronous, no I/O). It lives
+	// on Server rather than in a CEL helper for that reason. notionScratchpadID
+	// is the ancestor every updatable page must descend from; it's sourced from
+	// the same mapping force-rewrite value notion-create-pages uses (see
+	// main.go), so create and update stay pinned to one Scratchpad id.
+	notionAncestry     upstream.ToolCaller
+	notionScratchpadID string
+}
+
+// Option configures a Server at construction. Variadic so existing four-arg
+// New callers (tests, and any backend that doesn't need the ancestry gate)
+// keep compiling unchanged.
+type Option func(*Server)
+
+// WithNotionAncestry enables the Notion update-page Scratchpad-ancestry gate.
+// client resolves a page's ancestors (production: an upstream.Client to vMCP;
+// tests: a stub); scratchpadPageID is the required ancestor.
+func WithNotionAncestry(client upstream.ToolCaller, scratchpadPageID string) Option {
+	return func(s *Server) {
+		s.notionAncestry = client
+		s.notionScratchpadID = scratchpadPageID
+	}
 }
 
 // New constructs a Server. The engine must already be compiled from mapping.
-func New(m *config.Mapping, e *eval.Engine, d authz.Decider, p Principal) *Server {
-	return &Server{mapping: m, engine: e, decider: d, principal: p}
+func New(m *config.Mapping, e *eval.Engine, d authz.Decider, p Principal, opts ...Option) *Server {
+	s := &Server{mapping: m, engine: e, decider: d, principal: p}
+	for _, o := range opts {
+		o(s)
+	}
+	return s
 }
 
 // callParams is the tools/call params shape (rmcp CallToolRequestParam).
@@ -135,6 +181,18 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return deny(fmt.Sprintf("policy input eval: %v", err)), nil
 	}
 
+	// Notion update-page gate: this runs BEFORE Cerbos (a live ancestry lookup
+	// Cerbos itself can't do) and denies any update to a page outside the
+	// Scratchpad tree. The Cerbos policy still independently blocks destructive
+	// commands (replace_content / allow_deleting_content) on the pages that DO
+	// pass this gate; the two checks are complementary, not redundant.
+	if res.ResourceType == notionPageResource && res.Action == notionUpdateAction {
+		if derr := s.checkNotionAncestry(ctx, res.ID); derr != nil {
+			log.Printf("deny: notion update-page ancestry (page=%q backend=%s): %v", res.ID, backend, derr)
+			return deny(derr.Error()), nil
+		}
+	}
+
 	allowed, reason, err := s.decider.IsAllowed(ctx,
 		s.principal.ID, s.principal.Roles,
 		res.ResourceType, res.ID, res.Attr, res.Action)
@@ -181,6 +239,32 @@ func buildMutatedParams(cp callParams, wrapped bool, force map[string]any) ([]by
 		})
 	}
 	return json.Marshal(map[string]any{"name": cp.Name, "arguments": cp.Arguments})
+}
+
+// checkNotionAncestry returns nil to allow the update-page call through to
+// Cerbos, or an error (used verbatim as the deny reason) to block it. Every
+// failure path is fail-closed: an unconfigured gate, a missing page_id, a
+// lookup error, and a confirmed not-under-Scratchpad all deny.
+func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
+	if s.notionAncestry == nil || s.notionScratchpadID == "" {
+		// The gate is mandatory for this tool: production always wires it
+		// (main.go). Reaching here unconfigured means a broken deploy, not a
+		// license to allow an unscoped page edit.
+		return fmt.Errorf("notion ancestry gate not configured; denying update to page %q", pageID)
+	}
+	if pageID == "" {
+		return fmt.Errorf("notion update-page has no page_id; cannot verify Scratchpad ancestry")
+	}
+	ctx, cancel := context.WithTimeout(ctx, notionAncestryTimeout)
+	defer cancel()
+	under, err := upstream.PageIsUnderAncestor(ctx, s.notionAncestry, pageID, s.notionScratchpadID)
+	if err != nil {
+		return fmt.Errorf("could not verify this Notion page is under the agent's Scratchpad tree (failing closed): %v", err)
+	}
+	if !under {
+		return fmt.Errorf("this agent may only update Notion pages under its Scratchpad page tree; page %q is not, so the update is denied", pageID)
+	}
+	return nil
 }
 
 // resolveBackend enforces exactly-one mapped backend in service_names.
