@@ -89,8 +89,16 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   choice, kept in ToolHive here for developer flexibility. Argument-level authz is the `mcp-cerbos-shim`
   + Cerbos guardrail on the `vmcp` backend, a deny-by-resource guardrail (FailClosed on `tools/call`)
   that currently blocks: reading Kubernetes **Secrets**; reading the OpenSearch Grafana
-  datasources; any **Jira** call targeting a project other than **CHANGE** (by `project_key` or
-  the project prefix of an issue/epic key); any **GitHub** call targeting a repo outside the
+  datasources; any **Jira** WRITE (create/update/transition/comment/link) targeting a project
+  outside `${jiraAllowedProjects}` (by `project_key`, the project prefix of an
+  issue/epic key, or an `epicKey`/`parent` reference smuggled inside
+  `additional_fields`/`fields`' raw JSON — parsed by the `jiraFieldsAttr` helper,
+  since that's a documented control being routed around via a side channel, not
+  just an unmapped extra arg), or assigning an issue to anyone outside
+  `${jiraAllowedAssignees}` (default `"*"`, i.e. unrestricted — there is no
+  `reporter` field on this tool at all) — reads (`get_issue`/
+  `get_project_issues`/`get_transitions`) are unrestricted, mirroring Notion's
+  read-everywhere/write-scoped model; any **GitHub** call targeting a repo outside the
   allowlist in `defs/resource_github.yaml` (by `owner`/`repo`), or writing directly to a protected
   branch (main/master/production); any **Linear** `save_issue` calls that supply a team other than
   DEVOPS (`defs/resource_linear.yaml` — `save_issue` merges create+update; an ordinary update that

@@ -12,7 +12,7 @@ This repo ships with the original operator's own identity baked into a few files
 
 - **`clusters/personal/cluster-vars.yaml`** — every field here is machine/operator-scoped and feeds the Cerbos authorization policies via Flux substitution. Read the inline comment on each field, then replace:
   - `githubAllowedRepos` — the GitHub `owner/repo` pairs your agents are allowed to touch (`resource_github.yaml`). Currently someone else's repos.
-  - `jiraProjectKey` — ships as the literal placeholder `CHANGE`; set to your Jira project key (or leave it if you don't use Jira — the Cerbos policy just won't match anything).
+  - `jiraAllowedProjects` — ships as the literal placeholder `"CHANGE"`; set to a CEL-list-ready set of Jira project keys your agent may WRITE to (reads are unrestricted) — or leave it if you don't use Jira.
   - `linearAllowedTeams` — your Linear team's UUID, display name, and issue-key prefix (`resource_linear.yaml`).
   - `cnameChainedFQDN` / `cnameChain` — your git host's FQDN and its full CNAME chain (see step 3 below). Currently the original operator's self-hosted GitLab + dynamic-DNS chain.
   - `apexWildcardDomains` / `exactOnlyDomains` — the external HTTP(S) destinations your agents' egress-proxy should allow. Add/remove as your workflow needs.

@@ -4,8 +4,8 @@
 # Jira project/issue key, a GitHub owner/repo[/branch], a Linear teamId, an
 # Alertmanager silence duration, or a PagerDuty manage_incidents change);
 # unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads,
-# OpenSearch-datasource reads, Jira calls targeting a project other than
-# CHANGE, GitHub calls targeting a repo outside the allowlist or writing
+# OpenSearch-datasource reads, Jira WRITES targeting a project outside
+# ${jiraAllowedProjects} (reads are unrestricted), GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
 # DEVOPS, Alertmanager silences over the duration cap, out-of-scope
 # PagerDuty incident changes, and Notion create-pages calls whose parent isn't
@@ -25,6 +25,7 @@ backends:
       - pagerdutyManageAttr
       - notionAttr
       - notionCreateAttr
+      - jiraFieldsAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -69,15 +70,21 @@ backends:
       grafana_list_prometheus_metric_names: *grafana_ds
       grafana_list_prometheus_label_names: *grafana_ds
       grafana_list_prometheus_label_values: *grafana_ds
-      # Jira project/issue-bearing tools -> jira_project; Cerbos denies any call
-      # targeting a project other than CHANGE. Tool names are double-prefixed
+      # Jira project/issue-bearing tools -> jira_project, mirroring Notion's
+      # read-everywhere/write-scoped model: reads (get_issue/get_project_issues/
+      # get_transitions) are allowed against ANY project, since there's nothing
+      # dangerous about looking at a ticket outside the allowlist; only writes
+      # (create/update/transition/comment/link) are denied when they touch a
+      # project outside ${jiraAllowedProjects} (was a single jiraProjectKey;
+      # widened to a CEL-list-ready allowlist matching the linearAllowedTeams/
+      # githubAllowedRepos pattern). Tool names are double-prefixed
       # ({workload}_{tool} = jira_ + jira_*). Same body for every tool: capture
       # whichever project/issue-key args it carries (absent args resolve to "").
-      # jira_jira_search is intentionally unmapped — JIRA_PROJECTS_FILTER=CHANGE
-      # confines search server-side, and its free-form jql can't be checked here.
-      jira_jira_create_issue: &jira_proj
+      # jira_jira_search is intentionally unmapped — JIRA_PROJECTS_FILTER confines
+      # search server-side, and its free-form jql can't be checked here.
+      jira_jira_get_issue: &jira_proj_read
         resourceType: jira_project
-        action: access
+        action: read
         id: get(args,'project_key', get(args,'issue_key',''))
         attr:
           projectKey: get(args,'project_key','')
@@ -85,14 +92,36 @@ backends:
           inwardKey: get(args,'inward_issue_key','')
           outwardKey: get(args,'outward_issue_key','')
           epicKey: get(args,'epic_key','')
-      jira_jira_get_project_issues: *jira_proj
-      jira_jira_get_issue: *jira_proj
-      jira_jira_update_issue: *jira_proj
-      jira_jira_transition_issue: *jira_proj
-      jira_jira_add_comment: *jira_proj
-      jira_jira_get_transitions: *jira_proj
-      jira_jira_create_issue_link: *jira_proj
-      jira_jira_link_to_epic: *jira_proj
+      jira_jira_get_project_issues: *jira_proj_read
+      jira_jira_get_transitions: *jira_proj_read
+      # jira_create_issue/jira_update_issue's additional_fields (and update's
+      # required fields) are raw JSON strings that can smuggle an
+      # {"epicKey"/"epic_link"/"parent": "OTHER-123"} reference to a
+      # different project, bypassing the plain top-level epic_key/issue_key
+      # check entirely (HAH-90 follow-up, originally HAH-82) -- the
+      # jiraFieldsAttr helper parses those JSON args with a real JSON
+      # decode (not fragile CEL string matching) and surfaces any embedded
+      # epicKey/parent reference as extraEpicKey/extraParentKey, which
+      # resource_jira.yaml's write rule now also checks. Other write tools
+      # (transition/comment/link) don't carry additional_fields/fields at
+      # all, so attrFrom is harmless there too -- it always resolves both
+      # extra keys to "".
+      jira_jira_create_issue: &jira_proj_write
+        resourceType: jira_project
+        action: write
+        id: get(args,'project_key', get(args,'issue_key',''))
+        attrFrom: jiraFieldsAttr(args)
+        attr:
+          projectKey: get(args,'project_key','')
+          issueKey: get(args,'issue_key','')
+          inwardKey: get(args,'inward_issue_key','')
+          outwardKey: get(args,'outward_issue_key','')
+          epicKey: get(args,'epic_key','')
+      jira_jira_update_issue: *jira_proj_write
+      jira_jira_transition_issue: *jira_proj_write
+      jira_jira_add_comment: *jira_proj_write
+      jira_jira_create_issue_link: *jira_proj_write
+      jira_jira_link_to_epic: *jira_proj_write
       # GitHub repo-bearing tools -> github_repo; Cerbos denies any call whose
       # owner/repo isn't in the allowlist, or whose branch arg (only carried
       # by tools that name a branch directly — everything else resolves to
