@@ -96,13 +96,20 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   DEVOPS (`defs/resource_linear.yaml` — `save_issue` merges create+update; an ordinary update that
   omits `team` is unmapped, but an update that sets `team` is checked like a create.
   `save_comment`/`save_project` carry no verifiable team and are unmapped); any **Alertmanager**
-  silence longer than the configured cap, or a `deleteSilence` targeting a silence the bot didn't
-  create (`defs/resource_alertmanager.yaml`); and any **PagerDuty** call touching an incident
-  outside the configured allowed service, or a bulk operation over the configured cap
-  (`defs/resource_pagerduty.yaml`). GitLab has no Cerbos-mapped tools or policy at all — its three
-  git file/branch-write tools were removed from the allowlist instead (the bot has direct SSH
-  access to gitlab.hahomelabs.com). The shim mapping and Cerbos rules deny protected resources;
-  they are not the place to permit or block a tool outright — that's the tool-selection layer above.
+  `createSilence` call whose duration exceeds the configured cap (`defs/resource_alertmanager.yaml`
+  — `deleteSilence` has no ownership-based deny; a silence's creator can't be verified from the
+  call args, so an unconditional deny would block legitimate self-cleanup exactly as much as
+  it would protect anything, and was removed); any **PagerDuty** `manage_incidents` call that
+  changes anything other than status=acknowledged/resolved (`defs/resource_pagerduty.yaml`); any
+  **Notion** `update-page` call that sets `command: replace_content` or
+  `allow_deleting_content: true` (`defs/resource_notion.yaml` — `create-pages` is unaffected, it's
+  force-rewritten to the Scratchpad folder instead of denied); and any **Firecrawl**
+  `firecrawl_interact` call that carries raw `code` to execute in the browser session
+  (`defs/resource_firecrawl.yaml` — `prompt`-only natural-language interaction remains allowed).
+  GitLab has no Cerbos-mapped tools or policy at all — its three git file/branch-write tools were
+  removed from the allowlist instead (the bot has direct SSH access to gitlab.hahomelabs.com). The
+  shim mapping and Cerbos rules deny protected resources; they are not the place to permit or
+  block a tool outright — that's the tool-selection layer above.
   A tool's mapping can also carry a `force` block — a literal, unconditional argument rewrite applied
   only after Cerbos allows (GitHub `create_pull_request`/`update_pull_request` force `draft: true` so
   every agent-opened PR stays a draft; **Notion** `create-pages` forces `parent` to the Scratchpad

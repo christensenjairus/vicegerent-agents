@@ -1,0 +1,87 @@
+---
+name: notion_page_destructive_update_block_test
+description: notion-update-page calls that set command=replace_content or allow_deleting_content=true
+  are denied; every other update-page command, and create-pages, fall through to allow-all.
+options:
+  now: '2026-07-06T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  update_properties_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: update_properties, allowDeletingContent: 'false'}
+  update_content_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: update_content, allowDeletingContent: 'false'}
+  insert_content_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: insert_content, allowDeletingContent: 'false'}
+  replace_content_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: replace_content, allowDeletingContent: 'false'}
+  replace_content_with_deletion_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: replace_content, allowDeletingContent: 'true'}
+  update_properties_with_deletion_flag_call:
+    id: f336d0bc-b841-465b-8045-024475c079dd
+    kind: notion_page
+    attr: {command: update_properties, allowDeletingContent: 'true'}
+  create_pages_call:
+    id: notion-create-pages
+    kind: notion_page
+tests:
+  - name: non-destructive update commands are allowed
+    input:
+      principals: [hermes]
+      resources:
+        - update_properties_call
+        - update_content_call
+        - insert_content_call
+      actions: [update]
+    expected:
+      - principal: hermes
+        resource: update_properties_call
+        actions: {update: EFFECT_ALLOW}
+      - principal: hermes
+        resource: update_content_call
+        actions: {update: EFFECT_ALLOW}
+      - principal: hermes
+        resource: insert_content_call
+        actions: {update: EFFECT_ALLOW}
+  - name: replace_content is denied regardless of allowDeletingContent
+    input:
+      principals: [hermes]
+      resources: [replace_content_call, replace_content_with_deletion_call]
+      actions: [update]
+    expected:
+      - principal: hermes
+        resource: replace_content_call
+        actions: {update: EFFECT_DENY}
+      - principal: hermes
+        resource: replace_content_with_deletion_call
+        actions: {update: EFFECT_DENY}
+  - name: allowDeletingContent=true is denied even on a non-replace command
+    input:
+      principals: [hermes]
+      resources: [update_properties_with_deletion_flag_call]
+      actions: [update]
+    expected:
+      - principal: hermes
+        resource: update_properties_with_deletion_flag_call
+        actions: {update: EFFECT_DENY}
+  - name: create-pages is unaffected (allow-all fallthrough)
+    input:
+      principals: [hermes]
+      resources: [create_pages_call]
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: create_pages_call
+        actions: {create: EFFECT_ALLOW}

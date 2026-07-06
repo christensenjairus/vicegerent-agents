@@ -1,0 +1,52 @@
+---
+name: firecrawl_interact_code_execution_block_test
+description: firecrawl_interact calls that carry raw `code` are denied regardless
+  of language; prompt-only calls (code omitted/empty) are allowed.
+options:
+  now: '2026-07-06T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  prompt_only_call:
+    id: https://example.com/products
+    kind: firecrawl_session
+    attr: {code: ''}
+  bash_code_call:
+    id: scrape-id-123
+    kind: firecrawl_session
+    attr: {code: agent-browser click @e5}
+  python_code_call:
+    id: https://example.com/products
+    kind: firecrawl_session
+    attr: {code: print(1)}
+  node_code_call:
+    id: https://example.com/products
+    kind: firecrawl_session
+    attr: {code: console.log(1)}
+tests:
+  - name: prompt-only interaction (no code) is allowed
+    input:
+      principals: [hermes]
+      resources: [prompt_only_call]
+      actions: [interact]
+    expected:
+      - principal: hermes
+        resource: prompt_only_call
+        actions: {interact: EFFECT_ALLOW}
+  - name: any call carrying raw code is denied regardless of language
+    input:
+      principals: [hermes]
+      resources: [bash_code_call, python_code_call, node_code_call]
+      actions: [interact]
+    expected:
+      - principal: hermes
+        resource: bash_code_call
+        actions: {interact: EFFECT_DENY}
+      - principal: hermes
+        resource: python_code_call
+        actions: {interact: EFFECT_DENY}
+      - principal: hermes
+        resource: node_code_call
+        actions: {interact: EFFECT_DENY}

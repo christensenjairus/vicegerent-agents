@@ -1,15 +1,40 @@
 ---
-# notion_page policy: allow-all. notion-create-pages is NOT denied here — the shim's
-# `force` override (mapping.yaml) unconditionally rewrites its `parent` to the Scratchpad
-# folder on every call, so the page always lands under Scratchpad without the agent
-# seeing an error or retrying. This policy exists only so the mapped tool passes the
-# Cerbos gate (an unmatched resource kind would default-deny) before that mutation is
-# applied. To retarget the folder, change the forced parent id in mapping.yaml.
+# notion_page policy: allow-all except a hard deny on destructive update-page commands.
+# notion-create-pages is NOT denied here — the shim's `force` override (mapping.yaml)
+# unconditionally rewrites its `parent` to the Scratchpad folder on every call, so the
+# page always lands under Scratchpad without the agent seeing an error or retrying.
+# notion-update-page targets an EXISTING page by id (potentially any page the integration
+# can reach, not just Scratchpad) and its `command` arg can be `replace_content` (overwrites
+# the entire page body) or set `allow_deleting_content: true` (lets replace_content delete
+# child pages/databases outright). There's no ancestry check here (same limitation as
+# create-pages before the force-rewrite fix — the shim never calls back to Notion's API to
+# resolve a page's parent folder), so the practical guardrail is to deny the destructive
+# commands outright rather than partially enforce a folder scope. update_properties,
+# update_content (targeted search-and-replace), insert_content, apply_template, and
+# update_verification remain allowed — the tool's own docs already steer toward preferring
+# update_content/insert_content over replace_content, this just makes that guidance
+# load-bearing. To retarget create-pages's forced folder, change the parent id in
+# mapping.yaml.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
   resource: notion_page
   rules:
+    - name: deny-destructive-update
+      actions: [update]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.command == "replace_content" ||
+            request.resource.attr.allowDeletingContent == "true"
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may not replace_content or allow_deleting_content on an existing"
+            + " Notion page. Use update_content (targeted search-and-replace) or"
+            + " insert_content instead."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

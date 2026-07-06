@@ -1,0 +1,31 @@
+---
+# firecrawl_session policy: deny firecrawl_interact calls that carry raw `code` to execute
+# in the live browser session (bash/python/node per its own schema) -- this is arbitrary
+# code execution against whatever page/session the call is pointed at, not "web scraping."
+# The tool's `prompt` mode (natural-language instruction, itself mediated by Firecrawl's own
+# agent) remains allowed and covers the legitimate use case (multi-step clicking/form-filling
+# on a JS-heavy page) without giving the agent a raw exec shell. Only firecrawl_interact is
+# mapped here -- every other Firecrawl tool (scrape/search/map/crawl/extract/monitor/etc.) has
+# no code-execution surface and stays unmapped.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: firecrawl_session
+  rules:
+    - name: deny-code-execution
+      actions: [interact]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.code) && request.resource.attr.code != ""
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may not pass raw code to firecrawl_interact. Use the `prompt`"
+            + " argument for natural-language browser interaction instead."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']
