@@ -10,7 +10,6 @@ configMapGenerator:
       - defs/resource_jira.yaml
       - defs/resource_github.yaml
       - defs/resource_notion.yaml
-      - defs/resource_gitlab.yaml
       - defs/resource_linear.yaml
       - defs/resource_alertmanager.yaml
       - defs/resource_pagerduty.yaml

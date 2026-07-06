@@ -101,11 +101,14 @@ guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
   the agent opens, or tries to un-draft via update, is rewritten to stay a draft
   before it's forwarded (a mutation, applied only once Cerbos has already
   allowed the call).
-- **GitLab** (`defs/resource_gitlab.yaml`) blocks `push_files`/
-  `create_or_update_file`/`create_branch` from targeting a protected branch.
-  No project allowlist — the bot's GitLab PAT is already scoped to a single
-  project on gitlab.hahomelabs.com, so the token itself is the repo boundary
-  (deliberately different from GitHub, whose token is broader).
+- **GitLab** has no Cerbos-mapped tools and no `resource_gitlab.yaml` policy
+  at all. `push_files`/`create_or_update_file`/`create_branch` (its only
+  branch-writing tools) were removed from the tool allowlist entirely — the
+  bot has direct SSH access to gitlab.hahomelabs.com, so routine git
+  operations go through git itself, not a GitLab-API tool. The operator owns
+  this GitLab instance and isn't picky about its remaining tools (issues, MR
+  object/comments/discussions/notes/labels/todos/pipelines), which stay
+  unmapped and allow-all.
 - **Linear** (`defs/resource_linear.yaml`) denies a `save_issue` call that
   supplies a `team` other than DEVOPS (matched by uuid, display name, or issue-key
   prefix). `save_issue` merges Linear's old create_issue/update_issue into one

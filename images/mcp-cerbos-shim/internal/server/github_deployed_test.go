@@ -20,17 +20,17 @@ func TestDeployedGithubMapping_MappedToolsReachCerbos(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	// One tool per category the GITHUB_TOOLS allowlist enables: issue, PR
-	// metadata, and PR full-lifecycle (branch/file/commit) actions.
+	// One tool per category the GITHUB_TOOLS allowlist enables now that it's
+	// PR-only (no issue tools, no generic git file/branch-write tools --
+	// those were removed entirely, see
+	// TestDeployedGithubMapping_RemovedToolsAreUnmapped below).
 	cases := []struct {
 		tool string
 		args map[string]any
 	}{
-		{"github_issue_read", map[string]any{"owner": "someoneelse", "repo": "some-repo", "issue_number": 1}},
+		{"github_pull_request_read", map[string]any{"owner": "someoneelse", "repo": "some-repo", "method": "get", "pullNumber": 1}},
 		{"github_create_pull_request", map[string]any{"owner": "someoneelse", "repo": "some-repo", "title": "t", "head": "h", "base": "main"}},
-		{"github_push_files", map[string]any{"owner": "someoneelse", "repo": "some-repo", "branch": "b", "message": "m", "files": []any{}}},
-		{"github_create_branch", map[string]any{"owner": "someoneelse", "repo": "some-repo", "branch": "b"}},
-		{"github_search_issues", map[string]any{"owner": "someoneelse", "repo": "some-repo", "query": "is:open"}},
+		{"github_update_pull_request_branch", map[string]any{"owner": "someoneelse", "repo": "some-repo", "pullNumber": 1}},
 	}
 
 	for _, tc := range cases {
@@ -76,8 +76,8 @@ func TestDeployedGithubMapping_AllowedRepoPasses(t *testing.T) {
 	d := &stubDecider{allow: true}
 	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
 	res, err := s.CheckRequest(context.Background(),
-		mcpReq("vmcp", "tools/call", toolCall("github_issue_write",
-			map[string]any{"owner": "christensenjairus", "repo": "vicegerent-agents", "issue_number": 1, "method": "update"})))
+		mcpReq("vmcp", "tools/call", toolCall("github_pull_request_read",
+			map[string]any{"owner": "christensenjairus", "repo": "vicegerent-agents", "method": "get", "pullNumber": 1})))
 	if err != nil {
 		t.Fatalf("CheckRequest: %v", err)
 	}
@@ -86,6 +86,53 @@ func TestDeployedGithubMapping_AllowedRepoPasses(t *testing.T) {
 	}
 	if d.gotAttr["owner"] != "christensenjairus" || d.gotAttr["repo"] != "vicegerent-agents" {
 		t.Errorf("attr = %v, want owner=christensenjairus repo=vicegerent-agents", d.gotAttr)
+	}
+}
+
+// GitHub's tool set is deliberately PR-only now: no issue tools at all (this
+// operator doesn't use GitHub issues at work) and no generic git
+// file/branch-write tools (the bot has direct SSH access to github.com, so
+// routine git operations go through git itself, not a GitHub-API tool).
+// add_reply_to_pull_request_comment is also removed -- it carries no author
+// info the shim could use to distinguish a reply to a human's comment from a
+// reply to the bot's own, so the honest fallback is to remove the whole
+// surface rather than partially enforce it. Every one of these tool names
+// should therefore never reach Cerbos at all -- they're not mapped tool keys
+// anymore, confirming the removal actually took (not just left unmapped by
+// omission, which would be indistinguishable from a typo in the allowlist).
+func TestDeployedGithubMapping_RemovedToolsAreUnmapped(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	removed := []string{
+		// Issue tools -- this operator only uses GitHub for PRs, not issues.
+		"github_issue_read", "github_issue_write", "github_add_issue_comment",
+		"github_list_issues", "github_list_issue_types", "github_search_issues",
+		"github_sub_issue_write", "github_assign_copilot_to_issue", "github_get_label",
+		// Generic git file/branch-write tools -- superseded by SSH-key git access.
+		"github_create_branch", "github_create_or_update_file", "github_push_files",
+		// PR-comment-reply -- no author info to distinguish human vs. bot comments.
+		"github_add_reply_to_pull_request_comment",
+	}
+	for _, tool := range removed {
+		t.Run(tool, func(t *testing.T) {
+			d := &stubDecider{allow: false}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall(tool,
+					map[string]any{"owner": "christensenjairus", "repo": "vicegerent-agents"})))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isPass(res) {
+				t.Fatalf("expected pass for unmapped/removed tool %q (falls through to defaultAction: allow)", tool)
+			}
+			if d.calls != 0 {
+				t.Errorf("removed tool %q must not reach Cerbos, got %d calls", tool, d.calls)
+			}
+		})
 	}
 }
 
