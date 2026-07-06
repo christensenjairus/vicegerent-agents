@@ -20,13 +20,13 @@ type stubDecider struct {
 	err     error
 	gotType string
 	gotID   string
-	gotAttr map[string]string
+	gotAttr map[string]any
 	gotAct  string
 	calls   int
 }
 
 func (s *stubDecider) IsAllowed(_ context.Context, _ string, _ []string,
-	resourceType, resourceID string, attr map[string]string, action string) (bool, string, error) {
+	resourceType, resourceID string, attr map[string]any, action string) (bool, string, error) {
 	s.calls++
 	s.gotType, s.gotID, s.gotAttr, s.gotAct = resourceType, resourceID, attr, action
 	// Mirror the real Cerbos PDP, which rejects an empty resource.id with

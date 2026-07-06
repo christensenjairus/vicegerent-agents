@@ -20,6 +20,7 @@ backends:
     helpers:
       - canonicalK8s
       - linearIssueAttr
+      - linearProjectAttr
       - alertmanagerAttr
       - pagerdutyManageAttr
       - notionAttr
@@ -166,16 +167,29 @@ backends:
       # surfaces teamId on every create, and on update only when the call
       # itself sets `team` (a deliberate reassignment); an ordinary update
       # with no team arg gets no teamId key at all and falls through to
-      # allow-all. save_comment/save_project target an existing comment/
-      # project by id and carry no team of their own in the call args — the
-      # shim can't verify their team without an ancestry lookup (same
-      # limitation as Notion's update-page), so they're intentionally
-      # unmapped and pass.
+      # allow-all. save_comment targets an existing comment by issueId and
+      # carries no team of its own in the call args — the shim can't verify
+      # its team without an ancestry lookup (same limitation as Notion's
+      # update-page, deferred to HAH-69), so it's intentionally unmapped and
+      # passes. save_project is different: its addTeams/setTeams args are a
+      # directly-verifiable team signal, so it's mapped below (HAH-70).
       linear_save_issue:
         resourceType: linear_team
         action: access
         id: get(args,'id', get(args,'team',''))
         attrFrom: linearIssueAttr(args)
+      # Linear save_project (create+reassign in one tool, HAH-70) -> reuses
+      # linear_team; the verifiable signal here is addTeams/setTeams (the
+      # array args a project's team membership is set through), not a single
+      # team/id like save_issue. linearProjectAttr unions both arrays into one
+      # `teams` list attr so Cerbos can deny if any entry isn't DEVOPS; a call
+      # that sets neither arg has nothing to verify and falls through to
+      # allow-all, same as save_comment above.
+      linear_save_project:
+        resourceType: linear_team
+        action: access
+        id: get(args,'id','*')
+        attrFrom: linearProjectAttr(args)
       # Alertmanager silence-creating tool -> alertmanager_silence; Cerbos denies
       # a duration longer than the per-machine cap (${alertmanagerMaxSilenceSeconds},
       # from clusters/*/cluster-vars.yaml — work caps at 24h, personal at 14d).
