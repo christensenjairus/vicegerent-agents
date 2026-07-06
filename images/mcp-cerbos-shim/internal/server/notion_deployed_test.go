@@ -92,7 +92,7 @@ func TestDeployedNotionMapping_UpdatePageReachesCerbosWithCommandAndDeleteAttrs(
 <parent-page url="https://app.notion.com/p/393de8859710809c9f5ec57a91d2c81a" title="Scratchpad"/>
 </ancestor-path>
 </page>`}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithNotionAncestry(up, scratchpadID))
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithNotionAncestry(up, []string{scratchpadID}))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("notion_notion-update-page",
 			map[string]any{"page_id": "abc123", "command": "replace_content", "allow_deleting_content": true})))

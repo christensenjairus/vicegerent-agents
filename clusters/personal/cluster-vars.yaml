@@ -60,12 +60,21 @@ data:
   grafanaDeniedDatasourceUid: fess5o6x6evb4b  # I don't have off-limits datasources for personal
   grafanaDeniedDatasourceName: dev-opensearch-datasource  # I don't have off-limits datasources for personal
 
-  # Notion page id that notion-create-pages force-rewrites every new page's
-  # parent to (mcp-cerbos-shim's mapping.yaml `force` block) — your
-  # "Scratchpad" page. Not a Cerbos policy value, but the same substitution
-  # mechanism (infra-controllers' postBuild.substituteFrom covers all of
-  # infrastructure/controllers/**, including mapping.yaml).
+  # Notion page id notion-create-pages is pinned to (Cerbos denies any create
+  # call whose parent isn't this page, defs/resource_notion.yaml) — your
+  # "Scratchpad" page. Also always implicitly included in
+  # notionAllowedParentPageIds below (deployment.yaml), so update-page/
+  # create-comment calls under Scratchpad stay allowed regardless of that list.
   notionScratchpadPageId: 393de8859710809c9f5ec57a91d2c81a  # pragma: allowlist secret (Notion page id)
+
+  # Additional Notion parent-folder page ids (comma-joined, Scratchpad NOT
+  # repeated here -- it's implicit, see above) this machine's agent may
+  # update-page/create-comment under, beyond Scratchpad itself
+  # (mcp-cerbos-shim's live ancestry gate, HAH multi-parent scoping). Anything
+  # outside Scratchpad + this list -- e.g. a Finance team folder -- is denied.
+  # notion-create-pages is unaffected; it stays pinned to Scratchpad-only via
+  # notionScratchpadPageId above regardless of this list.
+  notionAllowedParentPageIds: 1ccde885971080989baffe615ee5922b  # pragma: allowlist secret (Notion page id; "Teamspace Home")
 
   # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
   # createSilence's duration is capped by this value; personal machine gets a

@@ -54,11 +54,25 @@ func normalizeID(id string) string {
 // matching id -- returns (false, nil). It returns (true, nil) only when some
 // ancestor's id matches ancestorPageID.
 func PageIsUnderAncestor(ctx context.Context, client ToolCaller, pageID, ancestorPageID string) (bool, error) {
+	return PageIsUnderAnyAncestor(ctx, client, pageID, []string{ancestorPageID})
+}
+
+// PageIsUnderAnyAncestor reports whether pageID descends from ANY of
+// ancestorPageIDs (a caller-scoped allowlist of parent folders, e.g. the
+// Scratchpad page plus a set of team-folder pages -- HAH's multi-parent
+// scoping). Same single-fetch/fail-closed contract as PageIsUnderAncestor;
+// this just checks the flattened ancestor chain against a set instead of one
+// id. An empty ancestorPageIDs is a caller bug (misconfiguration, not "no
+// restriction") and errors rather than silently allowing everything.
+func PageIsUnderAnyAncestor(ctx context.Context, client ToolCaller, pageID string, ancestorPageIDs []string) (bool, error) {
+	if len(ancestorPageIDs) == 0 {
+		return false, fmt.Errorf("no allowed ancestor page ids configured")
+	}
 	result, err := client.CallTool(ctx, notionFetchTool, map[string]any{"id": pageID})
 	if err != nil {
 		return false, fmt.Errorf("notion ancestry lookup for page %q: %w", pageID, err)
 	}
-	return pageIsUnderAncestor(extractNotionFetchText(result.Text()), ancestorPageID)
+	return pageIsUnderAnyAncestor(extractNotionFetchText(result.Text()), ancestorPageIDs)
 }
 
 // notionFetchEnvelope is the outer JSON object the real notion-fetch tool
@@ -95,9 +109,21 @@ func extractNotionFetchText(raw string) string {
 // it with literal fixture strings (and via a stub ToolCaller) rather than a
 // live network round trip.
 func pageIsUnderAncestor(fetchText, ancestorPageID string) (bool, error) {
-	target := normalizeID(ancestorPageID)
-	if target == "" {
-		return false, fmt.Errorf("empty ancestor page id")
+	return pageIsUnderAnyAncestor(fetchText, []string{ancestorPageID})
+}
+
+// pageIsUnderAnyAncestor is pageIsUnderAncestor generalized to a set of
+// allowed ancestors -- true if any one of them appears in the page's
+// flattened ancestor chain.
+func pageIsUnderAnyAncestor(fetchText string, ancestorPageIDs []string) (bool, error) {
+	targets := make(map[string]struct{}, len(ancestorPageIDs))
+	for _, id := range ancestorPageIDs {
+		if norm := normalizeID(id); norm != "" {
+			targets[norm] = struct{}{}
+		}
+	}
+	if len(targets) == 0 {
+		return false, fmt.Errorf("no non-empty ancestor page ids to check against")
 	}
 	m := ancestorPathRe.FindStringSubmatch(fetchText)
 	if m == nil {
@@ -107,11 +133,11 @@ func pageIsUnderAncestor(fetchText, ancestorPageID string) (bool, error) {
 		return false, fmt.Errorf("notion-fetch result has no <ancestor-path> block")
 	}
 	for _, pm := range parentPageIDRe.FindAllStringSubmatch(m[1], -1) {
-		if normalizeID(pm[1]) == target {
+		if _, ok := targets[normalizeID(pm[1])]; ok {
 			return true, nil
 		}
 	}
 	// Empty ancestor-path (root page) or no matching ancestor -- a legitimate
-	// "not under target", not an error.
+	// "not under any allowed target", not an error.
 	return false, nil
 }

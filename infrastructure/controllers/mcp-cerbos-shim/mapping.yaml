@@ -270,6 +270,19 @@ backends:
         action: update
         id: get(args,'page_id','')
         attrFrom: notionAttr(args)
+      # Notion create-comment -> notion_page; targets an EXISTING page by id (same
+      # multi-parent ancestry gate as update-page above, action "comment" -- see
+      # server.go's notionAncestryGatedActions). No destructive-command surface like
+      # update-page's replace_content/allow_deleting_content, so Cerbos's own
+      # allow-all rule is the only policy outcome here; the shim's ancestry check
+      # (which runs before Cerbos) is the real gate for this tool. attr carries
+      # pageId only so the resource is inspectable if a future policy needs it.
+      notion_notion-create-comment:
+        resourceType: notion_page
+        action: comment
+        id: get(args,'page_id','')
+        attr:
+          pageId: get(args,'page_id','')
       # Firecrawl interact -> firecrawl_session; this is the only Firecrawl tool that can
       # execute raw code (bash/python/node) in a live browser session -- Cerbos denies any
       # call where `code` is set, forcing prompt-only natural-language interaction. Every
