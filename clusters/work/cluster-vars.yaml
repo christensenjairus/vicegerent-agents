@@ -80,12 +80,12 @@ data:
   # Additional Notion parent-folder page ids (comma-joined, Scratchpad NOT
   # repeated here -- it's implicit, see above) this machine's agent may
   # update-page/create-comment under, beyond Scratchpad itself
-  # (mcp-cerbos-shim's live ancestry gate, HAH multi-parent scoping). Empty
-  # for now -- update-page/create-comment are Scratchpad-only on this machine
-  # until DEVOPS/DevSecOps team folder ids are supplied. notion-create-pages
-  # is unaffected either way; it stays pinned to Scratchpad-only via
-  # notionScratchpadPageId above regardless of this list.
-  notionAllowedParentPageIds: ''  # TODO: add work-cluster DEVOPS/DevSecOps team folder page ids
+  # (mcp-cerbos-shim's live ancestry gate, HAH multi-parent scoping).
+  # notion-create-pages is unaffected either way; it stays pinned to
+  # Scratchpad-only via notionScratchpadPageId above regardless of this list.
+  # DevOps team folder + 2 sibling folders + Major Incidents/RCAs folder.
+  notionAllowedParentPageIds: >-
+    6fc3f07af7084089a14088581502e3f1,1de588d8909f80458ad6c0a831284768,306588d8909f806d9e78f7004cf3b9db,41348461628a472bbc16c14e2e866a89
 
   # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
   # createSilence's duration is capped by this value; work alerts are capped
