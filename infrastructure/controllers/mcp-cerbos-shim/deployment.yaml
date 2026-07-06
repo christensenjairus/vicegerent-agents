@@ -25,10 +25,13 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mcp-cerbos-shim
-          image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.12.0
+          image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.14.0
           ports:
             - name: grpc
               containerPort: 4445
+          env:
+            - name: NOTION_SCRATCHPAD_PAGE_ID
+              value: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id; HAH-88 update-page ancestry gate)
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
