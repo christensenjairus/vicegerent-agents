@@ -22,9 +22,17 @@ data:
     "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
     "christensenjairus/vicegerent-agents"
 
-  # Jira project key this machine's agents may act on (resource_jira.yaml). Every
-  # Jira issue/epic key is expected to start with this prefix + "-".
-  jiraProjectKey: CHANGE
+  # Jira projects this machine's agents may WRITE to (resource_jira.yaml) --
+  # reads are unrestricted. CEL-list-ready; every issue/epic key is expected
+  # to start with one of these prefixes + "-".
+  jiraAllowedProjects: >-
+    "CHANGE"
+
+  # Jira assignees this machine's agents may set on an issue
+  # (resource_jira.yaml) -- "*" disables the check entirely (default: false
+  # existing restriction to preserve, unlike jiraAllowedProjects above).
+  jiraAllowedAssignees: >-
+    "jchristensen@moveworks.ai"
 
   # Linear team this machine's agents may create/update issues for
   # (resource_linear.yaml). CEL-list-ready set of the team's three identifier

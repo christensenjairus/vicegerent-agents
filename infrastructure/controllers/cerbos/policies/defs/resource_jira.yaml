@@ -1,38 +1,83 @@
 ---
-# jira_project policy: deny any Jira call that targets a project other than the
-# allowed one (${jiraProjectKey}, from clusters/personal/cluster-vars.yaml);
-# allow everything else. The shim maps every project/issue-bearing Jira tool to this
-# resource, carrying project_key plus any issue/inward/outward/epic keys (whose
-# "<PROJECT>-123" prefix is the project). A call is denied if any populated key
-# resolves to a different project. Do NOT add tools here to permit them;
-# that belongs in the vMCP tools allowlist.
+# jira_project policy: reads (jira_get_issue/get_project_issues/get_transitions)
+# are allowed against ANY project; only writes (create/update/transition/
+# comment/link) are denied when they target a project outside the allowed
+# list (${jiraAllowedProjects}, from clusters/personal/cluster-vars.yaml), or
+# assign an issue to someone outside ${jiraAllowedAssignees} -- mirrors
+# Notion's read-everywhere/write-scoped model and Linear's teamId allowlist
+# pattern (HAH-85; note there is no `reporter` field on this Jira tool at
+# all, only `assignee` -- confirmed against docs/available-mcp-tools/jira.yaml's
+# real schema, so reporter scoping is out of scope here, not deferred). The
+# shim maps every project/issue-bearing Jira tool to this resource, carrying
+# project_key plus any issue/inward/outward/epic keys (whose "<PROJECT>-123"
+# prefix is the project), PLUS extraEpicKey/extraParentKey/assignee -- values
+# the jiraFieldsAttr helper (helpers_jira.go) parsed out of create_issue's
+# top-level assignee arg and out of create_issue's/update_issue's raw
+# additional_fields/fields JSON string args (HAH-90 follow-up, originally
+# HAH-82: additional_fields can smuggle {"epicKey": "OTHER-123"} bypassing
+# the plain top-level epic_key check entirely -- a documented control being
+# routed around via a side channel, not just an unmapped extra arg). A write
+# is denied if any populated project-scoping key's project isn't in the
+# allowlist -- checked via .exists() over ${jiraAllowedProjects} matching
+# either an exact projectKey or an issue/inward/outward/epic/extraEpic/
+# extraParent key's "-123" prefix, the same any-element pattern as the
+# GitHub/Linear allowlists just applied per-key instead of to a single
+# scalar -- OR if assignee is set to anyone outside ${jiraAllowedAssignees}
+# (a wildcard "*" entry in that list disables the assignee check entirely,
+# the safe default until the operator opts into scoping it -- unlike the
+# project allowlist, which already had real enforced values before this
+# change, there's no pre-existing assignee restriction to preserve, so a
+# silent behavior change on deploy would be a surprise). Do NOT add tools
+# here to permit them; that belongs in the vMCP tools allowlist.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
   resource: jira_project
   rules:
-    - name: deny-non-change-project
-      actions: ['*']
+    - name: deny-write-outside-allowed-projects
+      actions: [write]
       effect: EFFECT_DENY
       roles: ['*']
       condition:
         match:
           expr: >-
-            (has(request.resource.attr.projectKey) && request.resource.attr.projectKey
-            != "" && request.resource.attr.projectKey != "${jiraProjectKey}")
-            || (has(request.resource.attr.issueKey) && request.resource.attr.issueKey
-            != "" && !request.resource.attr.issueKey.startsWith("${jiraProjectKey}-"))
-            || (has(request.resource.attr.inwardKey) && request.resource.attr.inwardKey
-            != "" && !request.resource.attr.inwardKey.startsWith("${jiraProjectKey}-"))
-            || (has(request.resource.attr.outwardKey) && request.resource.attr.outwardKey
-            != "" && !request.resource.attr.outwardKey.startsWith("${jiraProjectKey}-"))
-            || (has(request.resource.attr.epicKey) && request.resource.attr.epicKey
-            != "" && !request.resource.attr.epicKey.startsWith("${jiraProjectKey}-"))
+            !([${jiraAllowedProjects}].exists(p,
+            (!has(request.resource.attr.projectKey) || request.resource.attr.projectKey
+            == "" || request.resource.attr.projectKey == p)
+            && (!has(request.resource.attr.issueKey) || request.resource.attr.issueKey
+            == "" || request.resource.attr.issueKey.startsWith(p + "-"))
+            && (!has(request.resource.attr.inwardKey) || request.resource.attr.inwardKey
+            == "" || request.resource.attr.inwardKey.startsWith(p + "-"))
+            && (!has(request.resource.attr.outwardKey) || request.resource.attr.outwardKey
+            == "" || request.resource.attr.outwardKey.startsWith(p + "-"))
+            && (!has(request.resource.attr.epicKey) || request.resource.attr.epicKey
+            == "" || request.resource.attr.epicKey.startsWith(p + "-"))
+            && (!has(request.resource.attr.extraEpicKey) || request.resource.attr.extraEpicKey
+            == "" || request.resource.attr.extraEpicKey.startsWith(p + "-"))
+            && (!has(request.resource.attr.extraParentKey) || request.resource.attr.extraParentKey
+            == "" || request.resource.attr.extraParentKey.startsWith(p + "-"))
+            ))
       output:
         when:
           ruleActivated: >-
-            "This agent may only act on the ${jiraProjectKey} Jira project. The"
-            + " targeted project/issue/epic is outside that scope."
+            "This agent may only create/update Jira issues in its allowed"
+            + " projects. The targeted project/issue/epic is outside that scope."
+    - name: deny-assignee-outside-allowed
+      actions: [write]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.assignee) && request.resource.attr.assignee
+            != ""
+            && !("*" in [${jiraAllowedAssignees}])
+            && !(request.resource.attr.assignee in [${jiraAllowedAssignees}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only assign Jira issues to an allowed user."
+            + " The requested assignee is outside that scope."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
