@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -57,7 +58,37 @@ func PageIsUnderAncestor(ctx context.Context, client ToolCaller, pageID, ancesto
 	if err != nil {
 		return false, fmt.Errorf("notion ancestry lookup for page %q: %w", pageID, err)
 	}
-	return pageIsUnderAncestor(result.Text(), ancestorPageID)
+	return pageIsUnderAncestor(extractNotionFetchText(result.Text()), ancestorPageID)
+}
+
+// notionFetchEnvelope is the outer JSON object the real notion-fetch tool
+// wraps its actual <page>...</page> markdown result in: a single text
+// content block whose Text is itself a JSON-encoded object with a "text"
+// field carrying the markdown (see live capture in ancestry_test.go's
+// realWireEnvelope fixture; the CallToolResult.Content[].Text plumbing only
+// unmarshals the OUTER JSON-RPC envelope, so this second, inner JSON layer
+// -- the tool's own result payload shape -- is never unwrapped upstream and
+// must be decoded here before the <ancestor-path> regexes can match content
+// that would otherwise still be JSON-string-escaped (a literal backslash-quote
+// instead of a real quote character, or a literal two-char backslash-n instead
+// of a real newline). Discovered live: the original
+// unit-test fixtures used bare <page> XML directly as CallTool's return,
+// which is why 147 passing tests never caught this -- see HAH-88 postmortem.
+type notionFetchEnvelope struct {
+	Text string `json:"text"`
+}
+
+// extractNotionFetchText unwraps the notion-fetch tool's inner JSON envelope
+// to recover the actual <page>...</page> markdown text pageIsUnderAncestor's
+// regexes expect. Falls back to the raw input unchanged if it isn't a JSON
+// object with a "text" field (keeps existing raw-XML test fixtures and any
+// non-JSON tool wired up via a stub working without modification).
+func extractNotionFetchText(raw string) string {
+	var env notionFetchEnvelope
+	if err := json.Unmarshal([]byte(raw), &env); err != nil || env.Text == "" {
+		return raw
+	}
+	return env.Text
 }
 
 // pageIsUnderAncestor is the pure parse+compare half, split out so tests drive
