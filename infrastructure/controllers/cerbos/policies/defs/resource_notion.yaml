@@ -14,13 +14,18 @@
 # page, also not under Scratchpad) or set to database_id/data_source_id
 # (never Scratchpad, which is a plain page).
 #
-# update-page: TWO complementary gates apply (HAH-88). The shim runs a live
-# ancestry lookup BEFORE this policy is consulted (it calls notion-fetch back
-# through vMCP -- Cerbos itself has no I/O and can't resolve a page's parent)
-# and denies any update to a page not under the Scratchpad tree
-# (NOTION_SCRATCHPAD_PAGE_ID env var on the shim Deployment, sourced from the
-# same ${notionScratchpadPageId} cluster-var this policy's create-pages rule
-# checks -- see deployment.yaml/main.go). This policy is the second gate: true
+# update-page/create-comment: TWO complementary gates apply (HAH-88, extended
+# to create-comment and multi-parent scoping). The shim runs a live ancestry
+# lookup BEFORE this policy is consulted (it calls notion-fetch back through
+# vMCP -- Cerbos itself has no I/O and can't resolve a page's parent) and
+# denies any write to a page not under ANY of the allowed parent folders
+# (NOTION_ALLOWED_PARENT_PAGE_IDS env var on the shim Deployment: Scratchpad
+# always implicit, plus ${notionAllowedParentPageIds} -- a per-machine list of
+# additional team folders, e.g. DEVOPS/DevSecOps but not Finance -- see
+# deployment.yaml/main.go/cluster-vars.yaml). notion-create-pages is NOT part
+# of this multi-parent list -- it stays pinned to Scratchpad-only via this
+# policy's own create rule below (${notionScratchpadPageId}), a narrower,
+# separate check. This Cerbos policy is the second gate for update-page: for
 # pages that DO pass the ancestry check, it still blocks the destructive
 # commands -- `command == replace_content` (overwrites the entire page body)
 # or `allow_deleting_content: true` (lets replace_content delete child
@@ -28,7 +33,9 @@
 # search-and-replace), insert_content, apply_template, and update_verification
 # remain allowed -- the tool's own docs already steer toward preferring
 # update_content/insert_content over replace_content, this just makes that
-# guidance load-bearing.
+# guidance load-bearing. create-comment has no destructive-command surface, so
+# the ancestry gate is its only check; it always reaches this policy's
+# allow-all rule once past that gate.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default

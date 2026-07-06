@@ -23,14 +23,26 @@ import (
 
 const toolsCall = "tools/call"
 
-// The Notion update-page ancestry gate keys off the mapped resource, not the
-// tool-name string, so renaming the tool in mapping.yaml keeps the gate intact
-// as long as it keeps this resourceType/action pair (matches the update rule in
-// defs/resource_notion.yaml).
+// The Notion existing-page-write ancestry gate keys off the mapped resource,
+// not the tool-name string, so renaming a tool in mapping.yaml keeps the gate
+// intact as long as it keeps one of these resourceType/action pairs (matches
+// the rules in defs/resource_notion.yaml). notion-create-pages is NOT one of
+// these -- it's still pinned to Scratchpad-only via its own Cerbos deny rule
+// (deny-create-outside-scratchpad), a narrower and separate policy from this
+// multi-parent allowlist for calls that target an EXISTING page.
 const (
-	notionPageResource = "notion_page"
-	notionUpdateAction = "update"
+	notionPageResource  = "notion_page"
+	notionUpdateAction  = "update"
+	notionCommentAction = "comment"
 )
+
+// notionAncestryGatedActions is the set of notion_page actions the ancestry
+// gate applies to -- every write against an EXISTING page by id. create-pages
+// deliberately isn't here (see comment above).
+var notionAncestryGatedActions = map[string]bool{
+	notionUpdateAction:  true,
+	notionCommentAction: true,
+}
 
 // notionAncestryTimeout bounds the single live notion-fetch the ancestry gate
 // makes, so one update-page call can't hang the whole CheckRequest (the gateway
@@ -72,15 +84,18 @@ type Server struct {
 	decider   authz.Decider
 	principal Principal
 
-	// notionAncestry, when set, gates notion_notion-update-page to pages under
-	// the Scratchpad tree via a live notion-fetch lookup — a network round trip
-	// the CEL/Cerbos path can't make (it's pure/synchronous, no I/O). It lives
-	// on Server rather than in a CEL helper for that reason. notionScratchpadID
-	// is the ancestor every updatable page must descend from; it's sourced from
-	// the same mapping force-rewrite value notion-create-pages uses (see
-	// main.go), so create and update stay pinned to one Scratchpad id.
-	notionAncestry     upstream.ToolCaller
-	notionScratchpadID string
+	// notionAncestry, when set, gates every existing-page Notion write
+	// (update-page, create-comment) to pages under one of
+	// notionAllowedParentIDs via a live notion-fetch lookup — a network round
+	// trip the CEL/Cerbos path can't make (it's pure/synchronous, no I/O). It
+	// lives on Server rather than in a CEL helper for that reason.
+	// notionAllowedParentIDs is a caller-scoped allowlist of parent folders
+	// (e.g. Scratchpad plus a set of team folders — HAH's multi-parent
+	// scoping); a page passes the gate if it descends from ANY of them.
+	// notion-create-pages is NOT covered by this list — it stays pinned to
+	// Scratchpad-only via its own, narrower Cerbos deny rule.
+	notionAncestry         upstream.ToolCaller
+	notionAllowedParentIDs []string
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -88,13 +103,16 @@ type Server struct {
 // keep compiling unchanged.
 type Option func(*Server)
 
-// WithNotionAncestry enables the Notion update-page Scratchpad-ancestry gate.
+// WithNotionAncestry enables the Notion existing-page-write ancestry gate.
 // client resolves a page's ancestors (production: an upstream.Client to vMCP;
-// tests: a stub); scratchpadPageID is the required ancestor.
-func WithNotionAncestry(client upstream.ToolCaller, scratchpadPageID string) Option {
+// tests: a stub); allowedParentIDs is the set of parent folders a page must
+// descend from ANY one of to pass (Scratchpad plus any additional team
+// folders the caller configures — the caller is responsible for including
+// Scratchpad in this list if it should remain allowed).
+func WithNotionAncestry(client upstream.ToolCaller, allowedParentIDs []string) Option {
 	return func(s *Server) {
 		s.notionAncestry = client
-		s.notionScratchpadID = scratchpadPageID
+		s.notionAllowedParentIDs = allowedParentIDs
 	}
 }
 
@@ -181,14 +199,16 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return deny(fmt.Sprintf("policy input eval: %v", err)), nil
 	}
 
-	// Notion update-page gate: this runs BEFORE Cerbos (a live ancestry lookup
-	// Cerbos itself can't do) and denies any update to a page outside the
-	// Scratchpad tree. The Cerbos policy still independently blocks destructive
-	// commands (replace_content / allow_deleting_content) on the pages that DO
-	// pass this gate; the two checks are complementary, not redundant.
-	if res.ResourceType == notionPageResource && res.Action == notionUpdateAction {
+	// Notion existing-page-write gate: this runs BEFORE Cerbos (a live
+	// ancestry lookup Cerbos itself can't do) and denies any write to an
+	// existing page (update-page, create-comment) outside the allowed parent
+	// folders. The Cerbos policy still independently blocks destructive
+	// update-page commands (replace_content / allow_deleting_content) on the
+	// pages that DO pass this gate; the two checks are complementary, not
+	// redundant.
+	if res.ResourceType == notionPageResource && notionAncestryGatedActions[res.Action] {
 		if derr := s.checkNotionAncestry(ctx, res.ID); derr != nil {
-			log.Printf("deny: notion update-page ancestry (page=%q backend=%s): %v", res.ID, backend, derr)
+			log.Printf("deny: notion %s ancestry (page=%q backend=%s): %v", res.Action, res.ID, backend, derr)
 			return deny(derr.Error()), nil
 		}
 	}
@@ -241,28 +261,29 @@ func buildMutatedParams(cp callParams, wrapped bool, force map[string]any) ([]by
 	return json.Marshal(map[string]any{"name": cp.Name, "arguments": cp.Arguments})
 }
 
-// checkNotionAncestry returns nil to allow the update-page call through to
-// Cerbos, or an error (used verbatim as the deny reason) to block it. Every
-// failure path is fail-closed: an unconfigured gate, a missing page_id, a
-// lookup error, and a confirmed not-under-Scratchpad all deny.
+// checkNotionAncestry returns nil to allow the existing-page-write call
+// through to Cerbos, or an error (used verbatim as the deny reason) to block
+// it. Every failure path is fail-closed: an unconfigured gate, a missing
+// page_id, a lookup error, and a confirmed not-under-any-allowed-parent all
+// deny.
 func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
-	if s.notionAncestry == nil || s.notionScratchpadID == "" {
-		// The gate is mandatory for this tool: production always wires it
+	if s.notionAncestry == nil || len(s.notionAllowedParentIDs) == 0 {
+		// The gate is mandatory for these tools: production always wires it
 		// (main.go). Reaching here unconfigured means a broken deploy, not a
 		// license to allow an unscoped page edit.
-		return fmt.Errorf("notion ancestry gate not configured; denying update to page %q", pageID)
+		return fmt.Errorf("notion ancestry gate not configured; denying write to page %q", pageID)
 	}
 	if pageID == "" {
-		return fmt.Errorf("notion update-page has no page_id; cannot verify Scratchpad ancestry")
+		return fmt.Errorf("notion call has no page_id; cannot verify allowed-parent ancestry")
 	}
 	ctx, cancel := context.WithTimeout(ctx, notionAncestryTimeout)
 	defer cancel()
-	under, err := upstream.PageIsUnderAncestor(ctx, s.notionAncestry, pageID, s.notionScratchpadID)
+	under, err := upstream.PageIsUnderAnyAncestor(ctx, s.notionAncestry, pageID, s.notionAllowedParentIDs)
 	if err != nil {
-		return fmt.Errorf("could not verify this Notion page is under the agent's Scratchpad tree (failing closed): %v", err)
+		return fmt.Errorf("could not verify this Notion page is under an allowed parent folder (failing closed): %v", err)
 	}
 	if !under {
-		return fmt.Errorf("this agent may only update Notion pages under its Scratchpad page tree; page %q is not, so the update is denied", pageID)
+		return fmt.Errorf("this agent may only write to Notion pages under its allowed parent folders; page %q is not, so the write is denied", pageID)
 	}
 	return nil
 }

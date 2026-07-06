@@ -56,13 +56,21 @@ const fetchElsewhere = `<page url="https://app.notion.com/p/leaf0000leaf0000leaf
 
 func newNotionServer(t *testing.T, d *stubDecider, up upstream.ToolCaller) *Server {
 	t.Helper()
+	return newNotionServerWithParents(t, d, up, []string{testScratchpadID})
+}
+
+// newNotionServerWithParents lets multi-parent-scoping tests configure more
+// than one allowed parent, mirroring HAH's Scratchpad-plus-team-folders
+// production setup (NOTION_ALLOWED_PARENT_PAGE_IDS in main.go).
+func newNotionServerWithParents(t *testing.T, d *stubDecider, up upstream.ToolCaller, allowedParentIDs []string) *Server {
+	t.Helper()
 	m := deployedMapping(t)
 	e, err := eval.Compile(m)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 	return New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}},
-		WithNotionAncestry(up, testScratchpadID))
+		WithNotionAncestry(up, allowedParentIDs))
 }
 
 func TestDeployedNotionMapping_UpdatePageNotUnderScratchpadIsDeniedBeforeCerbos(t *testing.T) {
@@ -151,5 +159,97 @@ func TestDeployedNotionMapping_CreatePagesDoesNotTriggerAncestryGate(t *testing.
 	}
 	if up.calls != 0 {
 		t.Errorf("create-pages must not make an ancestry lookup, got %d", up.calls)
+	}
+}
+
+const testTeamFolderID = "1ccde885971080989baffe615ee5922b" // pragma: allowlist secret
+
+const fetchUnderTeamFolder = `<page url="https://app.notion.com/p/leaf1111leaf1111leaf1111leaf1111" title="Leaf">
+<ancestor-path>
+<parent-page url="https://app.notion.com/p/1ccde885971080989baffe615ee5922b" title="Teamspace Home"/>
+</ancestor-path>
+</page>`
+
+// TestDeployedNotionMapping_MultiParentAllowsEitherAllowedFolder proves the
+// HAH multi-parent-scoping feature: a page under the SECOND allowed parent
+// (not Scratchpad) still passes the gate when both are configured.
+func TestDeployedNotionMapping_MultiParentAllowsEitherAllowedFolder(t *testing.T) {
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: fetchUnderTeamFolder}
+	s := newNotionServerWithParents(t, d, up, []string{testScratchpadID, testTeamFolderID})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("notion_notion-update-page",
+			map[string]any{"page_id": "leaf1111leaf1111leaf1111leaf1111", "command": "update_content"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass: page is under the second allowed parent (team folder)")
+	}
+	if d.calls != 1 {
+		t.Fatalf("expected the gated call to reach Cerbos exactly once, got %d", d.calls)
+	}
+}
+
+// TestDeployedNotionMapping_MultiParentDeniesOutsideAllAllowedFolders proves a
+// page under neither Scratchpad nor the team folder (e.g. Finance) is still
+// denied even with two allowed parents configured.
+func TestDeployedNotionMapping_MultiParentDeniesOutsideAllAllowedFolders(t *testing.T) {
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: fetchElsewhere}
+	s := newNotionServerWithParents(t, d, up, []string{testScratchpadID, testTeamFolderID})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("notion_notion-update-page",
+			map[string]any{"page_id": "leaf0000leaf0000leaf0000leaf0000", "command": "update_content"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny: page is outside both allowed parents (e.g. Finance)")
+	}
+	if d.calls != 0 {
+		t.Errorf("Cerbos must NOT be consulted once the ancestry gate denies, got %d calls", d.calls)
+	}
+}
+
+// TestDeployedNotionMapping_CreateCommentSharesTheAncestryGate proves
+// create-comment is gated exactly like update-page (HAH multi-parent scoping
+// extended it to cover every existing-page write, not just update-page).
+func TestDeployedNotionMapping_CreateCommentSharesTheAncestryGate(t *testing.T) {
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: fetchElsewhere}
+	s := newNotionServer(t, d, up)
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("notion_notion-create-comment",
+			map[string]any{"page_id": "leaf0000leaf0000leaf0000leaf0000", "markdown": "hello"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny: create-comment on a page outside Scratchpad")
+	}
+	if d.calls != 0 {
+		t.Errorf("Cerbos must NOT be consulted once the ancestry gate denies, got %d calls", d.calls)
+	}
+	if up.calls != 1 {
+		t.Errorf("expected exactly one notion-fetch ancestry lookup for create-comment, got %d", up.calls)
+	}
+}
+
+func TestDeployedNotionMapping_CreateCommentUnderScratchpadReachesCerbos(t *testing.T) {
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: fetchUnderScratchpad}
+	s := newNotionServer(t, d, up)
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("notion_notion-create-comment",
+			map[string]any{"page_id": "leaf0000leaf0000leaf0000leaf0000", "markdown": "hello"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass: comment on a page under Scratchpad, Cerbos allows")
+	}
+	if d.gotType != "notion_page" || d.gotAct != "comment" {
+		t.Errorf("Cerbos saw resource=%q action=%q, want notion_page/comment", d.gotType, d.gotAct)
 	}
 }
