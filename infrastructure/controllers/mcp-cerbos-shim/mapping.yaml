@@ -7,13 +7,13 @@
 # OpenSearch-datasource reads, Jira calls targeting a project other than
 # CHANGE, GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
-# DEVOPS, Alertmanager silences over the duration cap, and out-of-scope
-# PagerDuty incident changes. GitLab has no mapped tools or Cerbos resource at
-# all (see the GitLab tools comment below). A `force` block instead
+# DEVOPS, Alertmanager silences over the duration cap, out-of-scope
+# PagerDuty incident changes, and Notion create-pages calls whose parent isn't
+# the Scratchpad folder. GitLab has no mapped tools or Cerbos resource at all
+# (see the GitLab tools comment below). A `force` block instead
 # allows-with-rewritten-args — that's a mutation, not a deny (see server.go):
-# GitHub PR create/update force draft: true, and Notion create-pages force
-# `parent` to the Scratchpad folder. Adding a tool here to permit it is wrong;
-# that belongs in the gateway allowlist.
+# GitHub PR create/update force draft: true. Adding a tool here to permit it
+# is wrong; that belongs in the gateway allowlist.
 backends:
   vmcp:
     defaultAction: allow
@@ -24,6 +24,7 @@ backends:
       - alertmanagerAttr
       - pagerdutyManageAttr
       - notionAttr
+      - notionCreateAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -232,24 +233,24 @@ backends:
         id: get(args,'incident_id','')
         attr:
           incidentId: get(args,'incident_id','')
-      # Notion create-pages -> always created under the Scratchpad folder. Rather
-      # than DENY an off-folder parent (which the agent sees as an error and retries,
-      # or silently drops), a `force` override unconditionally rewrites `parent` to
-      # the Scratchpad page on every call — whatever parent the agent sent (or none)
-      # is replaced, so the page always lands under Scratchpad, no error. notion_page
-      # has an allow-all Cerbos policy (defs/resource_notion.yaml); `force` applies
-      # only after that allow. create-comment targets an existing page by id and is
+      # Notion create-pages -> only allowed with parent.page_id set to the
+      # Scratchpad folder; any other parent (a different page, a database/data
+      # source, or omitted entirely -- which creates a standalone workspace-level
+      # private page per the tool's own docs) is denied by defs/resource_notion.yaml
+      # with a directional message pointing the agent at the correct page_id,
+      # rather than silently rewriting parent to Scratchpad the way this mapping
+      # used to (a `force` override here previously mutated any parent the agent
+      # sent into the Scratchpad id on every call, no error). That silently
+      # discarded whatever parent the agent actually intended and taught it
+      # nothing about where new pages land, so a caller kept guessing on every
+      # future create call. Denying with a clear reason is slower per call but
+      # self-correcting. create-comment targets an existing page by id and is
       # unmapped (see toolhive-servers.json's notion entry).
       notion_notion-create-pages:
         resourceType: notion_page
         action: create
         id: "'notion-create-pages'"
-        attr:
-          forcedParent: "'scratchpad'"
-        force:
-          parent:
-            type: page_id
-            page_id: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id, from clusters/personal/cluster-vars.yaml)
+        attrFrom: notionCreateAttr(args)
       # Notion update-page -> notion_page; unlike create-pages this targets an EXISTING
       # page by id (any page the integration can reach, not just Scratchpad), so there's
       # no folder to force-rewrite. Cerbos denies the destructive commands (replace_content,

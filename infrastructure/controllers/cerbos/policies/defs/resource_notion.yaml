@@ -1,20 +1,31 @@
 ---
-# notion_page policy: allow-all except a hard deny on destructive update-page commands.
-# notion-create-pages is NOT denied here — the shim's `force` override (mapping.yaml)
-# unconditionally rewrites its `parent` to the Scratchpad folder on every call, so the
-# page always lands under Scratchpad without the agent seeing an error or retrying.
-# notion-update-page targets an EXISTING page by id (potentially any page the integration
-# can reach, not just Scratchpad) and its `command` arg can be `replace_content` (overwrites
-# the entire page body) or set `allow_deleting_content: true` (lets replace_content delete
-# child pages/databases outright). There's no ancestry check here (same limitation as
-# create-pages before the force-rewrite fix — the shim never calls back to Notion's API to
-# resolve a page's parent folder), so the practical guardrail is to deny the destructive
-# commands outright rather than partially enforce a folder scope. update_properties,
-# update_content (targeted search-and-replace), insert_content, apply_template, and
-# update_verification remain allowed — the tool's own docs already steer toward preferring
-# update_content/insert_content over replace_content, this just makes that guidance
-# load-bearing. To retarget create-pages's forced folder, change the parent id in
-# mapping.yaml.
+# notion_page policy: allow-all except (a) a hard deny on destructive update-page
+# commands, and (b) a hard deny on create-pages calls whose parent isn't the
+# Scratchpad folder.
+#
+# create-pages: mapping.yaml used to `force`-rewrite every call's `parent` to
+# the Scratchpad page id, so a wrong/omitted parent silently landed under
+# Scratchpad anyway instead of erroring. That taught a calling agent nothing —
+# it never saw feedback that its intended parent was ignored, so it kept
+# guessing wrong on future calls. This denies instead, with a message naming
+# the correct page_id, so the agent corrects itself going forward.
+# parentKind/parentPageId come from notionCreateAttr (helpers_notion.go);
+# parentKind is "" when parent was omitted (creates a private workspace-level
+# page, also not under Scratchpad) or set to database_id/data_source_id
+# (never Scratchpad, which is a plain page).
+#
+# update-page targets an EXISTING page by id (potentially any page the
+# integration can reach, not just Scratchpad) and its `command` arg can be
+# `replace_content` (overwrites the entire page body) or set
+# `allow_deleting_content: true` (lets replace_content delete child
+# pages/databases outright). There's no ancestry check here (the shim never
+# calls back to Notion's API to resolve an existing page's parent folder —
+# see HAH-88), so the practical guardrail is to deny the destructive commands
+# outright rather than partially enforce a folder scope. update_properties,
+# update_content (targeted search-and-replace), insert_content, apply_template,
+# and update_verification remain allowed — the tool's own docs already steer
+# toward preferring update_content/insert_content over replace_content, this
+# just makes that guidance load-bearing.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -35,6 +46,22 @@ resourcePolicy:
             "This agent may not replace_content or allow_deleting_content on an existing"
             + " Notion page. Use update_content (targeted search-and-replace) or"
             + " insert_content instead."
+    - name: deny-create-outside-scratchpad
+      actions: [create]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.parentKind != "page_id" ||
+            request.resource.attr.parentPageId != "${notionScratchpadPageId}"
+      output:
+        when:
+          ruleActivated: >-
+            "New Notion pages may only be created with parent.page_id set to the"
+            + " Scratchpad folder (page_id ${notionScratchpadPageId}). Pass that id"
+            + " as parent.page_id, or omit new pages from this call and use"
+            + " update-page on an existing page under Scratchpad instead."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
