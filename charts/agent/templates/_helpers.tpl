@@ -96,7 +96,7 @@ providers:
     transport: anthropic_messages
   openai:
     name: Agentgateway-OpenAI
-    api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai
+    api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1
     key_env: OPENAI_API_KEY
     transport: responses
 {{- end -}}
