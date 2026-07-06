@@ -31,9 +31,18 @@ const notionFetchTool = "notion_notion-fetch"
 var ancestorPathRe = regexp.MustCompile(`(?s)<ancestor-path>(.*?)</ancestor-path>`)
 
 // parentPageIDRe pulls each ancestor page id out of the ancestor-path block.
-// The live format is <parent-page url="https://app.notion.com/p/<ID>" .../>;
-// the id is the /p/ path segment (32 hex chars, dashed or not).
-var parentPageIDRe = regexp.MustCompile(`<parent-page\s+url="https://app\.notion\.com/p/([0-9a-fA-F-]+)"`)
+// Notion's tag name is NOT always <parent-page> -- that's only the immediate
+// parent. Ancestors further up the chain are tagged <ancestor-2-page>,
+// <ancestor-3-page>, etc. (verified live: a page 3 levels under "Teamspace
+// Home" showed <parent-page>, <ancestor-2-page>, <ancestor-3-page url=
+// ".../Teamspace Home">, in that order, nearest-first). The tag name element
+// itself varies (parent-page|ancestor-N-page); only the "-page" suffix and
+// the url="https://app.notion.com/p/<ID>" attribute are stable, so match on
+// those rather than hardcoding "parent-page" -- the original regex silently
+// missed every ancestor beyond the immediate parent, a false-negative deny
+// discovered live testing HAH's multi-parent scoping against a real
+// multi-level nested team folder.
+var parentPageIDRe = regexp.MustCompile(`<(?:parent-page|ancestor-\d+-page)\s+url="https://app\.notion\.com/p/([0-9a-fA-F-]+)"`)
 
 // normalizeID strips dashes and lowercases a Notion id -- Notion accepts and
 // returns ids both dashed and undashed, so both sides must be canonicalized
