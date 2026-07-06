@@ -31,20 +31,17 @@ backends:
         action: listResources
         id: "''"
         attrFrom: canonicalK8s(args)
-      # GitLab branch-writing tools -> gitlab_repo; Cerbos denies a branch arg
-      # naming a protected branch. No project-id allowlist — the bot's GitLab
-      # PAT is already scoped to a specific project on gitlab.hahomelabs.com.
-      # Only these three tools carry a literal 'branch' arg (mirrors GitLab's
-      # own REST API field name for the commits/files/branches endpoints);
-      # everything else (issue/MR read+write, comments, notes) is unmapped.
-      gitlab_push_files: &gitlab_branch
-        resourceType: gitlab_repo
-        action: access
-        id: get(args,'project_id','')
-        attr:
-          branch: get(args,'branch','')
-      gitlab_create_or_update_file: *gitlab_branch
-      gitlab_create_branch: *gitlab_branch
+      # GitLab has no mapped tools at all: push_files/create_or_update_file/
+      # create_branch (its only branch-writing tools, and the only source of
+      # a 'branch' arg) were removed from the tool allowlist entirely
+      # (toolhive-servers.json) — the bot has direct SSH access to
+      # gitlab.hahomelabs.com, so routine git operations go through git
+      # itself now, not a GitLab-API tool. The gitlab_repo Cerbos resource
+      # and its protected-branch policy were removed for the same reason
+      # (nothing populates them anymore). Everything else GitLab-side (issue
+      # read+write, MR object/comments/discussions/notes/labels/todos/
+      # pipelines) is left unmapped and passes; this operator isn't picky
+      # about GitLab (it's their own instance).
       # Grafana datasource-bearing tools -> grafana_datasource; Cerbos denies
       # OpenSearch datasources by uid/name. Same body for every tool: capture the
       # datasource id from whichever arg the tool uses (datasourceUid | uid | name).
@@ -92,11 +89,33 @@ backends:
       jira_jira_create_issue_link: *jira_proj
       jira_jira_link_to_epic: *jira_proj
       # GitHub repo-bearing tools -> github_repo; Cerbos denies any call whose
-      # owner/repo isn't in the allowlist, or whose branch arg (only
-      # push_files/create_or_update_file/create_branch carry one — everything
-      # else resolves to '') names a protected branch. github_get_me is
-      # intentionally unmapped — it identifies the caller, not a repo.
-      github_issue_read: &github_repo
+      # owner/repo isn't in the allowlist, or whose branch arg (only carried
+      # by tools that name a branch directly — everything else resolves to
+      # '') names a protected branch. github_get_me is intentionally unmapped
+      # — it identifies the caller, not a repo.
+      #
+      # This tool set is deliberately PR-only, with no issue tools and no
+      # generic git file/branch-write tools at all (removed entirely from
+      # toolhive-servers.json's allowlist, not just unmapped here):
+      #   - No issue tools (issue_read/issue_write/add_issue_comment/
+      #     list_issues/list_issue_types/search_issues/sub_issue_write/
+      #     assign_copilot_to_issue/get_label): this operator doesn't use
+      #     GitHub issues at work, only PRs.
+      #   - No create_branch/create_or_update_file/push_files: the bot has
+      #     direct SSH access to github.com (charts/agent/templates/
+      #     networkpolicy.yaml allows port 22 to github.com unconditionally),
+      #     so routine git operations should go through git itself, not a
+      #     GitHub-API tool — one fewer way for the bot to get confused about
+      #     which mechanism to use for ordinary branch/file/commit work.
+      #   - No add_reply_to_pull_request_comment: this tool carries no
+      #     author/ownership info the shim could use to tell "reply to a
+      #     human's comment" from "reply to the bot's own" — the honest
+      #     fallback (same pattern as Alertmanager's deleteSilence) is to
+      #     remove the whole surface rather than partially enforce it.
+      #     add_comment_to_pending_review is kept: that's the bot leaving an
+      #     inline comment on its OWN pending review, not replying to
+      #     someone else's existing comment, so it's a different risk shape.
+      github_pull_request_read: &github_repo
         resourceType: github_repo
         action: access
         id: get(args,'owner','') + '/' + get(args,'repo','')
@@ -104,15 +123,6 @@ backends:
           owner: get(args,'owner','')
           repo: get(args,'repo','')
           branch: get(args,'branch','')
-      github_issue_write: *github_repo
-      github_add_issue_comment: *github_repo
-      github_list_issues: *github_repo
-      github_list_issue_types: *github_repo
-      github_search_issues: *github_repo
-      github_sub_issue_write: *github_repo
-      github_assign_copilot_to_issue: *github_repo
-      github_get_label: *github_repo
-      github_pull_request_read: *github_repo
       # pull_request_review_write carries a review 'event' arg
       # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending).
       # HAH-65: Cerbos denies event==APPROVE so the bot can never approve its
@@ -124,7 +134,6 @@ backends:
           repo: get(args,'repo','')
           branch: get(args,'branch','')
           event: get(args,'event','')
-      github_add_reply_to_pull_request_comment: *github_repo
       github_add_comment_to_pending_review: *github_repo
       # create/update_pull_request force draft: true regardless of what's sent —
       # every PR the agent opens (or un-drafts via update) stays a draft. This is
@@ -139,9 +148,6 @@ backends:
       github_list_pull_requests: *github_repo
       github_search_pull_requests: *github_repo
       github_request_copilot_review: *github_repo
-      github_create_branch: *github_repo
-      github_create_or_update_file: *github_repo
-      github_push_files: *github_repo
       github_update_pull_request_branch: *github_repo
       # Linear save_issue (create+update in one tool) -> linear_team; Cerbos
       # denies any team other than DEVOPS. IMPORTANT: this key must be the

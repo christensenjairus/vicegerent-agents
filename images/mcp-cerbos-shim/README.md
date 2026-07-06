@@ -51,12 +51,21 @@ Consequences:
   `jira_jira_transition_issue`, `jira_jira_add_comment`, `jira_jira_get_transitions`,
   `jira_jira_get_project_issues`, `jira_jira_create_issue_link`,
   `jira_jira_link_to_epic`), every repo-bearing GitHub tool in the vMCP allowlist
-  (`github_issue_read`, `github_issue_write`, `github_create_pull_request`,
-  `github_push_files`, `github_create_branch`, etc. — full list in mapping.yaml;
-  `github_get_me` is the one exception, since it names no repo), GitLab's three
-  branch-writing tools (`gitlab_push_files`, `gitlab_create_or_update_file`,
-  `gitlab_create_branch` — GitLab's issue/MR tools carry no branch arg and are
-  unmapped), and Linear's `linear_save_issue` (`team` is required on create and
+  (`github_pull_request_read`, `github_create_pull_request`,
+  `github_update_pull_request_branch`, etc. — full list in mapping.yaml;
+  `github_get_me` is the one exception, since it names no repo). GitHub's tool
+  set is deliberately PR-only: no issue tools (this operator doesn't use GitHub
+  issues at work) and no generic git file/branch-write tools
+  (`create_branch`/`create_or_update_file`/`push_files` — the bot has direct
+  SSH access to github.com, so routine git operations go through git itself).
+  GitLab is similarly trimmed of its three git file/branch-write tools
+  (`push_files`/`create_or_update_file`/`create_branch` — same SSH-access
+  rationale, gitlab.hahomelabs.com is also directly reachable over SSH) but is
+  otherwise NOT scoped down like GitHub — the operator owns this GitLab
+  instance and isn't picky about its issue/MR tools, which stay unmapped and
+  allow-all. GitLab has no `resource_gitlab.yaml` policy or `gitlab_repo`
+  Cerbos resource at all anymore — it was removed once nothing populated it.
+  And Linear's `linear_save_issue` (`team` is required on create and
   always verifiable; on update the caller usually sends no `team` for the
   existing issue, so the shim leaves that call unmapped — but a call that
   DOES set `team` on an update, i.e. a deliberate reassignment, is checked

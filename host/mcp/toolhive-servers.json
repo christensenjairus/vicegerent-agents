@@ -26,7 +26,7 @@
     },
     {
       "name": "gitlab",
-      "description": "GitLab MCP, scoped to issue read+write and the full merge-request lifecycle short of merging or approving (branch/file/commit ops, create/update/review/comment) plus label lookups, plus read-only pipeline status/log tools. approve_merge_request/unapprove_merge_request are excluded (HAH-64) so the bot can never rubber-stamp its own or anyone else's MR. No repo/group/project allowlist — the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, create_pipeline/retry_pipeline/cancel_pipeline (the mutating pipeline tools USE_PIPELINE also unlocks — only the 5 read ones are allowlisted below), all CI/CD variable tools, execute_graphql (arbitrary API access — would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded. The Cerbos guardrail (defs/resource_gitlab.yaml) additionally blocks push_files/create_or_update_file/create_branch from targeting a protected branch (main/master/production).",
+      "description": "GitLab MCP, scoped to issue read+write and the merge-request lifecycle short of merging or approving (create/update/review/comment) plus label lookups, plus read-only pipeline status/log tools. No generic git file/branch-write tools (create_or_update_file/push_files/create_branch): the bot has direct SSH access to gitlab.hahomelabs.com (charts/agent/templates/networkpolicy.yaml), so routine git operations should go through git itself, not a GitLab-API tool -- the operator uses this for their own GitLab instance and only wants MCP tools for things git itself cannot do (opening/commenting on/reviewing the MR object). approve_merge_request/unapprove_merge_request are excluded (HAH-64) so the bot can never rubber-stamp its own or anyone else's MR. No repo/group/project allowlist -- the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, create_pipeline/retry_pipeline/cancel_pipeline (the mutating pipeline tools USE_PIPELINE also unlocks -- only the 5 read ones are allowlisted below), all CI/CD variable tools, execute_graphql (arbitrary API access -- would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded.",
       "enabled": false,
       "type": "npx",
       "package": "@zereight/mcp-gitlab@2.1.30",
@@ -59,28 +59,26 @@
         "delete_draft_note", "publish_draft_note", "bulk_publish_draft_notes",
         "list_merge_requests",
         "get_merge_request_approval_state",
-        "create_or_update_file", "push_files", "create_branch",
         "list_pipelines", "get_pipeline", "list_pipeline_jobs", "get_pipeline_job",
         "get_pipeline_job_output"
       ]
     },
     {
       "name": "github",
-      "description": "GitHub MCP, scoped to issue read+write and the full pull-request lifecycle short of merging (branch/file/commit ops, create/update/review/comment) plus get_me/get_label lookups. create_repository, fork_repository, delete_file, merge_pull_request, and general repo/code browsing (get_file_contents, search_code, etc.) are excluded. Scoped at the source via GITHUB_TOOLS and again via the vMCP tools allowlist. The Cerbos guardrail (defs/resource_github.yaml) additionally hard-enforces which owner/repo and branch the mapped tools may target, regardless of what the token itself can reach, and forces every create/update_pull_request to draft: true.",
+      "description": "GitHub MCP, scoped to PRs only — no issue tools at all (this operator does not use GitHub issues at work), and no generic git file/branch-write tools since the bot has direct SSH access to github.com and should do routine git operations (branch creation, file edits, pushes) with git itself, not an MCP tool. Remaining surface: get_me, the full pull-request lifecycle short of merging (create/update/review/comment, inline review comments via add_comment_to_pending_review, get PR status/diff/files/commits/checks), and update_pull_request_branch. create_repository, fork_repository, delete_file, merge_pull_request, and general repo/code browsing (get_file_contents, search_code, etc.) are excluded. add_reply_to_pull_request_comment is excluded: the PR-comment-reply tool carries no author/ownership info the shim could use to distinguish 'reply to a human's comment' from 'reply to the bot's own', so the whole comment-reply surface is removed rather than partially enforced. add_comment_to_pending_review is kept — that's the bot commenting on its own pending review (inline code comments), not replying to anyone else's existing comment, so it's a different risk profile. Scoped at the source via GITHUB_TOOLS and again via the vMCP tools allowlist. The Cerbos guardrail (defs/resource_github.yaml) additionally hard-enforces which owner/repo and branch the mapped tools may target, regardless of what the token itself can reach, and forces every create/update_pull_request to draft: true.",
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/github",
       "env": {
-        "GITHUB_TOOLS": "issue_read,issue_write,add_issue_comment,list_issues,list_issue_types,search_issues,sub_issue_write,assign_copilot_to_issue,get_label,get_me,pull_request_read,pull_request_review_write,add_reply_to_pull_request_comment,add_comment_to_pending_review,create_pull_request,update_pull_request,list_pull_requests,search_pull_requests,request_copilot_review,create_branch,create_or_update_file,push_files,update_pull_request_branch"
+        "GITHUB_TOOLS": "get_me,pull_request_read,pull_request_review_write,add_comment_to_pending_review,create_pull_request,update_pull_request,list_pull_requests,search_pull_requests,request_copilot_review,update_pull_request_branch"
       },
       "secrets": [{"name": "github_token", "target": "GITHUB_PERSONAL_ACCESS_TOKEN"}],
       "tools": [
-        "issue_read", "issue_write", "add_issue_comment", "list_issues", "list_issue_types",
-        "search_issues", "sub_issue_write", "assign_copilot_to_issue", "get_label", "get_me",
-        "pull_request_read", "pull_request_review_write", "add_reply_to_pull_request_comment",
-        "add_comment_to_pending_review", "create_pull_request", "update_pull_request",
+        "get_me",
+        "pull_request_read", "pull_request_review_write", "add_comment_to_pending_review",
+        "create_pull_request", "update_pull_request",
         "list_pull_requests", "search_pull_requests", "request_copilot_review",
-        "create_branch", "create_or_update_file", "push_files", "update_pull_request_branch"
+        "update_pull_request_branch"
       ]
     },
     {
