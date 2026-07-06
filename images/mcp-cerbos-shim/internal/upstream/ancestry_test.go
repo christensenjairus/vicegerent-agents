@@ -102,6 +102,24 @@ const realWireEnvelope = `{"metadata":{"type":"page"},"title":"post-merge valida
 // unwrapping is exercised on both the true and false branches.
 const realWireEnvelopeNotUnderScratchpad = `{"metadata":{"type":"page"},"title":"Elsewhere","url":"https://app.notion.com/p/1234abcd1234abcd1234abcd1234abcd","text":"<page url=\"https://app.notion.com/p/1234abcd1234abcd1234abcd1234abcd\">\n<ancestor-path>\n<parent-page url=\"https://app.notion.com/p/9999000099990000999900009999abcd\" title=\"Other Folder\"/>\n</ancestor-path>\n</page>"}`
 
+// underDatabaseParent mirrors the EXACT live-captured shape (work-cluster
+// notionAllowedParentPageIds rollout, MR !390 post-merge validation) of a
+// page whose immediate parent is a wiki DATABASE, not a plain page --
+// e.g. a page living directly inside DevSecOps or DevOps WIP, both wiki
+// databases. Notion tags this <parent-database>, not <parent-page>; the
+// target ancestor here (the database's own id) must still match via the
+// -database tag variant, exercising the exact gap that caused a real
+// false-negative deny in production: a page under an allowlisted database
+// folder was denied because the original regex only matched "-page" tags.
+const underDatabaseParent = `<page url="https://app.notion.com/p/395588d8909f809293facb344df0b71d">
+<ancestor-path>
+<parent-database url="https://app.notion.com/p/1de588d8909f80458ad6c0a831284768" title="Engineering Wiki"/>
+<ancestor-2-page url="https://app.notion.com/p/fc3c172feed9463682bef6d40d96bd54" title=""/>
+</ancestor-path>
+</page>`
+
+const databaseParentID = "1de588d8909f80458ad6c0a831284768" // pragma: allowlist secret
+
 func TestPageIsUnderAncestor(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -179,5 +197,20 @@ func TestPageIsUnderAncestor_EmptyTargetErrors(t *testing.T) {
 	f := &fakeCaller{text: realFormatUnderScratchpad}
 	if _, err := PageIsUnderAncestor(context.Background(), f, "leaf", ""); err == nil {
 		t.Fatal("expected error for empty ancestor page id")
+	}
+}
+
+// TestPageIsUnderAncestor_DatabaseParentTag proves a page whose immediate
+// parent is a wiki database (<parent-database>, not <parent-page>) still
+// matches against that database's own id -- MR !390 post-merge validation
+// found the original page-only regex silently denied this real shape.
+func TestPageIsUnderAncestor_DatabaseParentTag(t *testing.T) {
+	f := &fakeCaller{text: underDatabaseParent}
+	got, err := PageIsUnderAncestor(context.Background(), f, "leaf-page-id", databaseParentID)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !got {
+		t.Errorf("expected page under a <parent-database> tag to match that database's id")
 	}
 }
