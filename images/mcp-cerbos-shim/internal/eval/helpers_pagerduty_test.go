@@ -37,17 +37,35 @@ func compilePagerdutyTestEngine(t *testing.T) *Engine {
 	return e
 }
 
-func TestPagerdutyManageAttr_AckResolveOnlyBatch(t *testing.T) {
+func TestPagerdutyManageAttr_AckOnly(t *testing.T) {
 	e := compilePagerdutyTestEngine(t)
 	res, err := e.Eval(CallInput{
 		Backend: "vmcp",
 		Tool:    "pagerduty_manage_incidents",
 		Args: map[string]any{
 			"manage_request": map[string]any{
-				"incidents": []any{
-					map[string]any{"id": "PT1", "type": "incident_reference", "status": "acknowledged"},
-					map[string]any{"id": "PT2", "type": "incident_reference", "status": "resolved", "resolution": "fixed via rollback"},
-				},
+				"incident_ids": []any{"PT1", "PT2"},
+				"status":       "acknowledged",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["hasOutOfScopeChange"] != "false" {
+		t.Errorf("hasOutOfScopeChange = %q, want false", res.Attr["hasOutOfScopeChange"])
+	}
+}
+
+func TestPagerdutyManageAttr_ResolveOnly(t *testing.T) {
+	e := compilePagerdutyTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "pagerduty_manage_incidents",
+		Args: map[string]any{
+			"manage_request": map[string]any{
+				"incident_ids": []any{"PT1"},
+				"status":       "resolved",
 			},
 		},
 	})
@@ -62,15 +80,18 @@ func TestPagerdutyManageAttr_AckResolveOnlyBatch(t *testing.T) {
 func TestPagerdutyManageAttr_LargeAckOnlyBatchStillAllowed(t *testing.T) {
 	// No bulk-count cap: a large batch of pure acks is not out of scope.
 	e := compilePagerdutyTestEngine(t)
-	incidents := make([]any, 0, 50)
+	ids := make([]any, 0, 50)
 	for i := 0; i < 50; i++ {
-		incidents = append(incidents, map[string]any{"id": "PT", "type": "incident_reference", "status": "acknowledged"})
+		ids = append(ids, "PT")
 	}
 	res, err := e.Eval(CallInput{
 		Backend: "vmcp",
 		Tool:    "pagerduty_manage_incidents",
 		Args: map[string]any{
-			"manage_request": map[string]any{"incidents": incidents},
+			"manage_request": map[string]any{
+				"incident_ids": ids,
+				"status":       "acknowledged",
+			},
 		},
 	})
 	if err != nil {
@@ -88,9 +109,8 @@ func TestPagerdutyManageAttr_TriggeredStatusFlagged(t *testing.T) {
 		Tool:    "pagerduty_manage_incidents",
 		Args: map[string]any{
 			"manage_request": map[string]any{
-				"incidents": []any{
-					map[string]any{"id": "PT1", "type": "incident_reference", "status": "triggered"},
-				},
+				"incident_ids": []any{"PT1"},
+				"status":       "triggered",
 			},
 		},
 	})
@@ -102,16 +122,16 @@ func TestPagerdutyManageAttr_TriggeredStatusFlagged(t *testing.T) {
 	}
 }
 
-func TestPagerdutyManageAttr_PriorityChangeFlaggedEvenWithoutStatus(t *testing.T) {
+func TestPagerdutyManageAttr_UrgencyFlaggedEvenWithAck(t *testing.T) {
 	e := compilePagerdutyTestEngine(t)
 	res, err := e.Eval(CallInput{
 		Backend: "vmcp",
 		Tool:    "pagerduty_manage_incidents",
 		Args: map[string]any{
 			"manage_request": map[string]any{
-				"incidents": []any{
-					map[string]any{"id": "PT1", "type": "incident_reference", "priority": map[string]any{"id": "P1", "type": "priority_reference"}},
-				},
+				"incident_ids": []any{"PT1"},
+				"status":       "acknowledged",
+				"urgency":      "high",
 			},
 		},
 	})
@@ -119,42 +139,73 @@ func TestPagerdutyManageAttr_PriorityChangeFlaggedEvenWithoutStatus(t *testing.T
 		t.Fatalf("Eval: %v", err)
 	}
 	if res.Attr["hasOutOfScopeChange"] != "true" {
-		t.Errorf("hasOutOfScopeChange = %q, want true for a priority-only change", res.Attr["hasOutOfScopeChange"])
+		t.Errorf("hasOutOfScopeChange = %q, want true when urgency is set (this was the live bug: urgency used to pass through unchecked)", res.Attr["hasOutOfScopeChange"])
 	}
 }
 
-func TestPagerdutyManageAttr_TitleAndEscalationAndAssignmentsFlagged(t *testing.T) {
+func TestPagerdutyManageAttr_EscalationLevelFlaggedEvenWithoutStatus(t *testing.T) {
 	e := compilePagerdutyTestEngine(t)
-	cases := []struct {
-		name  string
-		field string
-		value any
-	}{
-		{"title", "title", "New title"},
-		{"escalation_level", "escalation_level", 2},
-		{"assignments", "assignments", []any{map[string]any{"assignee": map[string]any{"id": "PXPGF42", "type": "user_reference"}}}},
-		{"incident_type", "incident_type", map[string]any{"name": "major_incident"}},
-		{"conference_bridge", "conference_bridge", map[string]any{"conference_number": "+1-555"}},
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "pagerduty_manage_incidents",
+		Args: map[string]any{
+			"manage_request": map[string]any{
+				"incident_ids":     []any{"PT1"},
+				"escalation_level": 2,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
 	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			res, err := e.Eval(CallInput{
-				Backend: "vmcp",
-				Tool:    "pagerduty_manage_incidents",
-				Args: map[string]any{
-					"manage_request": map[string]any{
-						"incidents": []any{
-							map[string]any{"id": "PT1", "type": "incident_reference", "status": "acknowledged", c.field: c.value},
-						},
-					},
-				},
-			})
-			if err != nil {
-				t.Fatalf("Eval: %v", err)
-			}
-			if res.Attr["hasOutOfScopeChange"] != "true" {
-				t.Errorf("hasOutOfScopeChange = %q, want true when %s is set", res.Attr["hasOutOfScopeChange"], c.field)
-			}
-		})
+	if res.Attr["hasOutOfScopeChange"] != "true" {
+		t.Errorf("hasOutOfScopeChange = %q, want true when escalation_level is set (this was the live bug: only caught by luck when PagerDuty itself rejected the call)", res.Attr["hasOutOfScopeChange"])
+	}
+}
+
+func TestPagerdutyManageAttr_AssignementFlagged(t *testing.T) {
+	e := compilePagerdutyTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "pagerduty_manage_incidents",
+		Args: map[string]any{
+			"manage_request": map[string]any{
+				"incident_ids": []any{"PT1"},
+				"status":       "acknowledged",
+				"assignement":  map[string]any{"id": "PXPGF42", "type": "user_reference"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["hasOutOfScopeChange"] != "true" {
+		t.Errorf("hasOutOfScopeChange = %q, want true when assignement is set", res.Attr["hasOutOfScopeChange"])
+	}
+}
+
+func TestPagerdutyManageAttr_ZeroValuedFieldsDoNotFalsePositive(t *testing.T) {
+	// escalation_level:0, urgency:"", assignement:{} are "not really set" --
+	// a caller that always includes these keys with zero values shouldn't be
+	// denied just for the keys' presence.
+	e := compilePagerdutyTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "pagerduty_manage_incidents",
+		Args: map[string]any{
+			"manage_request": map[string]any{
+				"incident_ids":     []any{"PT1"},
+				"status":           "acknowledged",
+				"urgency":          "",
+				"escalation_level": 0,
+				"assignement":      map[string]any{},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["hasOutOfScopeChange"] != "false" {
+		t.Errorf("hasOutOfScopeChange = %q, want false for zero-valued optional fields", res.Attr["hasOutOfScopeChange"])
 	}
 }

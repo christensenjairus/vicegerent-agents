@@ -16,21 +16,27 @@ func init() {
 }
 
 // pagerdutyManageAttrOption: manage_incidents' single arg (manage_request) is
-// PagerDuty's own bulk-update body — {"incidents": [{"id":..., "status":...,
-// "resolution":..., "priority":..., "escalation_level":..., "assignments":...,
-// "incident_type":..., "title":..., "conference_bridge":...}, ...]}. The
-// operator only wants ack/resolve (+ the optional resolution note that goes
-// with a resolve) — everything else PagerDuty's own docs list as settable in
-// this call (priority, escalation_level, assignments, incident_type, title,
-// conference_bridge) is out of scope and should deny the whole call if any
-// batch entry touches it. hasOutOfScopeChange is true if ANY incident entry
-// in the batch sets a status other than "acknowledged"/"resolved" (i.e.
-// "triggered" — which reopens a resolved incident), OR sets any of the
-// forbidden fields. Any of these on ANY entry trips the deny for the WHOLE
-// call — PagerDuty applies the batch per entry, and partial policy
-// enforcement (allow some entries, silently drop others) is not something
-// this shim can do; deny-the-whole-call-if-any-entry-is-out-of-scope is the
-// only sound option here.
+// this MCP tool's own flat IncidentManageRequest body -- {"incident_ids":
+// [...], "status": "acknowledged"|"resolved"|null, "urgency": "high"|"low"|
+// null, "escalation_level": int|null, "assignement": {...}|null} (note:
+// "assignement" is the upstream tool schema's own spelling, not a typo
+// introduced here). This is NOT PagerDuty's raw REST API body -- there is no
+// "incidents" array, no "priority", no "resolution", no "title", no
+// "incident_type", no "conference_bridge" field on this call at all. An
+// earlier version of this helper assumed the general PagerDuty REST API
+// shape (a batch "incidents" array of per-incident objects) instead of this
+// MCP tool's actual flat schema; because the assumed "incidents" array never
+// exists in a real call, that version's loop never executed and
+// hasOutOfScopeChange was always "false" -- letting urgency and
+// escalation_level through unchecked. This version reads the flat fields
+// directly.
+//
+// The operator only wants ack/resolve via this tool. hasOutOfScopeChange is
+// true if status is set to anything other than "acknowledged"/"resolved"
+// (i.e. "triggered" -- which reopens a resolved incident), or if urgency,
+// escalation_level, or assignement is present at all (any non-null/non-zero
+// value counts as "set", since none of these have a legitimate ack/resolve
+// use).
 func pagerdutyManageAttrOption() []cel.EnvOption {
 	return []cel.EnvOption{
 		cel.Function("pagerdutyManageAttr",
@@ -40,27 +46,22 @@ func pagerdutyManageAttrOption() []cel.EnvOption {
 				cel.UnaryBinding(func(arg ref.Val) ref.Val {
 					m := toAnyMap(arg)
 					req := anyMapValue(m, "manage_request")
-					incidents := anySliceValue(req, "incidents")
+
 					outOfScope := false
-					for _, inc := range incidents {
-						im, ok := inc.(map[string]any)
-						if !ok {
-							outOfScope = true // unparseable entry; fail closed
-							continue
-						}
-						status := lookupCI(im, "status", "")
-						if status != "" && status != "acknowledged" && status != "resolved" {
+
+					status := lookupCI(req, "status", "")
+					if status != "" && status != "acknowledged" && status != "resolved" {
+						outOfScope = true
+					}
+
+					for _, forbidden := range []string{
+						"urgency", "escalation_level", "assignement", "assignment",
+					} {
+						if v, present := caseInsensitiveGet(req, forbidden); present && !isEmptyValue(v) {
 							outOfScope = true
 						}
-						for _, forbidden := range []string{
-							"priority", "escalation_level", "assignments",
-							"incident_type", "title", "conference_bridge",
-						} {
-							if _, present := caseInsensitiveGet(im, forbidden); present {
-								outOfScope = true
-							}
-						}
 					}
+
 					return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{
 						"hasOutOfScopeChange": strconv.FormatBool(outOfScope),
 					})
@@ -68,6 +69,29 @@ func pagerdutyManageAttrOption() []cel.EnvOption {
 			),
 		),
 	}
+}
+
+// isEmptyValue treats nil, empty string, and zero as "not actually set" so a
+// field present in the map but explicitly nulled/zeroed doesn't spuriously
+// trip the deny. Any other value (including a populated struct/map for
+// assignement, a positive escalation_level int, or a non-empty urgency
+// string) counts as set.
+func isEmptyValue(v any) bool {
+	switch t := v.(type) {
+	case nil:
+		return true
+	case string:
+		return t == ""
+	case int:
+		return t == 0
+	case int64:
+		return t == 0
+	case float64:
+		return t == 0
+	case map[string]any:
+		return len(t) == 0
+	}
+	return false
 }
 
 // anyMapValue reads m[key] as a map[string]any, tolerating either shape CEL
@@ -83,22 +107,6 @@ func anyMapValue(m map[string]any, key string) map[string]any {
 		}
 	}
 	return map[string]any{}
-}
-
-// anySliceValue reads m[key] as a []any. Missing/wrong-typed key returns nil,
-// which the caller treats as no incidents to check (not out-of-scope) —
-// deliberately: an empty/missing incidents list isn't a policy violation by
-// itself, it just means this helper found nothing to check.
-func anySliceValue(m map[string]any, key string) []any {
-	for k, v := range m {
-		if !strings.EqualFold(k, key) {
-			continue
-		}
-		if s, ok := v.([]any); ok {
-			return s
-		}
-	}
-	return nil
 }
 
 func caseInsensitiveGet(m map[string]any, key string) (any, bool) {
