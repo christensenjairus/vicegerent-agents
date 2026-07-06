@@ -1,7 +1,9 @@
 ---
 name: notion_page_destructive_update_block_test
-description: notion-update-page calls that set command=replace_content or allow_deleting_content=true
-  are denied; every other update-page command, and create-pages, fall through to allow-all.
+description: notion-update-page calls with command=replace_content or allow_deleting_content=true
+  are denied; every other update-page command is allowed. create-pages calls are denied
+  unless parent.page_id is the Scratchpad folder (validate.sh compiles against clusters/work/cluster-vars.yaml,
+  so the WORK notionScratchpadPageId is what's actually exercised here).
 options:
   now: '2026-07-06T00:00:00Z'
 principals:
@@ -33,9 +35,22 @@ resources:
     id: f336d0bc-b841-465b-8045-024475c079dd
     kind: notion_page
     attr: {command: update_properties, allowDeletingContent: 'true'}
-  create_pages_call:
+  create_pages_in_scratchpad_call:
     id: notion-create-pages
     kind: notion_page
+    attr: {parentKind: page_id, parentPageId: 1ea588d8909f80edb0cef38d0aeaf64f}  # pragma: allowlist secret
+  create_pages_wrong_parent_call:
+    id: notion-create-pages
+    kind: notion_page
+    attr: {parentKind: page_id, parentPageId: someotherpageid}
+  create_pages_wrong_kind_call:
+    id: notion-create-pages
+    kind: notion_page
+    attr: {parentKind: database_id, parentPageId: ''}
+  create_pages_omitted_parent_call:
+    id: notion-create-pages
+    kind: notion_page
+    attr: {parentKind: '', parentPageId: ''}
 tests:
   - name: non-destructive update commands are allowed
     input:
@@ -76,12 +91,31 @@ tests:
       - principal: hermes
         resource: update_properties_with_deletion_flag_call
         actions: {update: EFFECT_DENY}
-  - name: create-pages is unaffected (allow-all fallthrough)
+  - name: create-pages with the Scratchpad parent is allowed
     input:
       principals: [hermes]
-      resources: [create_pages_call]
+      resources: [create_pages_in_scratchpad_call]
       actions: [create]
     expected:
       - principal: hermes
-        resource: create_pages_call
+        resource: create_pages_in_scratchpad_call
         actions: {create: EFFECT_ALLOW}
+  - name: create-pages with any other parent, wrong parent kind, or omitted parent
+      is denied
+    input:
+      principals: [hermes]
+      resources:
+        - create_pages_wrong_parent_call
+        - create_pages_wrong_kind_call
+        - create_pages_omitted_parent_call
+      actions: [create]
+    expected:
+      - principal: hermes
+        resource: create_pages_wrong_parent_call
+        actions: {create: EFFECT_DENY}
+      - principal: hermes
+        resource: create_pages_wrong_kind_call
+        actions: {create: EFFECT_DENY}
+      - principal: hermes
+        resource: create_pages_omitted_parent_call
+        actions: {create: EFFECT_DENY}
