@@ -28,6 +28,14 @@ spec:
               protocol: TCP
     - toEndpoints:
         - matchLabels:
+            io.kubernetes.pod.namespace: agentgateway-system
+            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
+      toPorts:
+        - ports:
+            - port: '80'
+              protocol: TCP
+    - toEndpoints:
+        - matchLabels:
             io.kubernetes.pod.namespace: kube-system
             k8s-app: kube-dns
       toPorts:
