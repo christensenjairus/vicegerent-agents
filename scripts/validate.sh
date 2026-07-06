@@ -199,6 +199,38 @@ if [[ -d "$cerbos_policy_dir" ]]; then
   else
     echo "WARN - cerbos not installed; skipping Cerbos policy tests"
   fi
+
+  # Cerbos test FIXTURES only pin values for the work cluster above (a fixture
+  # would need per-cluster IDs to also assert against personal/etc, which
+  # isn't worth the upkeep) -- but every cluster's cluster-vars.yaml still
+  # needs to produce SYNTACTICALLY VALID CEL once substituted, regardless of
+  # fixture coverage. A bug that's invisible in work's substitution (e.g. an
+  # inline `# comment` baked into a multi-line YAML folded scalar `>-` value,
+  # which is literal text there, not a real YAML comment) can still break a
+  # DIFFERENT cluster's substitution outright at the Cerbos PDP -- confirmed
+  # happening in practice (personal's jiraAllowedProjects derailed the whole
+  # deny-write-outside-allowed-projects CEL expression into a parse error
+  # only visible once actually deployed on that cluster). This loop does a
+  # compile-only pass (no cerbos test assertions, since fixtures aren't
+  # cluster-specific) over every OTHER cluster's cluster-vars.yaml to catch
+  # that class of bug before merge instead of after a live deploy.
+  if command -v cerbos >/dev/null 2>&1; then
+    for other_vars_file in clusters/*/cluster-vars.yaml; do
+      [[ "$other_vars_file" == "$cluster_vars_file" ]] && continue
+      [[ -f "$other_vars_file" ]] || continue
+      echo "INFO - Compile-only Cerbos check against $other_vars_file"
+      other_resolved_dir="$(mktemp -d "${TMPDIR:-/tmp}/cerbos-defs-other.XXXXXX")"
+      trap 'rm -rf "$other_resolved_dir"' EXIT
+      cp "$cerbos_policy_dir"/*.yaml "$other_resolved_dir"/
+      resolve_cluster_vars "$other_vars_file" "$other_resolved_dir"
+      cerbos compile --skip-tests "$other_resolved_dir" || {
+        echo "ERROR - Cerbos policy fails to compile against $other_vars_file" >&2
+        exit 1
+      }
+      rm -rf "$other_resolved_dir"
+      trap - EXIT
+    done
+  fi
 fi
 
 egress_values_file="apps/work/egress-proxy/values.yaml"

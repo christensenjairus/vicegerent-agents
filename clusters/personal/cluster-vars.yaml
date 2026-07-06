@@ -22,9 +22,9 @@ data:
 
   # Jira projects this machine's agents may WRITE to (resource_jira.yaml) --
   # reads are unrestricted. CEL-list-ready; every issue/epic key is expected
-  # to start with one of these prefixes + "-".
+  # to start with one of these prefixes + "-". (I don't use Jira for personal.)
   jiraAllowedProjects: >-
-    "CHANGE"  # I don't use jira for personal
+    "CHANGE"
 
   # Jira assignees this machine's agents may set on an issue
   # (resource_jira.yaml) -- "*" disables the check entirely (default: false
