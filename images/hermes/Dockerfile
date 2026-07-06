@@ -182,6 +182,53 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/helm.tar.gz \
     && helm version
 
+# Bake bazelisk + buildifier/buildozer so agents can build/run Bazel targets in
+# repos that use Bazel (e.g. k8s-manifests' helm_charts renders), and reformat/edit
+# BUILD files, entirely offline in the egress-locked sandbox. bazelisk itself is a thin
+# version-selecting launcher; the actual bazel(1) binary it execs is downloaded on first
+# use from releases.bazel.build (verified: NOT github.com -- a plain
+# `bazelisk version` attempt against the sandbox's own egress proxy gets a hard
+# `Forbidden` from releases.bazel.build even though github.com release assets are
+# reachable). Pre-warming bazelisk's on-disk cache at build time (BAZELISK_HOME below,
+# baked with BAZEL_PINNED_VERSION) means the sandbox never has to dial
+# releases.bazel.build at runtime for that one pinned version -- but this build step
+# itself needs releases.bazel.build reachable from wherever `docker build` runs (the
+# operator's laptop per this README, not the sandbox). Bzlmod dependency resolution
+# (bcr.bazel.build) is a separate concern this does not attempt to solve -- a
+# Bzlmod-using repo's first build still needs either a BCR egress allowlist entry or a
+# pre-seeded MODULE.bazel dependency cache; this bake only guarantees
+# bazel/buildozer/buildifier themselves are present and runnable offline.
+# renovate: datasource=github-releases depName=bazelbuild/bazelisk
+ARG BAZELISK_VERSION=v1.29.0
+# renovate: datasource=github-releases depName=bazelbuild/buildtools
+ARG BUILDTOOLS_VERSION=v8.5.1
+# Pinned Bazel release to pre-warm bazelisk's cache with; keep in sync with the
+# .bazelversion of the Bazel repos this sandbox operates against (k8s-manifests: 8.5.1).
+ARG BAZEL_PINNED_VERSION=8.5.1
+ARG TARGETARCH
+ENV BAZELISK_HOME=/opt/hermes/.cache/bazelisk
+RUN case "${TARGETARCH}" in \
+        arm64) BT_ARCH=arm64 ;; \
+        amd64) BT_ARCH=amd64 ;; \
+        *) echo "bazelisk/buildtools: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /usr/local/bin/bazelisk \
+        "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/bazelisk \
+    && ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel \
+    && curl -fsSL -o /usr/local/bin/buildifier \
+        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildifier-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/buildifier \
+    && curl -fsSL -o /usr/local/bin/buildozer \
+        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildozer-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/buildozer \
+    && buildifier --version \
+    && buildozer -version \
+    && mkdir -p "${BAZELISK_HOME}" \
+    && USE_BAZEL_VERSION="${BAZEL_PINNED_VERSION}" bazelisk version \
+    && test -n "$(find "${BAZELISK_HOME}" -type f -name 'bazel-real' -o -type f -iname 'bazel*' 2>/dev/null | head -1)" \
+    && chmod -R a+rX "${BAZELISK_HOME}"
+
 # Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
 # renovate: datasource=github-releases depName=rtk-ai/rtk
 ARG RTK_VERSION=v0.43.0

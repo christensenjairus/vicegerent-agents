@@ -19,6 +19,7 @@ relies on. Verified against the upstream arm64 image (`v2026.7.1`):
 | LSP servers (pyright, yaml-language-server, terraform-ls, bash-language-server) | no |
 | `ddgs` Python package (web search backend) | no — only the plugin glue is present |
 | netdebug tools (ss, dig, nc) for egress diagnostics | no |
+| bazel / bazelisk / buildozer / buildifier | no |
 
 ## Build & push
 
@@ -63,6 +64,20 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   `CAP_SYS_PTRACE`/`CAP_NET_RAW`, which the locked-down securityContext strips,
   so they would bake fine but fail to attach at runtime.
 - `yq` + `jq` + `pygount`; `rtk-hermes` plugin.
+- `bazelisk` (symlinked as `bazel`) + `buildifier`/`buildozer` — bazelisk's cache
+  is pre-warmed at build time against the pinned `BAZEL_PINNED_VERSION` (kept in
+  sync with the `.bazelversion` of the Bazel repos this sandbox operates against,
+  e.g. k8s-manifests: `8.5.1`), so `bazel`/`bazel run`/`bazel build` work fully
+  offline for that version with no runtime egress. `bazelisk`/`buildifier`/
+  `buildozer` binaries come from GitHub release assets, but the pinned `bazel(1)`
+  release itself comes from `releases.bazel.build`, not GitHub — confirmed
+  unreachable from inside the egress-locked sandbox, so this bake step needs to run
+  wherever `docker build` has real internet (the operator's laptop, per this file).
+  This does not solve Bzlmod dependency resolution (`bcr.bazel.build`) for repos
+  that pull external modules — a Bzlmod-using target still needs either a Bazel
+  Central Registry egress allowlist entry or a pre-seeded `MODULE.bazel`
+  dependency cache; this bake only guarantees the `bazel`/`buildozer`/`buildifier`
+  binaries themselves are present and the pinned Bazel version runs offline.
 
 ## Patches
 
