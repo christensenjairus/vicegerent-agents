@@ -1,8 +1,11 @@
 ---
 name: pagerduty_incident_guardrails_test
 description: manage_incidents calls that change anything other than status=acknowledged/resolved
-  (+ resolution) are denied, regardless of batch size; ack/resolve-only calls of any
-  size are allowed. add_note_to_incident and all read-only tools are unaffected.
+  are denied, regardless of batch size; ack/resolve-only calls of any size are allowed.
+  add_note_to_incident and all read-only tools are unaffected. (hasOutOfScopeChange
+  is computed by helpers_pagerduty.go from the tool's actual flat manage_request schema
+  -- incident_ids/status/urgency/escalation_level/assignement -- not a PagerDuty REST-API-shaped
+  incidents[] batch array.)
 options:
   now: '2026-07-05T00:00:00Z'
 principals:
@@ -18,11 +21,11 @@ resources:
     id: manage_incidents
     kind: pagerduty_incident
     attr: {hasOutOfScopeChange: 'false'}  # no bulk-count cap; a big ack-only batch is fine
-  batch_with_priority_change:
+  batch_with_urgency_change:
     id: manage_incidents
     kind: pagerduty_incident
     attr: {hasOutOfScopeChange: 'true'}
-  batch_with_title_change:
+  batch_with_escalation_change:
     id: manage_incidents
     kind: pagerduty_incident
     attr: {hasOutOfScopeChange: 'true'}
@@ -42,18 +45,18 @@ tests:
       - principal: hermes
         resource: large_ack_only_batch
         actions: {manage: EFFECT_ALLOW}
-  - name: any non-ack/resolve field change (priority, escalation, assignment, title,
+  - name: any non-ack/resolve field change (urgency, escalation_level, assignement,
       triggered) is denied even in a single-incident call
     input:
       principals: [hermes]
-      resources: [batch_with_priority_change, batch_with_title_change]
+      resources: [batch_with_urgency_change, batch_with_escalation_change]
       actions: [manage]
     expected:
       - principal: hermes
-        resource: batch_with_priority_change
+        resource: batch_with_urgency_change
         actions: {manage: EFFECT_DENY}
       - principal: hermes
-        resource: batch_with_title_change
+        resource: batch_with_escalation_change
         actions: {manage: EFFECT_DENY}
   - name: add_note_to_incident (unmapped attrs) is allowed
     input:

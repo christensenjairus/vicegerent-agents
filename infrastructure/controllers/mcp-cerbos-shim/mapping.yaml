@@ -175,41 +175,29 @@ backends:
       # alertmanagerAttr helper (helpers_alertmanager.go) to convert it to
       # seconds first. An omitted duration defaults to Alertmanager's own
       # documented default (2h) rather than falling through unchecked.
-      # getSilences/getAlerts/etc. are read-only and intentionally unmapped.
+      # deleteSilence/getSilences/getAlerts/etc. are unmapped and pass:
+      # deleteSilence used to be denied outright over unverifiable ownership,
+      # but a deny with no discriminating signal blocked legitimate
+      # self-cleanup as much as it would have blocked anything else, so it was
+      # removed (see resource_alertmanager.yaml for the reasoning).
       alertmanager_createSilence:
         resourceType: alertmanager_silence
         action: create
         id: get(args,'alertName','')
         attrFrom: alertmanagerAttr(args)
-      # deleteSilence carries only a silenceId (a UUID) — no ownership info at
-      # all, so the shim has no way to verify "is this my silence?" from the
-      # call args alone (it would require a live lookup against Alertmanager's
-      # /silences API, which this stateless shim does not do). Rather than a
-      # partial or fake ownership check, deny deleteSilence outright; deleting
-      # a silence someone else created is exactly the risk being guarded
-      # against, and the honest fallback for an unverifiable precondition is
-      # deny, not best-effort allow.
-      alertmanager_deleteSilence:
-        resourceType: alertmanager_silence
-        action: delete
-        id: get(args,'silenceId','')
-        attr:
-          silenceId: get(args,'silenceId','')
-      # PagerDuty manage_incidents (ack/resolve/escalate/reassign, bulk up to
-      # 250 per PagerDuty's own API) -> pagerduty_incident; Cerbos denies any
+      # PagerDuty manage_incidents -> pagerduty_incident; Cerbos denies any
       # status other than acknowledged/resolved, and denies any call that sets
-      # priority/escalation_level/assignments/incident_type/title/
-      # conference_bridge on any incident in the batch (the operator only
-      # wants ack/resolve/+resolution note — no bulk-count cap, since a field
-      # allowlist makes the batch size irrelevant to the risk).
-      # NOTE: PagerDuty's manage_incidents body has no service_id field at all
-      # (it addresses incidents purely by id) — true per-service scoping isn't
-      # mechanically available from this call's arguments; the status/field
-      # allowlist above is the closest achievable substitute for
-      # least-privilege here. create_incident/add_responders/
-      # start_incident_workflow are removed from the tool allowlist entirely
-      # (toolhive-servers.json) rather than mapped, since there's no useful
-      # partial scope to enforce on them short of blocking them.
+      # urgency/escalation_level/assignement (this MCP tool's actual
+      # IncidentManageRequest schema is flat: incident_ids/status/urgency/
+      # escalation_level/assignement -- it is NOT PagerDuty's raw REST batch
+      # body, which has no bearing on what this specific tool call can carry).
+      # The operator only wants ack/resolve via this tool -- no bulk-count cap
+      # on incident_ids, since the field allowlist makes batch size irrelevant
+      # to the risk.
+      # create_incident/add_responders/start_incident_workflow are removed
+      # from the tool allowlist entirely (toolhive-servers.json) rather than
+      # mapped, since there's no useful partial scope to enforce on them short
+      # of blocking them.
       pagerduty_manage_incidents:
         resourceType: pagerduty_incident
         action: manage

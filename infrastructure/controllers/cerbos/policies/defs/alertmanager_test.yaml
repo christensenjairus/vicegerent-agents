@@ -7,9 +7,9 @@
 # variant.
 name: alertmanager_silence_guardrails_test
 description: createSilence calls whose duration exceeds the cap are denied; calls
-  within the cap are allowed. deleteSilence is denied unconditionally (no ownership
-  info reaches the shim). Read-only calls are unaffected (unmapped by the shim, never
-  reach this policy).
+  within the cap are allowed. deleteSilence and all other actions on this resource
+  fall through to allow-all (no ownership-based deny; see resource_alertmanager.yaml
+  for why that rule was removed).
 options:
   now: '2026-07-05T00:00:00Z'
 principals:
@@ -54,7 +54,7 @@ tests:
       - principal: hermes
         resource: over_work_cap_silence
         actions: {create: EFFECT_DENY}
-  - name: deleteSilence is always denied regardless of which silence
+  - name: deleteSilence is allowed (no ownership-based deny; falls through to allow-all)
     input:
       principals: [hermes]
       resources: [existing_silence_to_delete]
@@ -62,4 +62,4 @@ tests:
     expected:
       - principal: hermes
         resource: existing_silence_to_delete
-        actions: {delete: EFFECT_DENY}
+        actions: {delete: EFFECT_ALLOW}
