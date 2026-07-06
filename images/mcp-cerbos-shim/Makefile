@@ -1,5 +1,5 @@
 IMAGE := harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim
-TAG   ?= v0.13.0
+TAG   ?= v0.12.0
 REF   := $(IMAGE):$(TAG)
 
 GO        ?= go

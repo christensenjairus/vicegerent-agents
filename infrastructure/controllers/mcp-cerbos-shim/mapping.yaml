@@ -252,15 +252,10 @@ backends:
         id: "'notion-create-pages'"
         attrFrom: notionCreateAttr(args)
       # Notion update-page -> notion_page; unlike create-pages this targets an EXISTING
-      # page by id (any page the integration can reach, not just Scratchpad). TWO
-      # complementary gates apply (HAH-88): the shim first runs a live ancestry check
-      # (it calls notion-fetch back through vMCP to resolve the page's ancestor chain)
-      # and denies any page not under NOTION_SCRATCHPAD_PAGE_ID (deployment.yaml env
-      # var, same ${notionScratchpadPageId} cluster-var create-pages's Cerbos rule
-      # checks) — a check Cerbos can't do (no I/O); then Cerbos denies the destructive
-      # commands (replace_content, allow_deleting_content) on the pages that DO pass,
-      # allowing the rest (update_properties/update_content/insert_content/
-      # apply_template/update_verification) — see defs/resource_notion.yaml.
+      # page by id (any page the integration can reach, not just Scratchpad), so there's
+      # no folder to force-rewrite. Cerbos denies the destructive commands (replace_content,
+      # allow_deleting_content) and allows the rest (update_properties/update_content/
+      # insert_content/apply_template/update_verification) — see defs/resource_notion.yaml.
       # allow_deleting_content is a real JSON boolean on the wire (not a string), so this
       # uses the notionAttr helper rather than a plain get() -- get()/lookupCI only match
       # string-typed values and would silently treat a bool true as absent (same failure
