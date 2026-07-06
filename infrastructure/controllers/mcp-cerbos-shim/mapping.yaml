@@ -1,17 +1,19 @@
 ---
 # mcp-cerbos-shim mapping. See mapping.example.yaml + shim README for full docs.
 # Only resource-bearing tools are mapped (k8s kind, a Grafana datasource id, a
-# Jira project/issue key, a GitHub owner/repo[/branch], a GitLab branch, or a
-# Linear teamId); unmapped tools pass (defaultAction: allow). Cerbos denies
-# Secret reads, OpenSearch-datasource reads, Jira calls targeting a project
-# other than CHANGE, GitHub calls targeting a repo outside the allowlist or
-# writing directly to a protected branch, GitLab calls writing directly to a
-# protected branch (main/master/production; no repo allowlist — the bot's
-# GitLab PAT is already project-scoped), and Linear calls targeting a team
-# other than DEVOPS. A `force` block instead allows-with-rewritten-args — that's
-# a mutation, not a deny (see server.go): GitHub PR create/update force
-# draft: true, and Notion create-pages force `parent` to the Scratchpad folder.
-# Adding a tool here to permit it is wrong; that belongs in the gateway allowlist.
+# Jira project/issue key, a GitHub owner/repo[/branch], a Linear teamId, an
+# Alertmanager silence duration, or a PagerDuty manage_incidents change);
+# unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads,
+# OpenSearch-datasource reads, Jira calls targeting a project other than
+# CHANGE, GitHub calls targeting a repo outside the allowlist or writing
+# directly to a protected branch, Linear calls targeting a team other than
+# DEVOPS, Alertmanager silences over the duration cap, and out-of-scope
+# PagerDuty incident changes. GitLab has no mapped tools or Cerbos resource at
+# all (see the GitLab tools comment below). A `force` block instead
+# allows-with-rewritten-args — that's a mutation, not a deny (see server.go):
+# GitHub PR create/update force draft: true, and Notion create-pages force
+# `parent` to the Scratchpad folder. Adding a tool here to permit it is wrong;
+# that belongs in the gateway allowlist.
 backends:
   vmcp:
     defaultAction: allow
