@@ -22,6 +22,7 @@ backends:
       - linearIssueAttr
       - alertmanagerAttr
       - pagerdutyManageAttr
+      - notionAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -223,8 +224,8 @@ backends:
       # the Scratchpad page on every call — whatever parent the agent sent (or none)
       # is replaced, so the page always lands under Scratchpad, no error. notion_page
       # has an allow-all Cerbos policy (defs/resource_notion.yaml); `force` applies
-      # only after that allow. update-page/create-comment target existing pages by id
-      # and are unmapped (see toolhive-servers.json's notion entry).
+      # only after that allow. create-comment targets an existing page by id and is
+      # unmapped (see toolhive-servers.json's notion entry).
       notion_notion-create-pages:
         resourceType: notion_page
         action: create
@@ -235,3 +236,27 @@ backends:
           parent:
             type: page_id
             page_id: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id, from clusters/personal/cluster-vars.yaml)
+      # Notion update-page -> notion_page; unlike create-pages this targets an EXISTING
+      # page by id (any page the integration can reach, not just Scratchpad), so there's
+      # no folder to force-rewrite. Cerbos denies the destructive commands (replace_content,
+      # allow_deleting_content) and allows the rest (update_properties/update_content/
+      # insert_content/apply_template/update_verification) — see defs/resource_notion.yaml.
+      # allow_deleting_content is a real JSON boolean on the wire (not a string), so this
+      # uses the notionAttr helper rather than a plain get() -- get()/lookupCI only match
+      # string-typed values and would silently treat a bool true as absent (same failure
+      # mode as Linear's teamId key-rename postmortem: the check looks live but never fires).
+      notion_notion-update-page:
+        resourceType: notion_page
+        action: update
+        id: get(args,'page_id','')
+        attrFrom: notionAttr(args)
+      # Firecrawl interact -> firecrawl_session; this is the only Firecrawl tool that can
+      # execute raw code (bash/python/node) in a live browser session -- Cerbos denies any
+      # call where `code` is set, forcing prompt-only natural-language interaction. Every
+      # other Firecrawl tool has no code-execution surface and stays unmapped.
+      firecrawl_firecrawl_interact:
+        resourceType: firecrawl_session
+        action: interact
+        id: get(args,'scrapeId', get(args,'url',''))
+        attr:
+          code: get(args,'code','')

@@ -13,5 +13,6 @@ configMapGenerator:
       - defs/resource_linear.yaml
       - defs/resource_alertmanager.yaml
       - defs/resource_pagerduty.yaml
+      - defs/resource_firecrawl.yaml
 generatorOptions:
   disableNameSuffixHash: true
