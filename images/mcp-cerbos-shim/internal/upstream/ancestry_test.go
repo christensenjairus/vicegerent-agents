@@ -68,6 +68,22 @@ const underDifferentTree = `<page url="https://app.notion.com/p/1234abcd1234abcd
 </ancestor-path>
 </page>`
 
+// realWireEnvelope is the ACTUAL shape CallToolResult.Content[].Text carries
+// in production: not bare <page> XML, but a JSON object (Notion's own
+// notion-fetch result shape) whose "text" field holds that XML, still
+// JSON-string-escaped (backslash-quote, backslash-n). Captured live against
+// the real cluster during HAH-88 post-merge validation -- the escaping means
+// pageIsUnderAncestor's regexes never match this until extractNotionFetchText
+// unwraps the JSON layer first. This is the exact production shape that the
+// bare-XML fixtures above never exercised, which is why 147 tests passed
+// while every real update-page call was denied.
+const realWireEnvelope = `{"metadata":{"type":"page"},"title":"post-merge validation - correct parent","url":"https://app.notion.com/p/395de8859710818c9345eaf50f004790","text":"Here is the result of \"view\" for the Page with URL https://app.notion.com/p/395de8859710818c9345eaf50f004790 as of 2026-07-06T03:15:36.560Z:\n<page url=\"https://app.notion.com/p/395de8859710818c9345eaf50f004790\">\n<ancestor-path>\n<parent-page url=\"https://app.notion.com/p/393de8859710809c9f5ec57a91d2c81a\" title=\"Scratchpad\"/>\n</ancestor-path>\n<properties>\n{\"title\":\"post-merge validation - correct parent\"}\n</properties>\n<blank-page>This page is blank and has no content.</blank-page>\n</page>"}`
+
+// realWireEnvelopeNotUnderScratchpad is the same real JSON-wrapped shape but
+// with an ancestor-path pointing somewhere else, so extractNotionFetchText
+// unwrapping is exercised on both the true and false branches.
+const realWireEnvelopeNotUnderScratchpad = `{"metadata":{"type":"page"},"title":"Elsewhere","url":"https://app.notion.com/p/1234abcd1234abcd1234abcd1234abcd","text":"<page url=\"https://app.notion.com/p/1234abcd1234abcd1234abcd1234abcd\">\n<ancestor-path>\n<parent-page url=\"https://app.notion.com/p/9999000099990000999900009999abcd\" title=\"Other Folder\"/>\n</ancestor-path>\n</page>"}`
+
 func TestPageIsUnderAncestor(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -80,6 +96,8 @@ func TestPageIsUnderAncestor(t *testing.T) {
 		{name: "match is not the first ancestor", text: multipleAncestors, want: true},
 		{name: "root page empty ancestry is not under scratchpad", text: rootPageEmptyAncestry, want: false},
 		{name: "populated but no matching ancestor", text: underDifferentTree, want: false},
+		{name: "real JSON-wrapped wire shape under scratchpad", text: realWireEnvelope, want: true},
+		{name: "real JSON-wrapped wire shape not under scratchpad", text: realWireEnvelopeNotUnderScratchpad, want: false},
 		{name: "lookup error fails closed", callErr: errors.New("boom"), wantErr: true},
 		{name: "malformed result with no ancestor-path block errors", text: "just some text, no tags", wantErr: true},
 	}
