@@ -30,7 +30,7 @@ type Resource struct {
 	ResourceType string
 	Action       string
 	ID           string
-	Attr         map[string]string
+	Attr         map[string]any
 }
 
 // compiledTool holds the type-checked programs for one tool.
@@ -163,7 +163,7 @@ func (e *Engine) Eval(in CallInput) (*Resource, error) {
 		"method":  in.Method,
 		"args":    in.Args,
 	}
-	res := &Resource{ResourceType: ct.resourceType, Action: ct.action, Attr: map[string]string{}}
+	res := &Resource{ResourceType: ct.resourceType, Action: ct.action, Attr: map[string]any{}}
 
 	// attrFrom first (canonicalizers); Attr overrides individual keys after.
 	if ct.attrFromProg != nil {
@@ -171,7 +171,7 @@ func (e *Engine) Eval(in CallInput) (*Resource, error) {
 		if err != nil {
 			return nil, &ErrDeny{Reason: fmt.Sprintf("attrFrom eval: %v", err)}
 		}
-		m, err := toStringMap(out)
+		m, err := toAnyResultMap(out)
 		if err != nil {
 			return nil, &ErrDeny{Reason: fmt.Sprintf("attrFrom result: %v", err)}
 		}
@@ -211,14 +211,19 @@ func evalString(p cel.Program, vars map[string]any) (string, error) {
 	return s, nil
 }
 
-func toStringMap(v ref.Val) (map[string]string, error) {
-	native, err := v.ConvertToNative(reflect.TypeOf(map[string]string{}))
+// toAnyResultMap converts an attrFrom CEL result into map[string]any. Most
+// helpers still yield map<string,string> (unchanged), but linearProjectAttr
+// yields a map with a list<string> value (the `teams` key) for Cerbos's
+// "any element not in allowlist" check — so this widens from the old
+// map[string]string-only conversion to accept any attr value shape.
+func toAnyResultMap(v ref.Val) (map[string]any, error) {
+	native, err := v.ConvertToNative(reflect.TypeOf(map[string]any{}))
 	if err != nil {
 		return nil, err
 	}
-	m, ok := native.(map[string]string)
+	m, ok := native.(map[string]any)
 	if !ok {
-		return nil, fmt.Errorf("expected map[string]string, got %T", native)
+		return nil, fmt.Errorf("expected map[string]any, got %T", native)
 	}
 	return m, nil
 }

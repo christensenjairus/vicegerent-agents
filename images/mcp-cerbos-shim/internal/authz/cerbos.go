@@ -15,7 +15,7 @@ import (
 // when the matched rule (allow or deny) has no output configured.
 type Decider interface {
 	IsAllowed(ctx context.Context, principalID string, roles []string,
-		resourceType, resourceID string, attr map[string]string, action string) (allowed bool, reason string, err error)
+		resourceType, resourceID string, attr map[string]any, action string) (allowed bool, reason string, err error)
 }
 
 // CerbosClient is the production Decider backed by a Cerbos PDP over gRPC.
@@ -47,7 +47,7 @@ func New(addr string, opts ...cerbos.Opt) (*CerbosClient, error) {
 // (ResourceResult.Output, keyed by the output's `src`, i.e.
 // "resource.<kind>.v<version>#<rule-name>").
 func (cc *CerbosClient) IsAllowed(ctx context.Context, principalID string, roles []string,
-	resourceType, resourceID string, attr map[string]string, action string) (bool, string, error) {
+	resourceType, resourceID string, attr map[string]any, action string) (bool, string, error) {
 
 	principal := cerbos.NewPrincipal(principalID, roles...)
 	resource := cerbos.NewResource(resourceType, resourceID)

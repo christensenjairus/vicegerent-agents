@@ -110,27 +110,84 @@ func TestDeployedLinearMapping_UpdateReassigningTeamReachesCerbos(t *testing.T) 
 	}
 }
 
-func TestDeployedLinearMapping_SaveCommentAndSaveProjectAreUnmapped(t *testing.T) {
+func TestDeployedLinearMapping_SaveCommentIsUnmapped(t *testing.T) {
 	m := deployedMapping(t)
 	e, err := eval.Compile(m)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
-	for _, tool := range []string{"linear_save_comment", "linear_save_project"} {
-		t.Run(tool, func(t *testing.T) {
-			d := &stubDecider{allow: false}
-			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
-			res, err := s.CheckRequest(context.Background(),
-				mcpReq("vmcp", "tools/call", toolCall(tool, map[string]any{"id": "issue-1"})))
-			if err != nil {
-				t.Fatalf("CheckRequest: %v", err)
-			}
-			if !isPass(res) {
-				t.Fatalf("expected pass for unmapped tool %q (no verifiable team)", tool)
-			}
-			if d.calls != 0 {
-				t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
-			}
-		})
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("linear_save_comment", map[string]any{"id": "issue-1"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass for unmapped tool (no verifiable team)")
+	}
+	if d.calls != 0 {
+		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
+	}
+}
+
+// linear_save_project IS mapped (HAH-70, linearProjectAttr helper) — unlike
+// save_comment above, every call reaches Cerbos; what varies is whether a
+// `teams` attr is present. A call that sets neither addTeams nor setTeams has
+// nothing to verify and Cerbos's has()-based check falls through to
+// allow-all (defs/linear_test.yaml proves the deny decision itself).
+func TestDeployedLinearMapping_SaveProjectReachesCerbos(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("linear_save_project", map[string]any{"id": "proj-1"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass when Cerbos allows, got deny")
+	}
+	if d.calls != 1 {
+		t.Fatalf("expected exactly one Cerbos check, got %d", d.calls)
+	}
+	if d.gotType != "linear_team" {
+		t.Errorf("resourceType = %q, want linear_team", d.gotType)
+	}
+	if _, ok := d.gotAttr["teams"]; ok {
+		t.Errorf("attr.teams = %v, want key absent when neither addTeams nor setTeams is set", d.gotAttr["teams"])
+	}
+}
+
+func TestDeployedLinearMapping_SaveProjectDeniesNonAllowedTeam(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("linear_save_project",
+			map[string]any{"addTeams": []any{"some-other-team-id"}})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny when Cerbos denies, got pass")
+	}
+	if d.calls != 1 {
+		t.Fatalf("expected exactly one Cerbos check, got %d", d.calls)
+	}
+	if d.gotType != "linear_team" {
+		t.Errorf("resourceType = %q, want linear_team", d.gotType)
+	}
+	got, ok := d.gotAttr["teams"].([]string)
+	if !ok || len(got) != 1 || got[0] != "some-other-team-id" {
+		t.Errorf("attr.teams = %v, want [some-other-team-id]", d.gotAttr["teams"])
 	}
 }

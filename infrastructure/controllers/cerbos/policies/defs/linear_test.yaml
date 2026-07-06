@@ -4,7 +4,9 @@
 name: linear_devops_team_block_test
 description: Linear save_issue calls that supply a team other than DEVOPS are denied;
   calls confined to the DEVOPS team (by uuid, name, or key), and calls that supply
-  no team at all, are allowed.
+  no team at all, are allowed. Linear save_project calls whose addTeams/setTeams contain
+  any team other than DEVOPS are denied (HAH-70); calls confined to DEVOPS, or that
+  supply neither addTeams nor setTeams, are allowed.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -29,6 +31,21 @@ resources:
     kind: linear_team
     attr: {teamId: some-other-team-id}
   no_team_supplied:
+    id: '*'
+    kind: linear_team
+  project_addteams_devops_only:
+    id: '*'
+    kind: linear_team
+    attr: {teams: [DEVOPS]}
+  project_addteams_devops_and_other:
+    id: '*'
+    kind: linear_team
+    attr: {teams: [DEVOPS, some-other-team-id]}
+  project_setteams_other_only:
+    id: '*'
+    kind: linear_team
+    attr: {teams: [some-other-team-id]}
+  project_no_teams_args:
     id: '*'
     kind: linear_team
 tests:
@@ -63,4 +80,31 @@ tests:
     expected:
       - principal: hermes
         resource: other_team
+        actions: {access: EFFECT_DENY}
+  - name: save_project addTeams confined to DEVOPS, or with no addTeams/setTeams supplied,
+      is allowed
+    input:
+      principals: [hermes]
+      resources: [project_addteams_devops_only, project_no_teams_args]
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: project_addteams_devops_only
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: project_no_teams_args
+        actions: {access: EFFECT_ALLOW}
+  - name: save_project addTeams/setTeams containing any non-DEVOPS team is denied
+    input:
+      principals: [hermes]
+      resources:
+        - project_addteams_devops_and_other
+        - project_setteams_other_only
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: project_addteams_devops_and_other
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: project_setteams_other_only
         actions: {access: EFFECT_DENY}

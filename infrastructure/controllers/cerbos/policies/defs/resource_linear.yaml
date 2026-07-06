@@ -1,14 +1,18 @@
 ---
 # linear_team policy: deny a save_issue call that supplies a team other than the
 # allowed one (${linearAllowedTeams}, from clusters/personal/cluster-vars.yaml);
-# allow everything else. The team is matched by any of its three known
-# identifiers, since the caller's `team` arg may be the real Linear team
-# UUID, its display name ("DevOps"), or its issue-key prefix ("DEVOPS") — an
-# exact match against only one form would wrongly deny legitimate DEVOPS
-# calls that use a different form. A call that supplies no team at all
-# (every ordinary issue update — team is optional there) has no teamId attr
-# key at all (see mapping.yaml's linearIssueAttr helper) and falls through
-# to allow-all.
+# deny a save_project call whose addTeams/setTeams contain any team other
+# than the allowed one (HAH-70); allow everything else. The team is matched
+# by any of its three known identifiers, since the caller's `team`/
+# addTeams/setTeams entries may be the real Linear team UUID, its display
+# name ("DevOps"), or its issue-key prefix ("DEVOPS") — an exact match
+# against only one form would wrongly deny legitimate DEVOPS calls that use
+# a different form. A save_issue call that supplies no team at all (every
+# ordinary issue update — team is optional there) has no teamId attr key at
+# all (see mapping.yaml's linearIssueAttr helper) and falls through to
+# allow-all; likewise a save_project call that sets neither addTeams nor
+# setTeams has no teams attr key (linearProjectAttr helper) and falls
+# through too.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -28,6 +32,20 @@ resourcePolicy:
         when:
           ruleActivated: >-
             "This agent may only create/update Linear issues for the DEVOPS team."
+    - name: deny-non-devops-project-teams
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.teams) &&
+            request.resource.attr.teams.exists(t, !(t in
+            [${linearAllowedTeams}]))
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only assign Linear projects to the DEVOPS team."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
