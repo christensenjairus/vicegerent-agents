@@ -23,16 +23,19 @@ This shim + Cerbos are an orthogonal layer: argument-level authorization that de
 *resource* whatever the exposed tool set is — currently Kubernetes Secret reads,
 OpenSearch Grafana datasource reads, Jira calls targeting a project other than CHANGE,
 GitHub calls targeting a repo outside an allowlist or writing directly to a protected
-branch, GitLab calls writing directly to a protected branch, and Linear `save_issue`
-calls (create or update) targeting a team other than DEVOPS. (Notion `create-pages` is also mapped, but as
-a `force` rewrite of its `parent` to the Scratchpad folder — a mutation, not a deny;
-see "How it works".)
+branch, Linear `save_issue` calls (create or update) targeting a team other than DEVOPS,
+Alertmanager silences over the configured duration cap or a `deleteSilence` on a silence
+the bot didn't create, and PagerDuty calls outside the allowed service or bulk operations
+over the configured cap. GitLab has no Cerbos-mapped tools or policy at all (its git
+file/branch-write tools were dropped from the allowlist instead). (Notion `create-pages`
+is also mapped, but as a `force` rewrite of its `parent` to the Scratchpad folder — a
+mutation, not a deny; see "How it works".)
 
 | Layer | Job |
 | --- | --- |
 | **agentgateway** | MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup that's left to ToolHive. |
-| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, a Jira project/issue key, a GitHub owner/repo/branch, a GitLab branch, or a Linear teamId) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
-| **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a GitLab protected-branch write, or a non-DEVOPS Linear team, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
+| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, a Jira project/issue key, a GitHub owner/repo/branch, a Linear teamId, an Alertmanager silence duration/creator, or a PagerDuty service/incident) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
+| **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a non-DEVOPS Linear team, an over-cap/non-owner Alertmanager silence, or an out-of-service/bulk PagerDuty call, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
 
 Consequences:
 - A new tool exposed by the vMCP needs **no** shim/Cerbos change unless it can name a
