@@ -68,6 +68,24 @@ const underDifferentTree = `<page url="https://app.notion.com/p/1234abcd1234abcd
 </ancestor-path>
 </page>`
 
+// deepNestedUnderTeamFolder mirrors the EXACT live-captured shape (HAH
+// multi-parent scoping validation) of a page 3 levels under a team folder:
+// Notion tags only the immediate parent <parent-page>; deeper ancestors use
+// <ancestor-2-page>, <ancestor-3-page>, etc, NOT another <parent-page>
+// (verified live against a real page 3 levels under "Teamspace Home"). The
+// target ancestor here is scratchpadID (this table test's fixed target) at
+// the ancestor-3-page depth, so it still exercises the exact tag-name gap
+// that caused a real false-negative deny in production: the original
+// parentPageIDRe only matched literal "parent-page" and silently missed any
+// ancestor beyond the immediate parent.
+const deepNestedUnderTeamFolder = `<page url="https://app.notion.com/p/1ccde885971081c2a0a8caa913e4e3c0" icon="tag">
+<ancestor-path>
+<parent-page url="https://app.notion.com/p/1ccde885971081a5a020e73928f42fbe" title=""/>
+<ancestor-2-page url="https://app.notion.com/p/1ccde8859710816d8ef8d536fd6daa30" title=""/>
+<ancestor-3-page url="https://app.notion.com/p/393de8859710809c9f5ec57a91d2c81a" title="Scratchpad"/>
+</ancestor-path>
+</page>`
+
 // realWireEnvelope is the ACTUAL shape CallToolResult.Content[].Text carries
 // in production: not bare <page> XML, but a JSON object (Notion's own
 // notion-fetch result shape) whose "text" field holds that XML, still
@@ -96,6 +114,7 @@ func TestPageIsUnderAncestor(t *testing.T) {
 		{name: "match is not the first ancestor", text: multipleAncestors, want: true},
 		{name: "root page empty ancestry is not under scratchpad", text: rootPageEmptyAncestry, want: false},
 		{name: "populated but no matching ancestor", text: underDifferentTree, want: false},
+		{name: "deep nested ancestor (ancestor-3-page tag, not parent-page)", text: deepNestedUnderTeamFolder, want: true},
 		{name: "real JSON-wrapped wire shape under scratchpad", text: realWireEnvelope, want: true},
 		{name: "real JSON-wrapped wire shape not under scratchpad", text: realWireEnvelopeNotUnderScratchpad, want: false},
 		{name: "lookup error fails closed", callErr: errors.New("boom"), wantErr: true},
