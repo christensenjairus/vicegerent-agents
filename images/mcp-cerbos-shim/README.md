@@ -96,13 +96,28 @@ setup) — not the mapping or an `allow` rule here.
 
 ### Guardrail Attachment
 
-The Secret block depends on `AgentgatewayPolicy` attaching the `tools/call ->
-mcp-cerbos-shim` guardrail with `failureMode: FailClosed`. `FailClosed` only
-covers invoked processor failures; a missing guardrail silently fails open.
+The Secret block and the secret-redaction gate both depend on `AgentgatewayPolicy`
+attaching the `tools/call -> mcp-cerbos-shim` guardrail with `methods: {tools/call:
+Full}` and `failureMode: FailClosed`. `Full` is the `MCPMethodPhase` enum value that
+routes BOTH `CheckRequest` and `CheckResponse` through the shim; the other values are
+`Off`, `Request` (request-phase only), and `Response` (response-phase only). Setting
+`Request` instead of `Full` compiles, deploys, and passes `scripts/validate.sh`'s
+render check with no error — it silently means `CheckResponse` (and therefore
+response-side secret redaction — see "Building a redact-and-mutate gate" in the
+`vicegerent-cerbos-guardrails` skill) never runs at all, agentgateway just never calls
+it. This exact gap shipped to production once: the secrets-redaction MR wired
+`CheckResponse`, wrote passing unit/integration tests for it, and merged — but the
+policy YAML still said `tools/call: Request` from before that feature existed, so the
+response-side redaction path was live code with zero traffic ever reaching it until a
+live curl test against the port-forward caught the missing `redact:` log line on a
+`notion_notion-get-comments` fetch. `FailClosed` only covers invoked processor
+failures; a missing guardrail, or a guardrail scoped to the wrong phase, silently
+fails open (or half-open) and no metric distinguishes that from working correctly.
 
 - **Authoring (covered):** `scripts/validate.sh` renders the overlay and fails CI
   if the rendered `AgentgatewayPolicy` does not carry exactly one `tools/call ->
-  mcp-cerbos-shim` guardrail with `FailClosed`. A bad edit can't merge.
+  mcp-cerbos-shim` guardrail with phase `Full` and `FailClosed`. A bad edit, INCLUDING
+  a downgrade from `Full` back to `Request`, can't merge.
 - **Runtime (NOT covered):** if Flux never reconciles the commit, or the
   controller silently rejects the CRD, the live gateway can lack the guardrail
   even though the repo is correct. There is no backend-level default-deny in the

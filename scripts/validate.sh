@@ -243,14 +243,18 @@ fi
 # Assert the vMCP overlay's AgentgatewayPolicy either attaches a well-formed
 # Cerbos guardrail or attaches none at all — never a malformed/partial one. A
 # guardrail is well-formed only as a single tools/call -> mcp-cerbos-shim
-# processor with FailClosed; anything else forwards to the MCP server with no
-# policy check (a silent fail-open). This catches a dropped, renamed, or
-# weakened guardrail at MR time. It does NOT cover the runtime reconcile path
-# (Flux never applying the commit, or the controller silently rejecting the
-# CRD) — that gap is documented in the shim README.
+# processor running in phase Full (both CheckRequest and CheckResponse, the
+# latter needed for response-side secret redaction — see secrets_redact.go)
+# with FailClosed; anything else forwards to the MCP server with no policy
+# check, or with only half the check, either of which is a silent fail-open
+# on the uncovered phase. This catches a dropped, renamed, downgraded-to-
+# Request-only, or otherwise weakened guardrail at MR time. It does NOT cover
+# the runtime reconcile path (Flux never applying the commit, or the
+# controller silently rejecting the CRD) — that gap is documented in the shim
+# README.
 #
 # The vMCP backend (hand-written Flux YAML) is required to carry the guardrail
-# — its Secret-blocking model depends on it.
+# — its Secret-blocking and secret-redaction models both depend on it.
 assert_guardrail_well_formed() {
   local overlay="$1" rendered="$2"
   local processors
@@ -264,14 +268,15 @@ assert_guardrail_well_formed() {
   well_formed="$(echo "$rendered" | yq ea '
     select(.kind == "AgentgatewayPolicy")
     | [ .spec.backend.mcp.guardrails.processors[]
-        | select(.methods["tools/call"] == "Request"
+        | select(.methods["tools/call"] == "Full"
             and .remote.backendRef.name == "mcp-cerbos-shim"
             and .remote.failureMode == "FailClosed") ]
     | length' -)"
   if [[ "$processors" != "1" || "$well_formed" != "1" ]]; then
     echo "ERROR - $overlay AgentgatewayPolicy has a malformed Cerbos guardrail" \
          "(found $processors processor(s), $well_formed well-formed). It must be" \
-         "exactly one tools/call -> mcp-cerbos-shim processor with FailClosed." >&2
+         "exactly one tools/call -> mcp-cerbos-shim processor with phase Full and" \
+         "FailClosed." >&2
     exit 1
   fi
 }
@@ -291,8 +296,9 @@ vmcp_guardrail_processors="$(echo "$vmcp_rendered" | yq ea '
   | .spec.backend.mcp.guardrails.processors // [] | length' -)"
 if [[ "$vmcp_guardrail_processors" != "1" ]]; then
   echo "ERROR - vMCP AgentgatewayPolicy must attach exactly one" \
-       "tools/call -> mcp-cerbos-shim guardrail with FailClosed (found:" \
-       "${vmcp_guardrail_processors:-0}). Refusing to ship a fail-open MCP backend." >&2
+       "tools/call -> mcp-cerbos-shim guardrail with phase Full and FailClosed" \
+       "(found: ${vmcp_guardrail_processors:-0}). Refusing to ship a fail-open" \
+       "MCP backend." >&2
   exit 1
 fi
 
