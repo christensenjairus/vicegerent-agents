@@ -60,6 +60,12 @@ data:
   linearAllowedAssignees: >-
     "jchristensen@moveworks.ai"
 
+  # PagerDuty service ids this machine's agents may act on via
+  # manage_incidents/add_note_to_incident (resource_pagerduty.yaml). "*"
+  # disables the check entirely.
+  pagerdutyAllowedServiceIds: >-
+    "PJD41LB", "PV3S4O5", "PORBNK3"
+
   # This machine's git-over-SSH FQDN and every intermediate hostname in its CNAME
   # chain (charts/agent/templates/networkpolicy.yaml). Generic to any CNAME-chained
   # FQDN the SSH egress block allowlists, not git-specific. Cilium's toFQDNs DNS

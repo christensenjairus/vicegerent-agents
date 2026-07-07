@@ -85,7 +85,7 @@ Consequences:
   than the Scratchpad folder (`defs/resource_notion.yaml`'s
   `deny-create-outside-scratchpad` rule), and `notion_notion-update-page` is
   mapped both to the destructive-command Cerbos deny AND to a shim-side live
-  ancestry gate (HAH-88) that denies updates to any page not under the
+  ancestry gate that denies updates to any page not under the
   Scratchpad tree. `notion_notion-create-comment` stays unmapped. Everything
   else passes untouched.
 
@@ -151,7 +151,7 @@ For each `tools/call` the gateway forwards (`McpRequest`), the connector:
    (see `policies/defs/*.yaml` `output:` blocks, e.g. `deny-self-approve`'s "use REQUEST_CHANGES
    instead") when the rule has one configured, falling back to a generic backend-agnostic
    message when it doesn't. This is what lets a calling agent understand *why* it was blocked and
-   self-correct instead of retrying blind or silently downgrading its own intent — see HAH-65/72.
+   self-correct instead of retrying blind or silently downgrading its own intent.
    Allowed returns `Pass{}` — unless the tool's mapping carries a `force` block (literal key/value
    overrides, e.g. GitHub PR create/update forcing `draft: true`), in which case it returns
    `Mutated{}` with those keys rewritten into the call's arguments (re-wrapped into

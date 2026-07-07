@@ -2,11 +2,11 @@
 name: webcrawl_ssrf_and_limit_guardrails_test
 description: Tavily/Firecrawl crawl+map calls targeting an internal-only host, or
   exceeding the limit/depth/breadth caps, are denied; a normal external crawl within
-  caps is allowed. Single-URL/multi-URL fetch tools (HAH-93) targeting an internal-only
-  host via url or urls are denied the same way; a normal external fetch is allowed.
-  Firecrawl monitor create/update calls (HAH-94) targeting an internal-only host via
-  page/pages or a nested body url/urls/page/pages are denied the same way; a normal
-  external monitor target is allowed.
+  caps is allowed. Single-URL/multi-URL fetch tools targeting an internal-only host
+  via url or urls are denied the same way; a normal external fetch is allowed. Firecrawl
+  monitor create/update calls targeting an internal-only host via page/pages or a
+  nested body url/urls/page/pages are denied the same way; a normal external monitor
+  target is allowed.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:

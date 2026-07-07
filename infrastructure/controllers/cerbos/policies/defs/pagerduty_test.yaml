@@ -5,7 +5,10 @@ description: manage_incidents calls that change anything other than status=ackno
   add_note_to_incident and all read-only tools are unaffected. (hasOutOfScopeChange
   is computed by helpers_pagerduty.go from the tool's actual flat manage_request schema
   -- incident_ids/status/urgency/escalation_level/assignement -- not a PagerDuty REST-API-shaped
-  incidents[] batch array.)
+  incidents[] batch array.) manage_incidents/add_note_to_incident calls targeting
+  an incident whose service (resolved live by server.go before Cerbos) isn't in ${pagerdutyAllowedServiceIds}
+  are denied even when the field change itself is ack/resolve-only; calls confined
+  to allowed services pass.
 options:
   now: '2026-07-05T00:00:00Z'
 principals:
@@ -32,6 +35,27 @@ resources:
   note_add:
     id: PT4KHLK
     kind: pagerduty_incident
+  ack_in_allowed_service:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'false', serviceIds: [PJD41LB]}
+  ack_in_disallowed_service:
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'false', serviceIds: [PSERVICEB]}
+  ack_across_mixed_services:
+    # deny-the-whole-batch on ANY out-of-scope member, not per-incident.
+    id: manage_incidents
+    kind: pagerduty_incident
+    attr: {hasOutOfScopeChange: 'false', serviceIds: [PJD41LB, PSERVICEB]}
+  note_in_allowed_service:
+    id: PT4KHLK
+    kind: pagerduty_incident
+    attr: {serviceIds: [PJD41LB]}
+  note_in_disallowed_service:
+    id: PT4KHLK
+    kind: pagerduty_incident
+    attr: {serviceIds: [PSERVICEB]}
 tests:
   - name: ack/resolve-only batches of any size are allowed
     input:
@@ -67,3 +91,37 @@ tests:
       - principal: hermes
         resource: note_add
         actions: {annotate: EFFECT_ALLOW}
+  - name: service scoping (pagerdutyAllowedServiceIds is PJD41LB/PV3S4O5/PORBNK3 on
+      this cluster, matching validate.sh's work cluster-vars.yaml) denies an ack/resolve-only
+      manage_incidents call targeting a disallowed service, denies the whole batch
+      if ANY targeted incident's service is disallowed, and allows a call confined
+      to allowed services
+    input:
+      principals: [hermes]
+      resources:
+        - ack_in_allowed_service
+        - ack_in_disallowed_service
+        - ack_across_mixed_services
+      actions: [manage]
+    expected:
+      - principal: hermes
+        resource: ack_in_allowed_service
+        actions: {manage: EFFECT_ALLOW}
+      - principal: hermes
+        resource: ack_in_disallowed_service
+        actions: {manage: EFFECT_DENY}
+      - principal: hermes
+        resource: ack_across_mixed_services
+        actions: {manage: EFFECT_DENY}
+  - name: service scoping applies to add_note_to_incident too, not just manage_incidents
+    input:
+      principals: [hermes]
+      resources: [note_in_allowed_service, note_in_disallowed_service]
+      actions: [annotate]
+    expected:
+      - principal: hermes
+        resource: note_in_allowed_service
+        actions: {annotate: EFFECT_ALLOW}
+      - principal: hermes
+        resource: note_in_disallowed_service
+        actions: {annotate: EFFECT_DENY}

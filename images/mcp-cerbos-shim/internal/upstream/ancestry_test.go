@@ -90,7 +90,7 @@ const deepNestedUnderTeamFolder = `<page url="https://app.notion.com/p/1ccde8859
 // in production: not bare <page> XML, but a JSON object (Notion's own
 // notion-fetch result shape) whose "text" field holds that XML, still
 // JSON-string-escaped (backslash-quote, backslash-n). Captured live against
-// the real cluster during HAH-88 post-merge validation -- the escaping means
+// the real cluster during post-merge validation -- the escaping means
 // pageIsUnderAncestor's regexes never match this until extractNotionFetchText
 // unwraps the JSON layer first. This is the exact production shape that the
 // bare-XML fixtures above never exercised, which is why 147 tests passed

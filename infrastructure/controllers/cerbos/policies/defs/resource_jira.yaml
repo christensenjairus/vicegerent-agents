@@ -5,17 +5,17 @@
 # list (${jiraAllowedProjects}, from clusters/personal/cluster-vars.yaml), or
 # assign an issue to someone outside ${jiraAllowedAssignees} -- mirrors
 # Notion's read-everywhere/write-scoped model and Linear's teamId allowlist
-# pattern (HAH-85; note there is no `reporter` field on this Jira tool at
-# all, only `assignee` -- confirmed against docs/available-mcp-tools/jira.yaml's
-# real schema, so reporter scoping is out of scope here, not deferred). The
+# pattern (note there is no `reporter` field on this Jira tool at all, only
+# `assignee` -- confirmed against docs/available-mcp-tools/jira.yaml's real
+# schema, so reporter scoping is out of scope here, not deferred). The
 # shim maps every project/issue-bearing Jira tool to this resource, carrying
 # project_key plus any issue/inward/outward/epic keys (whose "<PROJECT>-123"
 # prefix is the project), PLUS extraEpicKey/extraParentKey/assignee -- values
 # the jiraFieldsAttr helper (helpers_jira.go) parsed out of create_issue's
 # top-level assignee arg and out of create_issue's/update_issue's raw
-# additional_fields/fields JSON string args (HAH-90 follow-up, originally
-# HAH-82: additional_fields can smuggle {"epicKey": "OTHER-123"} bypassing
-# the plain top-level epic_key check entirely -- a documented control being
+# additional_fields/fields JSON string args (additional_fields can smuggle
+# {"epicKey": "OTHER-123"} bypassing the plain top-level epic_key check
+# entirely -- a documented control being
 # routed around via a side channel, not just an unmapped extra arg). A write
 # is denied if any populated project-scoping key's project isn't in the
 # allowlist -- checked via .exists() over ${jiraAllowedProjects} matching
@@ -45,7 +45,7 @@
 # away from ${jiraAllowedAssignees} is still caught by
 # deny-assignee-outside-allowed below, same as before. The "*" bypass is
 # honored here too, matching the disable-the-whole-check semantics.
-# deny-issue-type-outside-allowed (HAH-92): create/update calls that set
+# deny-issue-type-outside-allowed: create/update calls that set
 # issueType (create's top-level issue_type arg, or an 'issuetype'/'issueType'
 # key smuggled into update's fields/additional_fields JSON -- update has no
 # top-level issue_type arg at all) to anything outside

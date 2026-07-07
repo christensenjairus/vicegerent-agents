@@ -50,16 +50,16 @@ var notionAncestryGatedActions = map[string]bool{
 // off the tool name (not just the resource/action pair, unlike the Notion
 // gate above) because all three tools share that exact same
 // resourceType/action, and each needs different resolution logic:
-//   - linear_save_comment (HAH-69): never carries a team of its own --
+//   - linear_save_comment: never carries a team of its own --
 //     always resolved via issueId lookup when issueId is set.
-//   - linear_save_issue (HAH-91): an EXPLICIT `team` arg (create, or a
+//   - linear_save_issue: an EXPLICIT `team` arg (create, or a
 //     deliberate update reassignment) is already a directly-verifiable
 //     signal populated by linearIssueAttr and must NOT be re-resolved or
 //     overridden. Only an UPDATE call that omits `team` entirely gets a
 //     lookup here, resolving the issue's CURRENT team by its `id` -- this
 //     closes the gap where an ordinary field edit on an out-of-allowlist-team
 //     issue previously fell through to allow-all with no teamId attr at all.
-//   - linear_save_project (HAH-91): same shape as save_issue -- an explicit
+//   - linear_save_project: same shape as save_issue -- an explicit
 //     addTeams/setTeams arg is already verifiable via linearProjectAttr and
 //     is never re-resolved; only an update that sets NEITHER gets a lookup
 //     here, resolving the project's CURRENT teams by its `id`.
@@ -68,6 +68,21 @@ const (
 	linearSaveIssueTool   = "linear_save_issue"
 	linearSaveProjectTool = "linear_save_project"
 	linearTeamResource    = "linear_team"
+)
+
+// pagerdutyManageIncidentsTool/pagerdutyAddNoteTool/pagerdutyIncidentResource
+// identify the PagerDuty write calls the service-resolution gate
+// applies to. Unlike the Linear gates above, neither tool's own args carry
+// ANYTHING that identifies the incident's owning service directly -- only
+// an opaque incident_id/incident_ids. The gate resolves each targeted
+// incident to its service via a live get_incident lookup and hands the
+// resolved id(s) to Cerbos's existing service allowlist rule
+// (resource_pagerduty.yaml), the same handoff pattern as the Linear
+// issue/project team gates.
+const (
+	pagerdutyManageIncidentsTool = "pagerduty_manage_incidents"
+	pagerdutyAddNoteTool         = "pagerduty_add_note_to_incident"
+	pagerdutyIncidentResource    = "pagerduty_incident"
 )
 
 // upstreamLookupTimeout bounds a single live shim->vMCP lookup call (Notion
@@ -90,7 +105,7 @@ const callToolMeta = "call_tool"
 // deny rule carries no policy `output` (see policies/defs/*.yaml `output:`
 // blocks). It intentionally omits resource/action to avoid leaking probed
 // state; detail goes to the shim log. Prefer adding an `output` to the rule
-// over relying on this generic string — see HAH-65/72: without a specific
+// over relying on this generic string: without a specific
 // reason, a calling agent has no way to distinguish "try a different
 // approach" (self-approve blocked, use REQUEST_CHANGES instead) from
 // "this whole avenue is closed" (protected branch, wrong project), and burns
@@ -127,8 +142,8 @@ type Server struct {
 	// linearIssueTeam, when set, resolves a Linear issueId/id to its current
 	// team via a live linear_get_issue lookup -- a network round trip the
 	// CEL/Cerbos path can't make, same rationale as notionAncestry above.
-	// Used by: save_comment (always, HAH-69), and save_issue UPDATE calls
-	// that omit an explicit `team` arg (HAH-91 -- an explicit team is
+	// Used by: save_comment (always), and save_issue UPDATE calls
+	// that omit an explicit `team` arg (an explicit team is
 	// already resolved directly by linearIssueAttr and never re-looked-up
 	// here). Unlike the Notion gate this doesn't deny directly: it injects
 	// the resolved team into the resource's teamId attr so Cerbos's existing
@@ -139,12 +154,24 @@ type Server struct {
 	// linearProjectTeam, when set, resolves a Linear project id to its
 	// CURRENT team(s) via a live linear_get_project lookup, same rationale
 	// as linearIssueTeam above. Used only by save_project UPDATE calls that
-	// set neither addTeams nor setTeams (HAH-91) -- a call that sets either
+	// set neither addTeams nor setTeams -- a call that sets either
 	// is already resolved directly by linearProjectAttr and never
 	// re-looked-up here. Injects the resolved teams into the resource's
 	// teams attr so Cerbos's existing deny-non-devops-project-teams rule
 	// evaluates it exactly like an explicit addTeams/setTeams call.
 	linearProjectTeam upstream.ToolCaller
+
+	// pagerdutyIncidentService, when set, resolves EVERY incident id a
+	// manage_incidents/add_note_to_incident call targets to its owning
+	// service via a live pagerduty_get_incident lookup -- neither
+	// tool's own args carry a service/team identifier at all, only an
+	// opaque incident_id/incident_ids, so there is nothing for a CEL helper
+	// to check without this network round trip, same rationale as
+	// notionAncestry/linearIssueTeam above. Injects the resolved service
+	// id(s) into the resource's serviceIds attr so Cerbos's
+	// deny-write-outside-allowed-services rule (resource_pagerduty.yaml)
+	// evaluates it exactly like an explicit-service call.
+	pagerdutyIncidentService upstream.ToolCaller
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -166,8 +193,8 @@ func WithNotionAncestry(client upstream.ToolCaller, allowedParentIDs []string) O
 }
 
 // WithLinearIssueTeam enables the Linear issue team-resolution gate: always
-// for save_comment (HAH-69), and for save_issue UPDATE calls that omit an
-// explicit `team` arg (HAH-91). client resolves an issue id to its current
+// for save_comment, and for save_issue UPDATE calls that omit an
+// explicit `team` arg. client resolves an issue id to its current
 // team (production: an upstream.Client to vMCP; tests: a stub).
 func WithLinearIssueTeam(client upstream.ToolCaller) Option {
 	return func(s *Server) {
@@ -176,12 +203,23 @@ func WithLinearIssueTeam(client upstream.ToolCaller) Option {
 }
 
 // WithLinearProjectTeam enables the Linear save_project UPDATE team-
-// resolution gate (HAH-91): fires only when the call sets neither addTeams
+// resolution gate: fires only when the call sets neither addTeams
 // nor setTeams. client resolves a project id to its current team(s)
 // (production: an upstream.Client to vMCP; tests: a stub).
 func WithLinearProjectTeam(client upstream.ToolCaller) Option {
 	return func(s *Server) {
 		s.linearProjectTeam = client
+	}
+}
+
+// WithPagerdutyIncidentService enables the PagerDuty incident service-
+// resolution gate: every manage_incidents/add_note_to_incident
+// call has each targeted incident id resolved to its owning service via a
+// live lookup. client resolves an incident id to its service id
+// (production: an upstream.Client to vMCP; tests: a stub).
+func WithPagerdutyIncidentService(client upstream.ToolCaller) Option {
+	return func(s *Server) {
+		s.pagerdutyIncidentService = client
 	}
 }
 
@@ -282,7 +320,7 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		}
 	}
 
-	// Linear save_comment team-resolution gate (HAH-69): this runs BEFORE
+	// Linear save_comment team-resolution gate: this runs BEFORE
 	// Cerbos and, unlike the Notion gate above, doesn't deny directly -- it
 	// resolves issueId to its team via a live lookup and injects that team
 	// into res.Attr's teamId key, so Cerbos's existing deny-non-devops-team
@@ -310,7 +348,7 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		}
 	}
 
-	// Linear save_issue UPDATE team-resolution gate (HAH-91): closes the gap
+	// Linear save_issue UPDATE team-resolution gate: closes the gap
 	// where a plain field edit on an existing issue (no `team` arg at all)
 	// fell through to allow-all regardless of the issue's REAL team, since
 	// linearIssueAttr only surfaces teamId when the call itself sets `team`.
@@ -334,7 +372,7 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		}
 	}
 
-	// Linear save_project UPDATE team-resolution gate (HAH-91): same shape
+	// Linear save_project UPDATE team-resolution gate: same shape
 	// as the save_issue gate above -- closes the gap where a plain project
 	// field edit (no addTeams/setTeams) fell through to allow-all regardless
 	// of the project's REAL team(s), since linearProjectAttr only surfaces
@@ -356,6 +394,30 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 				}
 				res.Attr["teams"] = teams
 			}
+		}
+	}
+
+	// PagerDuty incident service-resolution gate: this runs BEFORE
+	// Cerbos and, like the Linear team gates above, doesn't deny directly --
+	// it resolves every incident id the call targets to its owning service
+	// via a live lookup and injects the resolved service id(s) into the
+	// resource's serviceIds attr, so Cerbos's deny-write-outside-allowed-
+	// services rule (resource_pagerduty.yaml) evaluates it exactly like an
+	// explicit-service call. manage_incidents carries incident_ids (an
+	// array, since it's a bulk-update tool); add_note_to_incident carries a
+	// single incident_id. Both are handled the same way: resolve every
+	// non-empty id, fail closed on ANY lookup error (a partially-resolved
+	// batch is not a safe signal to check against an allowlist).
+	if res.ResourceType == pagerdutyIncidentResource &&
+		(cp.Name == pagerdutyManageIncidentsTool || cp.Name == pagerdutyAddNoteTool) {
+		incidentIDs := pagerdutyIncidentIDsFromArgs(cp.Name, cp.Arguments)
+		if len(incidentIDs) > 0 {
+			serviceIDs, derr := s.checkPagerdutyIncidentServices(ctx, incidentIDs)
+			if derr != nil {
+				log.Printf("deny: pagerduty %s service lookup (incidents=%v backend=%s): %v", cp.Name, incidentIDs, backend, derr)
+				return deny(derr.Error()), nil
+			}
+			res.Attr["serviceIds"] = serviceIDs
 		}
 	}
 
@@ -439,7 +501,7 @@ func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
 // fail-closed contract mirrors checkNotionAncestry above: an unconfigured
 // gate or a lookup error both deny rather than silently allow-through with
 // no teamId attr (which would let the call skip Cerbos's team check
-// entirely, the exact hole HAH-69 closes).
+// entirely, the exact hole this gate closes).
 func (s *Server) checkLinearIssueTeam(ctx context.Context, issueID string) (string, error) {
 	if s.linearIssueTeam == nil {
 		return "", fmt.Errorf("linear issue-team gate not configured; denying write for issue %q", issueID)
@@ -458,7 +520,7 @@ func (s *Server) checkLinearIssueTeam(ctx context.Context, issueID string) (stri
 // failure -- fail-closed contract mirrors checkLinearIssueTeam/
 // checkNotionAncestry above: an unconfigured gate or a lookup error both
 // deny rather than silently allow-through with no teams attr (which would
-// let the call skip Cerbos's team check entirely, the exact hole HAH-91
+// let the call skip Cerbos's team check entirely, the exact hole this gate
 // closes for save_project updates).
 func (s *Server) checkLinearProjectTeam(ctx context.Context, projectID string) ([]string, error) {
 	if s.linearProjectTeam == nil {
@@ -471,6 +533,63 @@ func (s *Server) checkLinearProjectTeam(ctx context.Context, projectID string) (
 		return nil, fmt.Errorf("could not verify this Linear project's team(s) (failing closed): %v", err)
 	}
 	return teams, nil
+}
+
+// pagerdutyIncidentIDsFromArgs extracts every incident id a
+// manage_incidents/add_note_to_incident call targets directly from the raw
+// tool arguments (not res.Attr/res.ID, since manage_incidents' id/attr shape
+// is a fixed literal "'manage_incidents'" per mapping.yaml, not the actual
+// incident_ids -- see resource_pagerduty.yaml's own comment on why no
+// bulk-size cap exists there). manage_incidents carries a nested
+// manage_request.incident_ids array; add_note_to_incident carries a single
+// top-level incident_id string. Non-string array elements are skipped
+// (better to check what's checkable than fail the whole call over one
+// malformed entry, same posture as lookupCIStringSlice elsewhere in this
+// shim).
+func pagerdutyIncidentIDsFromArgs(toolName string, args map[string]any) []string {
+	switch toolName {
+	case pagerdutyManageIncidentsTool:
+		req, _ := args["manage_request"].(map[string]any)
+		ids, _ := req["incident_ids"].([]any)
+		out := make([]string, 0, len(ids))
+		for _, id := range ids {
+			if s, ok := id.(string); ok && s != "" {
+				out = append(out, s)
+			}
+		}
+		return out
+	case pagerdutyAddNoteTool:
+		if id, ok := args["incident_id"].(string); ok && id != "" {
+			return []string{id}
+		}
+	}
+	return nil
+}
+
+// checkPagerdutyIncidentServices resolves every incidentID to its owning
+// service id via a live lookup per id, or returns an error (used verbatim
+// as the deny reason) on ANY single failure -- fail-closed contract mirrors
+// checkLinearIssueTeam/checkLinearProjectTeam above: an unconfigured gate,
+// or any one incident's lookup failing, denies the WHOLE call rather than
+// silently checking only the incidents that happened to resolve (a
+// partially-resolved batch is not a safe signal to check against an
+// allowlist -- see resource_pagerduty.yaml's own no-bulk-cap rationale for
+// why a batch call must be treated as a single unit here, not per-incident).
+func (s *Server) checkPagerdutyIncidentServices(ctx context.Context, incidentIDs []string) ([]string, error) {
+	if s.pagerdutyIncidentService == nil {
+		return nil, fmt.Errorf("pagerduty incident-service gate not configured; denying write for incidents %v", incidentIDs)
+	}
+	serviceIDs := make([]string, 0, len(incidentIDs))
+	for _, id := range incidentIDs {
+		lookupCtx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
+		serviceID, err := upstream.IncidentServiceID(lookupCtx, s.pagerdutyIncidentService, id)
+		cancel()
+		if err != nil {
+			return nil, fmt.Errorf("could not verify PagerDuty incident %q's owning service (failing closed): %v", id, err)
+		}
+		serviceIDs = append(serviceIDs, serviceID)
+	}
+	return serviceIDs, nil
 }
 
 // resolveBackend enforces exactly-one mapped backend in service_names.

@@ -104,13 +104,12 @@ backends:
       # required fields) are raw JSON strings that can smuggle an
       # {"epicKey"/"epic_link"/"parent": "OTHER-123"} reference to a
       # different project, bypassing the plain top-level epic_key/issue_key
-      # check entirely (HAH-90 follow-up, originally HAH-82) -- the
-      # jiraFieldsAttr helper parses those JSON args with a real JSON
+      # check entirely -- the jiraFieldsAttr helper parses those JSON args with a real JSON
       # decode (not fragile CEL string matching) and surfaces any embedded
       # epicKey/parent reference as extraEpicKey/extraParentKey, which
       # resource_jira.yaml's write rule now also checks. The same helper
-      # also surfaces issue_type/issuetype (HAH-92, top-level on create;
-      # only via fields/additional_fields JSON on update, which has no
+      # also surfaces issue_type/issuetype (top-level on create; only via
+      # fields/additional_fields JSON on update, which has no
       # top-level issue_type arg at all) as issueType, checked against
       # ${jiraAllowedIssueTypes}. Other write tools (transition/comment/link)
       # don't carry additional_fields/fields at all, so attrFrom is harmless
@@ -168,9 +167,9 @@ backends:
           branch: get(args,'branch','')
       # pull_request_review_write carries a review 'event' arg
       # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending) and
-      # a 'method' arg. HAH-65: Cerbos denies event==APPROVE so the bot can
-      # never approve its own (or anyone's) PR; comment/request-changes
-      # untouched. HAH-75: resolve_thread/unresolve_thread carry ONLY
+      # a 'method' arg. Cerbos denies event==APPROVE so the bot can never
+      # approve its own (or anyone's) PR; comment/request-changes untouched.
+      # resolve_thread/unresolve_thread carry ONLY
       # threadId per the tool's own schema -- "owner, repo, and pullNumber
       # parameters are not used for this method" -- so they structurally
       # bypass the github_repo owner/repo allowlist above; a thread ID from
@@ -186,7 +185,7 @@ backends:
       # add_reply_to_pull_request_comment above and Alertmanager's
       # deleteSilence. Muting a human reviewer's blocking comment by marking
       # its thread resolved is exactly the kind of pushback-suppression this
-      # shim already treats as a self-approval-adjacent risk (HAH-65).
+      # shim already treats as a self-approval-adjacent risk.
       github_pull_request_review_write:
         <<: *github_repo
         attr:
@@ -200,11 +199,11 @@ backends:
       # every PR the agent opens (or un-drafts via update) stays a draft. This is
       # a mutation (allow-with-rewritten-args), not a deny: see server.go's Force
       # handling. Applied only after the repo/branch checks above already passed.
-      # HAH-84: both tools also carry a 'reviewers' array (GitHub usernames or
+      # Both tools also carry a 'reviewers' array (GitHub usernames or
       # ORG/team-slug reviewers to request) -- there is no separate
       # "assignee" concept on a PR (assignees only exists on issue_write,
       # which isn't in this allowlist at all), so 'reviewers' is the actual
-      # PR analog HAH-84 was after. Rather than build an allowlist for a
+      # PR analog worth scoping. Rather than build an allowlist for a
       # capability the operator isn't sure should exist at all, this denies
       # any call that sets reviewers outright -- request reviews manually
       # instead.
@@ -242,18 +241,18 @@ backends:
       # surfaces teamId on every create, and on update only when the call
       # itself sets `team` (a deliberate reassignment). save_project is
       # different: its addTeams/setTeams args are a directly-verifiable team
-      # signal, so it's mapped below (HAH-70).
-      # save_comment (HAH-69) targets an existing comment/thread by issueId
+      # signal, so it's mapped below.
+      # save_comment targets an existing comment/thread by issueId
       # (or projectId/initiativeId/documentId/milestoneId, but only issueId
       # is team-resolvable) and carries no team of its own in the call args
       # -- the shim runs a live linear_get_issue lookup BEFORE this policy is
-      # consulted (server.go's checkLinearCommentTeam, mirrors HAH-88's
-      # Notion ancestry gate) and injects the resolved team as this same
+      # consulted (server.go's checkLinearCommentTeam, mirrors the Notion
+      # ancestry gate elsewhere in this shim) and injects the resolved team as this same
       # teamId attr so Cerbos's existing deny-non-devops-team rule fires
       # identically to save_issue's. A call with no issueId (project/
       # initiative/document/milestone comment, or a reply via parentId with
       # no entity ref) has nothing to resolve and passes the gate unchecked.
-      # HAH-91: an ordinary save_issue UPDATE with no `team` arg used to get
+      # An ordinary save_issue UPDATE with no `team` arg used to get
       # no teamId key at all and fall through to allow-all regardless of the
       # issue's REAL team -- e.g. any plain edit to an issue that already
       # belongs to a non-DEVOPS team went through unchecked. server.go now
@@ -274,12 +273,12 @@ backends:
         id: get(args,'issueId','*')
         attr:
           issueId: get(args,'issueId','')
-      # Linear save_project (create+reassign in one tool, HAH-70) -> reuses
+      # Linear save_project (create+reassign in one tool) -> reuses
       # linear_team; the verifiable signal here is addTeams/setTeams (the
       # array args a project's team membership is set through), not a single
       # team/id like save_issue. linearProjectAttr unions both arrays into one
       # `teams` list attr so Cerbos can deny if any entry isn't DEVOPS.
-      # HAH-91: same gap and same fix as save_issue above -- an ordinary
+      # Same gap and same fix as save_issue above -- an ordinary
       # save_project UPDATE that sets neither addTeams nor setTeams used to
       # get no teams key at all and fall through to allow-all regardless of
       # the project's REAL team(s) (a project can belong to more than one
@@ -293,7 +292,7 @@ backends:
         action: access
         id: get(args,'id','*')
         attrFrom: linearProjectAttr(args)
-      # Linear create_issue_label (HAH-91): a workspace-scoped label needs no
+      # Linear create_issue_label: a workspace-scoped label needs no
       # check (teamId omitted entirely -- workspace labels aren't team-
       # scoped), but a team-scoped label's `teamId` arg is a directly
       # verifiable signal, same shape as save_comment's issueId attr, no
@@ -329,7 +328,12 @@ backends:
       # body, which has no bearing on what this specific tool call can carry).
       # The operator only wants ack/resolve via this tool -- no bulk-count cap
       # on incident_ids, since the field allowlist makes batch size irrelevant
-      # to the risk.
+      # to the risk. server.go's checkPagerdutyIncidentServices runs
+      # BEFORE Cerbos (a live get_incident lookup Cerbos itself can't do) and
+      # injects a serviceIds attr resolved from every targeted incident id,
+      # which resource_pagerduty.yaml's deny-write-outside-allowed-services
+      # rule checks against ${pagerdutyAllowedServiceIds} -- same handoff
+      # pattern as the Linear team gates elsewhere in this shim.
       # create_incident/add_responders/start_incident_workflow are removed
       # from the tool allowlist entirely (toolhive-servers.json) rather than
       # mapped, since there's no useful partial scope to enforce on them short
@@ -365,7 +369,7 @@ backends:
         attrFrom: notionCreateAttr(args)
       # Notion update-page -> notion_page; unlike create-pages this targets an EXISTING
       # page by id (any page the integration can reach, not just Scratchpad). TWO
-      # complementary gates apply (HAH-88): the shim first runs a live ancestry check
+      # complementary gates apply: the shim first runs a live ancestry check
       # (it calls notion-fetch back through vMCP to resolve the page's ancestor chain)
       # and denies any page not under NOTION_SCRATCHPAD_PAGE_ID (deployment.yaml env
       # var, same ${notionScratchpadPageId} cluster-var create-pages's Cerbos rule
@@ -405,7 +409,7 @@ backends:
         id: get(args,'scrapeId', get(args,'url',''))
         attr:
           code: get(args,'code','')
-      # Tavily/Firecrawl crawl+map tools -> web_crawl (HAH-74): these are the
+      # Tavily/Firecrawl crawl+map tools -> web_crawl: these are the
       # only tools in either backend that follow links outward from a caller-
       # supplied url rather than fetching/searching a single caller-supplied
       # target, so they're the ones an SSRF-style internal-target url or an
@@ -429,8 +433,8 @@ backends:
         action: crawl
         id: get(args,'url','')
         attrFrom: webCrawlAttr(args)
-      # Single-URL/multi-URL fetch tools -> web_crawl, action fetch (HAH-93):
-      # these were left unmapped by HAH-74 because they don't discover new
+      # Single-URL/multi-URL fetch tools -> web_crawl, action fetch: these
+      # were left unmapped by the crawl/map mapping above because they don't discover new
       # targets, but the seed url/urls they DO fetch is exactly as caller-
       # controlled and exactly as exposed to the SSRF trust-boundary gap
       # (host.docker.internal, RFC1918/link-local ranges, the cloud metadata
@@ -456,7 +460,7 @@ backends:
         action: fetch
         id: get(args,'urls','')
         attrFrom: webFetchAttr(args)
-      # Firecrawl monitor create/update -> web_crawl, action monitor (HAH-94):
+      # Firecrawl monitor create/update -> web_crawl, action monitor:
       # these set up a PERSISTENT recurring fetch (per scheduleText/
       # searchWindow), so an internal-only target here is a standing SSRF
       # probe, not a one-shot hit -- worse than crawl/map, and monitor_create's

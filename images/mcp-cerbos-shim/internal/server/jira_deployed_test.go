@@ -13,9 +13,9 @@ import (
 // write tool into action:"write" (which resource_jira.yaml's
 // deny-write-outside-allowed-projects rule can deny) -- the deny/allow
 // *decision* itself is proven by defs/jira_test.yaml. Also proves the
-// HAH-90-follow-up jiraFieldsAttr wiring: additional_fields/fields JSON
+// jiraFieldsAttr wiring: additional_fields/fields JSON
 // smuggling an out-of-scope epicKey/parent reaches Cerbos as
-// extraEpicKey/extraParentKey attrs. Also proves the HAH-92 issue-type
+// extraEpicKey/extraParentKey attrs. Also proves the issue-type
 // wiring: create_issue's top-level issue_type, and update_issue's fields-JSON
 // side channel (no top-level arg exists there), both reach Cerbos as
 // issueType.

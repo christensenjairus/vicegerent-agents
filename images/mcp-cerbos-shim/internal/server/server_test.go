@@ -316,7 +316,7 @@ func TestCheckRequest_PolicyDenyMessageIsGeneric(t *testing.T) {
 
 // TestCheckRequest_PolicyDenyMessageSurfacesOutput covers the opposite case:
 // when the matched Cerbos deny rule DOES carry an `output` (e.g.
-// resource_github.yaml's deny-self-approve — HAH-65/72), the shim must
+// resource_github.yaml's deny-self-approve), the shim must
 // surface that exact policy-authored reason to the caller verbatim instead of
 // falling back to the generic denyMessage. This is what lets the calling
 // agent understand *why* a call was blocked and self-correct (e.g. retry with

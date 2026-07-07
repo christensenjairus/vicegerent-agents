@@ -62,7 +62,7 @@ func main() {
 		log.Printf("WARNING: NOTION_ALLOWED_PARENT_PAGE_IDS unset/empty; notion update-page/create-comment will fail closed")
 	}
 
-	// Linear save_comment team-resolution gate (HAH-69): unlike the Notion
+	// Linear save_comment team-resolution gate: unlike the Notion
 	// gate above, this needs no allowlist of its own -- it resolves
 	// issueId->team and hands that off to the SAME ${linearAllowedTeams}
 	// Cerbos rule save_issue already uses (resource_linear.yaml), so it's
@@ -71,15 +71,23 @@ func main() {
 	// (checkLinearIssueTeam), same posture as the Notion gate's per-call
 	// failure path.
 	opts = append(opts, server.WithLinearIssueTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
-	log.Printf("linear issue team-resolution gate enabled (save_comment always; save_issue updates without an explicit team arg, HAH-91)")
+	log.Printf("linear issue team-resolution gate enabled (save_comment always; save_issue updates without an explicit team arg)")
 
-	// Linear save_project UPDATE team-resolution gate (HAH-91): same
+	// Linear save_project UPDATE team-resolution gate: same
 	// unconditional-enable posture as the issue gate above -- no allowlist
 	// of its own, hands off to the same ${linearAllowedTeams} Cerbos rule
 	// via the teams attr save_project already populates via linearProjectAttr
 	// when the call sets addTeams/setTeams itself.
 	opts = append(opts, server.WithLinearProjectTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
-	log.Printf("linear project team-resolution gate enabled (save_project updates without addTeams/setTeams, HAH-91)")
+	log.Printf("linear project team-resolution gate enabled (save_project updates without addTeams/setTeams)")
+
+	// PagerDuty incident service-resolution gate: same
+	// unconditional-enable posture as the Linear gates above -- no allowlist
+	// of its own, hands off to the ${pagerdutyAllowedServiceIds} Cerbos rule
+	// (resource_pagerduty.yaml) via the serviceIds attr this gate resolves
+	// for every manage_incidents/add_note_to_incident call.
+	opts = append(opts, server.WithPagerdutyIncidentService(upstream.New(upstream.DefaultVMCPURL, nil)))
+	log.Printf("pagerduty incident service-resolution gate enabled (manage_incidents, add_note_to_incident)")
 
 	srv := server.New(mapping, engine, decider, server.Principal{
 		ID:    "hermes",

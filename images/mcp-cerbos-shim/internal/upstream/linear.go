@@ -20,7 +20,7 @@ const linearGetIssueTool = "linear_get_issue"
 // linearIssueResult is the subset of linear_get_issue's JSON result this
 // package needs. The live tool result carries "team" as the team's display
 // name directly at the top level (verified live against the real vMCP
-// route, HAH-69) -- e.g. {"id":"HAH-69",...,"team":"HAHomelabs",...}. This
+// route) -- e.g. {"id":"PROJ-69",...,"team":"HAHomelabs",...}. This
 // is a single JSON object, NOT the double-JSON-wrapped shape Notion's
 // notion-fetch uses (see ancestry.go's notionFetchEnvelope) -- Linear's own
 // MCP server returns its tool result as plain JSON text, no extra nesting.
@@ -28,7 +28,7 @@ type linearIssueResult struct {
 	Team string `json:"team"`
 }
 
-// IssueTeam resolves a Linear issue/comment-parent id (e.g. "HAH-69") to its
+// IssueTeam resolves a Linear issue/comment-parent id (e.g. "PROJ-69") to its
 // team's display name via ONE linear_get_issue call. Returns an error on any
 // lookup failure (timeout, non-200, malformed result, tool-reported error,
 // or an issue with no team) so the caller can fail closed -- mirrors
@@ -51,7 +51,7 @@ func IssueTeam(ctx context.Context, client ToolCaller, issueID string) (string, 
 // linearGetProjectTool is the vMCP tool name for Linear's read-only project
 // fetch, same recursion-safety posture as linearGetIssueTool above: keep it
 // unmapped in Cerbos, or any future deny rule on it will silently fail-closed
-// every save_project update-team lookup (HAH-91) instead of the intended
+// every save_project update-team lookup instead of the intended
 // per-call fail-closed behavior tied to the actual project team check.
 const linearGetProjectTool = "linear_get_project"
 

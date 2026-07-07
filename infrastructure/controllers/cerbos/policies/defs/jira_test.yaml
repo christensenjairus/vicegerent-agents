@@ -7,7 +7,7 @@ description: Jira reads are allowed against any project; Jira writes targeting a
   or an epicKey/parent smuggled inside additional_fields/fields JSON) are denied,
   while writes confined to an allowed project are allowed. Writes setting a disallowed
   issue type (top-level on create, or smuggled into update's fields/additional_fields
-  JSON) are denied (HAH-92).
+  JSON) are denied.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:

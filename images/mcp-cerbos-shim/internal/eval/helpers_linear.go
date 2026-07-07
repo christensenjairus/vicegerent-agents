@@ -138,7 +138,7 @@ func lookupCIStringSlice(m map[string]any, key string) []string {
 
 // linearLabelAttrOption: create_issue_label's teamId arg is optional --
 // omitted entirely for a workspace-scoped label, set for a team-scoped one
-// (HAH-91). A plain `attr: {teamId: get(args,'teamId',”)}` in mapping.yaml
+// A plain `attr: {teamId: get(args,'teamId',”)}` in mapping.yaml
 // would put an empty-but-present teamId key on every workspace label
 // (teamId omitted) and Cerbos's has()-based deny-non-devops-team check would
 // trip on all of them, same failure mode linearIssueAttr's doc comment

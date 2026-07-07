@@ -237,7 +237,7 @@ func TestDeployedGithubMapping_GetMeIsUnmappedAndPasses(t *testing.T) {
 
 // TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo
 // proves the shipped mapping surfaces method for resolve_thread/unresolve_thread
-// (HAH-75) and that the real Cerbos deny fires for it -- confirmed against
+// and that the real Cerbos deny fires for it -- confirmed against
 // defs/github_test.yaml's deny-resolve-thread rule, this only proves the wiring.
 func TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo(t *testing.T) {
 	m := deployedMapping(t)
@@ -271,7 +271,7 @@ func TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRe
 }
 
 // TestDeployedGithubMapping_ReviewersAttrWiredOnCreateAndUpdate proves the
-// shipped mapping's HAH-84 wiring: create/update_pull_request's reviewers arg
+// shipped mapping's wiring: create/update_pull_request's reviewers arg
 // reaches Cerbos as hasReviewers. The actual deny decision is exercised in
 // defs/github_test.yaml.
 func TestDeployedGithubMapping_ReviewersAttrWiredOnCreateAndUpdate(t *testing.T) {

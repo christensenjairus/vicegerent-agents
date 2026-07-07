@@ -1,5 +1,5 @@
 ---
-# web_crawl policy (HAH-74, extended HAH-93, HAH-94): deny Tavily/Firecrawl crawl+map
+# web_crawl policy: deny Tavily/Firecrawl crawl+map
 # calls whose url (or Tavily's select_domains regex patterns) targets this
 # platform's own trust boundary -- loopback, RFC1918/link-local ranges, the
 # cloud metadata IP, *.local/*.internal/*.svc.cluster.local names, or
@@ -12,17 +12,17 @@
 # helper (helpers_webcrawl.go) computes isInternalTarget and the three
 # numeric fields; an absent numeric field reads as 0 and never trips its cap.
 #
-# HAH-93: firecrawl_scrape/firecrawl_extract/firecrawl_agent/tavily_extract
+# firecrawl_scrape/firecrawl_extract/firecrawl_agent/tavily_extract
 # don't discover new targets the way crawl/map do, but their single `url` or
 # `urls` array is exactly as caller-controlled and exactly as exposed to the
-# same SSRF trust boundary as crawl/map's starting url -- HAH-74 left them
+# same SSRF trust boundary as crawl/map's starting url -- these were left
 # unmapped on the "doesn't discover new targets" reasoning, which is true for
 # scope-creep but false for SSRF of the seed target itself. These are mapped
 # to the same web_crawl resource with a separate `fetch` action (no
 # limit/depth/breadth caps apply -- these tools have no such args), using the
 # webFetchAttr helper to compute the same isInternalTarget over url/urls[].
 #
-# HAH-94: firecrawl_monitor_create/firecrawl_monitor_update set up a
+# firecrawl_monitor_create/firecrawl_monitor_update set up a
 # PERSISTENT recurring fetch, so an internal-only target there is a standing
 # SSRF probe rather than a one-shot hit -- worse than crawl/map, especially
 # with monitor_create's optional webhookUrl pushing results back out. These

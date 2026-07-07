@@ -14,7 +14,7 @@ func init() {
 	registerHelper("githubReviewersAttr", githubReviewersAttrOption)
 }
 
-// githubReviewersAttrOption (HAH-84): create_pull_request's/update_pull_request's
+// githubReviewersAttrOption: create_pull_request's/update_pull_request's
 // `reviewers` arg is a real JSON array on the wire (GitHub usernames or
 // ORG/team-slug reviewers to request), not a string -- lookupCI/get() only
 // match string-typed values and would silently return the "" default even
