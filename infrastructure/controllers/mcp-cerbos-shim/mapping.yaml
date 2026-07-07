@@ -164,9 +164,18 @@ backends:
       #     human's comment" from "reply to the bot's own" — the honest
       #     fallback (same pattern as Alertmanager's deleteSilence) is to
       #     remove the whole surface rather than partially enforce it.
-      #     add_comment_to_pending_review is kept: that's the bot leaving an
-      #     inline comment on its OWN pending review, not replying to
-      #     someone else's existing comment, so it's a different risk shape.
+      #   - No pull_request_review_write/add_comment_to_pending_review: the
+      #     operator does not want the bot leaving ANY comment/review text on
+      #     a PR at all, not just replies -- inline pending-review comments
+      #     and review submissions carrying free-text bodies (COMMENT/
+      #     REQUEST_CHANGES; APPROVE was already Cerbos-denied, but that only
+      #     blocked approval, not the comment text itself) are both removed
+      #     from the tool allowlist entirely (toolhive-servers.json), same
+      #     "no discriminating signal, remove the capability" pattern as
+      #     add_reply_to_pull_request_comment above. This also removes the
+      #     resolve_thread/unresolve_thread threadId-spoofing bypass that
+      #     pull_request_review_write carried (see git history / MR
+      #     description) — it can't fire if the tool itself doesn't exist.
       github_pull_request_read: &github_repo
         resourceType: github_repo
         action: access
@@ -175,36 +184,6 @@ backends:
           owner: get(args,'owner','')
           repo: get(args,'repo','')
           branch: get(args,'branch','')
-      # pull_request_review_write carries a review 'event' arg
-      # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending) and
-      # a 'method' arg. Cerbos denies event==APPROVE so the bot can never
-      # approve its own (or anyone's) PR; comment/request-changes untouched.
-      # resolve_thread/unresolve_thread carry ONLY
-      # threadId per the tool's own schema -- "owner, repo, and pullNumber
-      # parameters are not used for this method" -- so they structurally
-      # bypass the github_repo owner/repo allowlist above; a thread ID from
-      # ANY repo the token can reach can be resolved, not just allowlisted
-      # ones. No tool in this allowlist resolves a threadId back to
-      # owner/repo (pull_request_read's get_review_comments method needs
-      # owner/repo as INPUT to list threads, not as output from a threadId --
-      # wrong direction), so there's no live lookup to gate on, unlike the
-      # Linear/Notion ancestry checks. Rather than accept the bypass as
-      # residual risk, this denies method in [resolve_thread,
-      # unresolve_thread] outright -- same "no discriminating signal, remove
-      # the capability" pattern already applied to
-      # add_reply_to_pull_request_comment above and Alertmanager's
-      # deleteSilence. Muting a human reviewer's blocking comment by marking
-      # its thread resolved is exactly the kind of pushback-suppression this
-      # shim already treats as a self-approval-adjacent risk.
-      github_pull_request_review_write:
-        <<: *github_repo
-        attr:
-          owner: get(args,'owner','')
-          repo: get(args,'repo','')
-          branch: get(args,'branch','')
-          event: get(args,'event','')
-          method: get(args,'method','')
-      github_add_comment_to_pending_review: *github_repo
       # create/update_pull_request force draft: true regardless of what's sent —
       # every PR the agent opens (or un-drafts via update) stays a draft. This is
       # a mutation (allow-with-rewritten-args), not a deny: see server.go's Force
