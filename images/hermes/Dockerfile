@@ -197,9 +197,17 @@ RUN case "${TARGETARCH}" in \
 # (bcr.bazel.build, or an internal mirror) still needs its host reachable at *runtime* --
 # this bake only guarantees bazel/buildozer/buildifier themselves are present offline.
 #
-# JVM trust for that runtime registry fetch (JAVA_TOOL_OPTIONS + PKCS12 truststore) is
-# set up in charts/agent/templates/_sandbox.tpl, not here -- the proxy CA cert content
-# is a cluster Secret, unavailable at image-build time.
+# keytool (from a headless JRE) so _sandbox.tpl can build a Java-visible PKCS12
+# truststore at pod-start from the egress-proxy CA (a cluster Secret, unavailable
+# at image-build time). `openssl pkcs12 -export` alone produces a PKCS12 file with
+# no per-cert friendlyName/alias, which Java's own PKCS12 keystore SPI then reports
+# as containing 0 entries even though openssl reads it fine -- keytool -importcert
+# (one call per cert, explicit -alias) is what actually produces entries Java sees.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-17-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && keytool -help >/dev/null
+
 # renovate: datasource=github-releases depName=bazelbuild/bazelisk
 ARG BAZELISK_VERSION=v1.29.0
 # renovate: datasource=github-releases depName=bazelbuild/buildtools
@@ -230,6 +238,13 @@ RUN case "${TARGETARCH}" in \
     && USE_BAZEL_VERSION="${BAZEL_PINNED_VERSION}" bazelisk version \
     && test -n "$(find "${BAZELISK_HOME}" -type f -name 'bazel-real' -o -type f -iname 'bazel*' 2>/dev/null | head -1)" \
     && chmod -R a+rX "${BAZELISK_HOME}"
+
+# Bazel's launcher explicitly discards JAVA_TOOL_OPTIONS ("WARNING: ignoring
+# JAVA_TOOL_OPTIONS in environment"), so the JVM trust flags below can't be
+# delivered as an env var for Bazel specifically -- only `--host_jvm_args` (CLI
+# or .bazelrc `startup` lines) reaches Bazel's own JVM. See _sandbox.tpl, which
+# writes a per-user ~/.bazelrc alongside the JAVA_TOOL_OPTIONS env var (still
+# valid for every other JVM, e.g. gopls).
 
 # Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
 # renovate: datasource=github-releases depName=rtk-ai/rtk

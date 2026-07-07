@@ -76,12 +76,32 @@ spec:
               # Using only the proxy CA would break direct-egress TLS (Slack, SSH).
               cat /etc/ssl/certs/ca-certificates.crt /reload/egress-proxy-ca/ca.crt \
                 > /opt/data/certs/ca-bundle.crt
-              # JVM-consumable truststore (certs only, -nokeys) for JAVA_TOOL_OPTIONS
-              # below -- JVMs (e.g. Bazel's embedded JDK) ignore SSL_CERT_FILE/CURL_CA_BUNDLE.
-              openssl pkcs12 -export -nokeys \
-                -in /opt/data/certs/ca-bundle.crt \
-                -out /opt/data/certs/java-cacerts.p12 \
-                -passout pass:changeit
+              # JVM-consumable truststore for JAVA_TOOL_OPTIONS below -- JVMs (e.g.
+              # Bazel's embedded JDK) ignore SSL_CERT_FILE/CURL_CA_BUNDLE. Import each
+              # cert individually with an explicit -alias: `openssl pkcs12 -export`
+              # alone omits per-cert friendlyName/alias, which makes Java's own PKCS12
+              # keystore SPI report 0 entries even though openssl reads the file fine.
+              rm -f /opt/data/certs/java-cacerts.p12
+              awk '/BEGIN CERTIFICATE/{n++} {print > ("/tmp/ca-cert-" n ".pem")}' \
+                /opt/data/certs/ca-bundle.crt
+              i=0
+              for f in /tmp/ca-cert-*.pem; do
+                i=$((i + 1))
+                keytool -importcert -noprompt -trustcacerts \
+                  -alias "ca-${i}" -file "$f" \
+                  -keystore /opt/data/certs/java-cacerts.p12 \
+                  -storetype PKCS12 -storepass changeit >/dev/null
+              done
+              rm -f /tmp/ca-cert-*.pem
+              # Bazel's launcher discards JAVA_TOOL_OPTIONS outright ("WARNING: ignoring
+              # JAVA_TOOL_OPTIONS in environment") -- only --host_jvm_args (CLI or a
+              # .bazelrc `startup` line) reaches Bazel's own JVM. Write a per-user
+              # .bazelrc so this applies with zero flags on every invocation.
+              printf '%s\n' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStore=/opt/data/certs/java-cacerts.p12' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStoreType=PKCS12' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStorePassword=changeit' \
+                > "${HOME}/.bazelrc"
               # digest-gated reseed (rm-first); layout=v2 forces reseed off old dest paths;
               # also reseed if llm_dest is empty (its own PVC, excluded from Velero backup).
               seed="/opt/hermes/mnemosyne-seed"
