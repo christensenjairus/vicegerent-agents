@@ -234,3 +234,85 @@ func TestDeployedGithubMapping_GetMeIsUnmappedAndPasses(t *testing.T) {
 		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
 	}
 }
+
+// TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo
+// proves the shipped mapping surfaces method for resolve_thread/unresolve_thread
+// (HAH-75) and that the real Cerbos deny fires for it -- confirmed against
+// defs/github_test.yaml's deny-resolve-thread rule, this only proves the wiring.
+func TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	for _, method := range []string{"resolve_thread", "unresolve_thread"} {
+		t.Run(method, func(t *testing.T) {
+			// allow=true here on purpose: this proves the SHIM surfaces the
+			// method attr correctly, independent of whatever the real Cerbos
+			// policy decides -- the actual deny is exercised in
+			// defs/github_test.yaml against the real policy.
+			d := &stubDecider{allow: true}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall("github_pull_request_review_write",
+					map[string]any{"owner": "christensenjairus", "repo": "vicegerent-agents", "method": method, "threadId": "PRRT_abc"})))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isPass(res) {
+				t.Fatalf("stubDecider allows unconditionally; expected pass")
+			}
+			if d.gotAttr["method"] != method {
+				t.Errorf("attr.method = %q, want %q -- the shipped mapping must surface method for pull_request_review_write", d.gotAttr["method"], method)
+			}
+		})
+	}
+}
+
+// TestDeployedGithubMapping_ReviewersAttrWiredOnCreateAndUpdate proves the
+// shipped mapping's HAH-84 wiring: create/update_pull_request's reviewers arg
+// reaches Cerbos as hasReviewers. The actual deny decision is exercised in
+// defs/github_test.yaml.
+func TestDeployedGithubMapping_ReviewersAttrWiredOnCreateAndUpdate(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	cases := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"github_create_pull_request", map[string]any{
+			"owner": "christensenjairus", "repo": "vicegerent-agents",
+			"title": "t", "head": "h", "base": "main", "reviewers": []any{"someuser"},
+		}},
+		{"github_update_pull_request", map[string]any{
+			"owner": "christensenjairus", "repo": "vicegerent-agents",
+			"pullNumber": 1, "reviewers": []any{"someuser"},
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			d := &stubDecider{allow: false}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall(tc.tool, tc.args)))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isDeny(res) {
+				t.Fatalf("expected deny when Cerbos denies")
+			}
+			if d.gotAttr["hasReviewers"] != "true" {
+				t.Errorf("attr.hasReviewers = %q, want true -- the shipped mapping must surface a non-empty reviewers array", d.gotAttr["hasReviewers"])
+			}
+			if d.gotAttr["owner"] != "christensenjairus" || d.gotAttr["repo"] != "vicegerent-agents" {
+				t.Errorf("owner/repo not preserved alongside hasReviewers: %v", d.gotAttr)
+			}
+		})
+	}
+}

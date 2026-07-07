@@ -26,6 +26,7 @@ backends:
       - notionAttr
       - notionCreateAttr
       - jiraFieldsAttr
+      - githubReviewersAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -158,9 +159,26 @@ backends:
           repo: get(args,'repo','')
           branch: get(args,'branch','')
       # pull_request_review_write carries a review 'event' arg
-      # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending).
-      # HAH-65: Cerbos denies event==APPROVE so the bot can never approve its
-      # own (or anyone's) PR; comment/request-changes/resolve-thread untouched.
+      # (APPROVE/REQUEST_CHANGES/COMMENT for method=create|submit_pending) and
+      # a 'method' arg. HAH-65: Cerbos denies event==APPROVE so the bot can
+      # never approve its own (or anyone's) PR; comment/request-changes
+      # untouched. HAH-75: resolve_thread/unresolve_thread carry ONLY
+      # threadId per the tool's own schema -- "owner, repo, and pullNumber
+      # parameters are not used for this method" -- so they structurally
+      # bypass the github_repo owner/repo allowlist above; a thread ID from
+      # ANY repo the token can reach can be resolved, not just allowlisted
+      # ones. No tool in this allowlist resolves a threadId back to
+      # owner/repo (pull_request_read's get_review_comments method needs
+      # owner/repo as INPUT to list threads, not as output from a threadId --
+      # wrong direction), so there's no live lookup to gate on, unlike the
+      # Linear/Notion ancestry checks. Rather than accept the bypass as
+      # residual risk, this denies method in [resolve_thread,
+      # unresolve_thread] outright -- same "no discriminating signal, remove
+      # the capability" pattern already applied to
+      # add_reply_to_pull_request_comment above and Alertmanager's
+      # deleteSilence. Muting a human reviewer's blocking comment by marking
+      # its thread resolved is exactly the kind of pushback-suppression this
+      # shim already treats as a self-approval-adjacent risk (HAH-65).
       github_pull_request_review_write:
         <<: *github_repo
         attr:
@@ -168,17 +186,36 @@ backends:
           repo: get(args,'repo','')
           branch: get(args,'branch','')
           event: get(args,'event','')
+          method: get(args,'method','')
       github_add_comment_to_pending_review: *github_repo
       # create/update_pull_request force draft: true regardless of what's sent —
       # every PR the agent opens (or un-drafts via update) stays a draft. This is
       # a mutation (allow-with-rewritten-args), not a deny: see server.go's Force
       # handling. Applied only after the repo/branch checks above already passed.
+      # HAH-84: both tools also carry a 'reviewers' array (GitHub usernames or
+      # ORG/team-slug reviewers to request) -- there is no separate
+      # "assignee" concept on a PR (assignees only exists on issue_write,
+      # which isn't in this allowlist at all), so 'reviewers' is the actual
+      # PR analog HAH-84 was after. Rather than build an allowlist for a
+      # capability the operator isn't sure should exist at all, this denies
+      # any call that sets reviewers outright -- request reviews manually
+      # instead.
       github_create_pull_request:
         <<: *github_repo
         force: {draft: true}
+        attrFrom: githubReviewersAttr(args)
+        attr:
+          owner: get(args,'owner','')
+          repo: get(args,'repo','')
+          branch: get(args,'branch','')
       github_update_pull_request:
         <<: *github_repo
         force: {draft: true}
+        attrFrom: githubReviewersAttr(args)
+        attr:
+          owner: get(args,'owner','')
+          repo: get(args,'repo','')
+          branch: get(args,'branch','')
       github_list_pull_requests: *github_repo
       github_search_pull_requests: *github_repo
       github_request_copilot_review: *github_repo
