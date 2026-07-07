@@ -397,6 +397,18 @@ COPY patches/0016-credential-pool-anthropic-base-url.py /tmp/0016-credential-poo
 RUN /opt/hermes/.venv/bin/python /tmp/0016-credential-pool-anthropic-base-url.py
 RUN rm -f /tmp/0016-credential-pool-anthropic-base-url.py
 
+# Patch tools/mcp_tool.py so a parked MCP server (reconnect budget exhausted)
+# keeps retrying forever on a fixed cadence (default 30s, floored at 10s,
+# configurable per server via mcp_servers.<name>.parked_retry_interval)
+# instead of blocking indefinitely for an external nudge (a tool call, OAuth
+# recovery, or a manual /mcp refresh). Without this, an MCP backend outage
+# longer than the ~2min initial reconnect budget requires restarting Hermes
+# to reconnect even after the backend comes back on its own. Remove once
+# upstream Hermes adds a periodic parked-retry timeout of its own.
+COPY patches/0017-mcp-parked-auto-retry.py /tmp/0017-mcp-parked-auto-retry.py
+RUN /opt/hermes/.venv/bin/python /tmp/0017-mcp-parked-auto-retry.py
+RUN rm -f /tmp/0017-mcp-parked-auto-retry.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
