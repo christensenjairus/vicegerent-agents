@@ -44,11 +44,24 @@ var notionAncestryGatedActions = map[string]bool{
 	notionCommentAction: true,
 }
 
-// notionAncestryTimeout bounds the single live notion-fetch the ancestry gate
-// makes, so one update-page call can't hang the whole CheckRequest (the gateway
-// is FailClosed, so a hang would deny anyway — but only after its own longer
-// timeout, holding the connection open meanwhile).
-const notionAncestryTimeout = 5 * time.Second
+// linearSaveCommentTool and linearTeamResource identify the one call the
+// HAH-69 team-resolution gate applies to: linear_save_comment mapped to
+// linear_team/access (mapping.yaml). Keying off the tool name (not just the
+// resource/action pair, unlike the Notion gate above) because save_issue
+// shares the exact same resourceType/action and must NOT be re-resolved --
+// its own teamId is already populated directly from the call's own `team`
+// arg by linearIssueAttr, a genuinely different, already-verifiable signal.
+const (
+	linearSaveCommentTool = "linear_save_comment"
+	linearTeamResource    = "linear_team"
+)
+
+// upstreamLookupTimeout bounds a single live shim->vMCP lookup call (Notion
+// ancestry, Linear issue-team resolution) so one gated tools/call can't hang
+// the whole CheckRequest (the gateway is FailClosed, so a hang would deny
+// anyway — but only after its own longer timeout, holding the connection
+// open meanwhile).
+const upstreamLookupTimeout = 5 * time.Second
 
 // callToolMeta is the vMCP optimizer's (thv vmcp serve --optimizer/--optimizer-embedding)
 // meta-tool name. With the optimizer on, vMCP exposes only find_tool/call_tool instead
@@ -96,6 +109,16 @@ type Server struct {
 	// Scratchpad-only via its own, narrower Cerbos deny rule.
 	notionAncestry         upstream.ToolCaller
 	notionAllowedParentIDs []string
+
+	// linearIssueTeam, when set, resolves a Linear save_comment call's
+	// issueId to its team via a live linear_get_issue lookup -- a network
+	// round trip the CEL/Cerbos path can't make, same rationale as
+	// notionAncestry above. Unlike the Notion gate this doesn't deny
+	// directly: it injects the resolved team into the resource's teamId attr
+	// so Cerbos's existing deny-non-devops-team rule (resource_linear.yaml)
+	// evaluates it exactly like a save_issue call, with zero duplication of
+	// the allowlist.
+	linearIssueTeam upstream.ToolCaller
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -113,6 +136,15 @@ func WithNotionAncestry(client upstream.ToolCaller, allowedParentIDs []string) O
 	return func(s *Server) {
 		s.notionAncestry = client
 		s.notionAllowedParentIDs = allowedParentIDs
+	}
+}
+
+// WithLinearIssueTeam enables the Linear save_comment issueId->team
+// resolution gate (HAH-69). client resolves an issue id to its team
+// (production: an upstream.Client to vMCP; tests: a stub).
+func WithLinearIssueTeam(client upstream.ToolCaller) Option {
+	return func(s *Server) {
+		s.linearIssueTeam = client
 	}
 }
 
@@ -213,6 +245,34 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		}
 	}
 
+	// Linear save_comment team-resolution gate (HAH-69): this runs BEFORE
+	// Cerbos and, unlike the Notion gate above, doesn't deny directly -- it
+	// resolves issueId to its team via a live lookup and injects that team
+	// into res.Attr's teamId key, so Cerbos's existing deny-non-devops-team
+	// rule (resource_linear.yaml) evaluates this exactly like a save_issue
+	// call. save_issue itself is untouched (its own teamId is already
+	// populated by linearIssueAttr in mapping.yaml); this only fires for
+	// linear_save_comment, and only when the call has an issueId to resolve
+	// (a comment on a project/initiative/document/milestone, or a reply via
+	// parentId with no entity ref, has nothing to resolve and passes
+	// unchecked -- same fail-open-when-unverifiable posture as save_project's
+	// linearProjectAttr helper). Gated on the issueId ATTR, not res.ID --
+	// res.ID falls back to "*" when issueId is absent (mapping.yaml), same
+	// non-empty-id convention save_project's id: get(args,'id','*') uses,
+	// since Cerbos itself rejects an empty resource.id before policy ever
+	// runs.
+	if cp.Name == linearSaveCommentTool && res.ResourceType == linearTeamResource {
+		issueID, _ := res.Attr["issueId"].(string)
+		if issueID != "" {
+			team, derr := s.checkLinearIssueTeam(ctx, issueID)
+			if derr != nil {
+				log.Printf("deny: linear save_comment team lookup (issue=%q backend=%s): %v", issueID, backend, derr)
+				return deny(derr.Error()), nil
+			}
+			res.Attr["teamId"] = team
+		}
+	}
+
 	allowed, reason, err := s.decider.IsAllowed(ctx,
 		s.principal.ID, s.principal.Roles,
 		res.ResourceType, res.ID, res.Attr, res.Action)
@@ -276,7 +336,7 @@ func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
 	if pageID == "" {
 		return fmt.Errorf("notion call has no page_id; cannot verify allowed-parent ancestry")
 	}
-	ctx, cancel := context.WithTimeout(ctx, notionAncestryTimeout)
+	ctx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
 	defer cancel()
 	under, err := upstream.PageIsUnderAnyAncestor(ctx, s.notionAncestry, pageID, s.notionAllowedParentIDs)
 	if err != nil {
@@ -286,6 +346,25 @@ func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
 		return fmt.Errorf("this agent may only write to Notion pages under its allowed parent folders; page %q is not, so the write is denied", pageID)
 	}
 	return nil
+}
+
+// checkLinearIssueTeam resolves issueID to its team via a live lookup, or
+// returns an error (used verbatim as the deny reason) on any failure --
+// fail-closed contract mirrors checkNotionAncestry above: an unconfigured
+// gate or a lookup error both deny rather than silently allow-through with
+// no teamId attr (which would let the call skip Cerbos's team check
+// entirely, the exact hole HAH-69 closes).
+func (s *Server) checkLinearIssueTeam(ctx context.Context, issueID string) (string, error) {
+	if s.linearIssueTeam == nil {
+		return "", fmt.Errorf("linear issue-team gate not configured; denying save_comment for issue %q", issueID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
+	defer cancel()
+	team, err := upstream.IssueTeam(ctx, s.linearIssueTeam, issueID)
+	if err != nil {
+		return "", fmt.Errorf("could not verify this Linear issue's team (failing closed): %v", err)
+	}
+	return team, nil
 }
 
 // resolveBackend enforces exactly-one mapped backend in service_names.
