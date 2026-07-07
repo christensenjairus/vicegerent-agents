@@ -1,3 +1,4 @@
 ---
 apexWildcardDomains: ${apexWildcardDomains}
 exactOnlyDomains: ${exactOnlyDomains}
+internalAllowlistCIDRs: ${internalAllowlistCIDRs}

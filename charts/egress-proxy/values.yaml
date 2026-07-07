@@ -3,3 +3,12 @@
 # allowlist is opt-in per cluster. Both drive the Cilium policy and scrub.py from one source.
 apexWildcardDomains: ''
 exactOnlyDomains: ''
+
+# Comma-joined CIDRs (or single IPs, e.g. a /32) to carve out of the egressDeny
+# RFC1918 10.0.0.0/8 block below, via Cilium's CIDRRule `except` field
+# (templates/networkpolicy.yaml). Empty by default -- no machine gets a private-network
+# carve-out unless it opts in via cluster-vars.yaml. Getting a host allowed here does NOT
+# make it reachable on its own -- its FQDN must also be added to exactOnlyDomains/
+# apexWildcardDomains above so scrub.py's own allowlist check (independent of Cilium)
+# doesn't 403 it.
+internalAllowlistCIDRs: ''

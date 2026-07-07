@@ -179,7 +179,6 @@ For a service the **proxy fetches** (GET/HEAD through the egress proxy):
    application-layer gate) — so the two can no longer drift.
 2. If the service needs POST it cannot go through the proxy (external POST → 403) — route it direct instead (below)
 3. If the service holds credentials, add a `REDACT_PATTERNS` entry for its token format
-
 For a service the sandbox reaches **direct** (bypassing the proxy, e.g. Slack):
 1. Add the FQDN to `networkAllowlist.slackFQDNs` in `apps/personal/agents/hermes/values.yaml`
    (rendered by `charts/agent/templates/networkpolicy.yaml`)
