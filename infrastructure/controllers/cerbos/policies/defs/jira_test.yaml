@@ -5,7 +5,9 @@ name: jira_write_project_allowlist_test
 description: Jira reads are allowed against any project; Jira writes targeting a project
   other than the allowed list (by project_key, issue/inward/outward/epic key prefix,
   or an epicKey/parent smuggled inside additional_fields/fields JSON) are denied,
-  while writes confined to an allowed project are allowed.
+  while writes confined to an allowed project are allowed. Writes setting a disallowed
+  issue type (top-level on create, or smuggled into update's fields/additional_fields
+  JSON) are denied (HAH-92).
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -25,6 +27,7 @@ resources:
       extraEpicKey: ''
       extraParentKey: ''
       assignee: jchristensen@moveworks.ai
+      issueType: ''
   create_in_other:
     id: FOO
     kind: jira_project
@@ -36,6 +39,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   get_change_issue:
     id: CHANGE-123
     kind: jira_project
@@ -47,6 +51,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   get_other_issue:
     id: FOO-9
     kind: jira_project
@@ -58,6 +63,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   link_mixed_projects:
     id: CHANGE-1
     kind: jira_project
@@ -69,6 +75,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   link_to_change_epic:
     id: CHANGE-1
     kind: jira_project
@@ -80,6 +87,7 @@ resources:
       epicKey: CHANGE-9
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   link_to_other_epic:
     id: CHANGE-1
     kind: jira_project
@@ -91,6 +99,7 @@ resources:
       epicKey: FOO-9
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   no_keys:
     id: '*'
     kind: jira_project
@@ -102,6 +111,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      issueType: ''
   create_change_but_smuggled_epic:
     id: CHANGE
     kind: jira_project
@@ -113,6 +123,7 @@ resources:
       epicKey: ''
       extraEpicKey: FOO-9
       extraParentKey: ''
+      issueType: ''
   create_change_but_smuggled_parent:
     id: CHANGE
     kind: jira_project
@@ -124,6 +135,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: FOO-2
+      issueType: ''
   create_change_with_allowed_smuggled_epic:
     id: CHANGE
     kind: jira_project
@@ -136,6 +148,7 @@ resources:
       extraEpicKey: CHANGE-9
       extraParentKey: ''
       assignee: jchristensen@moveworks.ai
+      issueType: ''
   create_with_disallowed_assignee:
     id: CHANGE
     kind: jira_project
@@ -148,6 +161,7 @@ resources:
       extraEpicKey: ''
       extraParentKey: ''
       assignee: someone@example.com
+      issueType: ''
   create_with_allowed_assignee:
     id: CHANGE
     kind: jira_project
@@ -160,6 +174,7 @@ resources:
       extraEpicKey: ''
       extraParentKey: ''
       assignee: jchristensen@moveworks.ai
+      issueType: ''
   create_with_no_assignee:
     id: CHANGE
     kind: jira_project
@@ -172,6 +187,7 @@ resources:
       extraEpicKey: ''
       extraParentKey: ''
       assignee: ''
+      issueType: ''
   update_with_no_assignee:
     id: CHANGE-1
     kind: jira_project
@@ -184,6 +200,91 @@ resources:
       extraEpicKey: ''
       extraParentKey: ''
       assignee: ''
+      issueType: ''
+  create_with_allowed_issue_type:
+    # Deploy Service Specific/Service Restart/Environment Change are this
+    # operator's actual ops issue types on this cluster's Jira project --
+    # Task/Bug/Story are NOT allowed here (removed per operator direction).
+    id: CHANGE
+    kind: jira_project
+    attr:
+      projectKey: CHANGE
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
+      issueType: Deploy Service Specific
+  create_with_allowed_ops_issue_type:
+    id: CHANGE
+    kind: jira_project
+    attr:
+      projectKey: CHANGE
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
+      issueType: Environment Change
+  create_with_disallowed_task_issue_type:
+    # Task is no longer allowed on this cluster -- it was removed from
+    # jiraAllowedIssueTypes per operator direction (this project only uses
+    # the three ops types above).
+    id: CHANGE
+    kind: jira_project
+    attr:
+      projectKey: CHANGE
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
+      issueType: Task
+  create_with_disallowed_issue_type:
+    id: CHANGE
+    kind: jira_project
+    attr:
+      projectKey: CHANGE
+      issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
+      issueType: Epic
+  update_with_no_issue_type:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-1
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: ''
+      issueType: ''
+  update_with_smuggled_disallowed_issue_type:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-1
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: ''
+      issueType: Subtask
 tests:
   - name: reads against any project are always allowed, regardless of allowlist
     input:
@@ -300,3 +401,38 @@ tests:
       - principal: hermes
         resource: update_with_no_assignee
         actions: {write: EFFECT_ALLOW}
+  - name: issue-type scoping (jiraAllowedIssueTypes is Environment Change/Deploy Service
+      Specific/Service Restart on this cluster, matching validate.sh's work cluster-vars.yaml)
+      denies a disallowed issue type -- including Task, which is NOT in this cluster's
+      allowlist -- whether set on create or smuggled into update's fields/additional_fields
+      JSON, allows an allowed ops type, and doesn't require one on an ordinary update
+      that doesn't touch issue type
+    input:
+      principals: [hermes]
+      resources:
+        - create_with_allowed_issue_type
+        - create_with_allowed_ops_issue_type
+        - create_with_disallowed_issue_type
+        - create_with_disallowed_task_issue_type
+        - update_with_no_issue_type
+        - update_with_smuggled_disallowed_issue_type
+      actions: [write]
+    expected:
+      - principal: hermes
+        resource: create_with_allowed_issue_type
+        actions: {write: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_with_allowed_ops_issue_type
+        actions: {write: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_with_disallowed_issue_type
+        actions: {write: EFFECT_DENY}
+      - principal: hermes
+        resource: create_with_disallowed_task_issue_type
+        actions: {write: EFFECT_DENY}
+      - principal: hermes
+        resource: update_with_no_issue_type
+        actions: {write: EFFECT_ALLOW}
+      - principal: hermes
+        resource: update_with_smuggled_disallowed_issue_type
+        actions: {write: EFFECT_DENY}

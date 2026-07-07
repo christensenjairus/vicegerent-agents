@@ -107,10 +107,13 @@ backends:
       # jiraFieldsAttr helper parses those JSON args with a real JSON
       # decode (not fragile CEL string matching) and surfaces any embedded
       # epicKey/parent reference as extraEpicKey/extraParentKey, which
-      # resource_jira.yaml's write rule now also checks. Other write tools
-      # (transition/comment/link) don't carry additional_fields/fields at
-      # all, so attrFrom is harmless there too -- it always resolves both
-      # extra keys to "".
+      # resource_jira.yaml's write rule now also checks. The same helper
+      # also surfaces issue_type/issuetype (HAH-92, top-level on create;
+      # only via fields/additional_fields JSON on update, which has no
+      # top-level issue_type arg at all) as issueType, checked against
+      # ${jiraAllowedIssueTypes}. Other write tools (transition/comment/link)
+      # don't carry additional_fields/fields at all, so attrFrom is harmless
+      # there too -- it always resolves every extra key to "".
       jira_jira_create_issue: &jira_proj_write
         resourceType: jira_project
         action: write

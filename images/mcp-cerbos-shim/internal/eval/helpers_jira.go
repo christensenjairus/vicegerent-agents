@@ -51,6 +51,15 @@ func init() {
 // matching every other helper's fail-open-when-unverifiable posture across
 // this shim -- this is a strict widening of what's checked, never a
 // narrowing.
+//
+//   - HAH-92: issue-type scoping. jira_create_issue's top-level issue_type
+//     arg (required -- 'Task', 'Bug', 'Story', 'Epic', 'Subtask', per the
+//     tool's own docs) is surfaced as issueType, same side channel risk as
+//     epicKey/parent: jira_update_issue has NO top-level issue_type arg at
+//     all (confirmed against docs/available-mcp-tools/jira.yaml), so an
+//     'issuetype'/'issueType' key inside its required fields JSON (or
+//     create's additional_fields) is the only way to change/set it there,
+//     and is parsed the same way epicKey/parent already are.
 func jiraFieldsAttrOption() []cel.EnvOption {
 	return []cel.EnvOption{
 		cel.Function("jiraFieldsAttr",
@@ -62,8 +71,10 @@ func jiraFieldsAttrOption() []cel.EnvOption {
 
 					extraEpicKey := ""
 					extraParentKey := ""
-					// Top-level assignee (create_issue's own arg).
+					// Top-level assignee/issue_type (create_issue's own args;
+					// update_issue has neither top-level, only via fields JSON).
 					assignee := lookupCI(m, "assignee", "")
+					issueType := lookupCI(m, "issue_type", "")
 
 					for _, argName := range []string{"additional_fields", "fields"} {
 						raw := lookupCI(m, argName, "")
@@ -87,12 +98,21 @@ func jiraFieldsAttrOption() []cel.EnvOption {
 						if v := jsonStringField(parsed, "assignee"); v != "" && assignee == "" {
 							assignee = v
 						}
+						// Same shape for issue_type: update_issue has no
+						// top-level arg at all, only 'issuetype'/'issueType'
+						// inside fields/additional_fields JSON -- either a
+						// plain string or Jira's own REST-API {"name": "Epic"}
+						// object shape, so check both.
+						if v := jsonIssueTypeField(parsed); v != "" && issueType == "" {
+							issueType = v
+						}
 					}
 
 					return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{
 						"extraEpicKey":   extraEpicKey,
 						"extraParentKey": extraParentKey,
 						"assignee":       assignee,
+						"issueType":      issueType,
 					})
 				}),
 			),
@@ -113,6 +133,29 @@ func jsonStringField(m map[string]any, keys ...string) string {
 				if s, ok := v.(string); ok {
 					return s
 				}
+			}
+		}
+	}
+	return ""
+}
+
+// jsonIssueTypeField reads an 'issuetype'/'issueType' key that's either a
+// plain string, or Jira's own REST-API {"name": "Epic"} object shape --
+// unlike epicKey/parent (which the tool's docs only ever show as plain
+// strings), a raw fields/additional_fields JSON string smuggling an issue
+// type change plausibly uses either shape, since that's the literal wire
+// format Jira's REST API expects for this field.
+func jsonIssueTypeField(m map[string]any) string {
+	for k, v := range m {
+		if !strings.EqualFold(k, "issuetype") && !strings.EqualFold(k, "issueType") {
+			continue
+		}
+		switch t := v.(type) {
+		case string:
+			return t
+		case map[string]any:
+			if name, ok := t["name"].(string); ok {
+				return name
 			}
 		}
 	}

@@ -34,6 +34,17 @@ data:
   jiraAllowedAssignees: >-
     "jchristensen@moveworks.ai"
 
+  # Jira issue types this machine's agents may create/set on an issue
+  # (resource_jira.yaml). Environment Change/Deploy Service Specific/Service
+  # Restart are this operator's actual ops issue types on this project --
+  # Task/Bug/Story/Epic/Subtask are all excluded, the latter two since they
+  # reshape a project's planning hierarchy (rollups, planning views) and are
+  # a human-only call here. "*" would disable the check entirely, which is
+  # the personal cluster's default instead since it doesn't use Jira for
+  # real work.
+  jiraAllowedIssueTypes: >-
+    "Environment Change", "Deploy Service Specific", "Service Restart"
+
   # Linear team this machine's agents may create/update issues for
   # (resource_linear.yaml). CEL-list-ready set of the team's three identifier
   # forms — the real team UUID, the display name, and the issue-key prefix —

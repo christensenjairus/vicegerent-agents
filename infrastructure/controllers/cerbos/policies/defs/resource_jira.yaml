@@ -45,6 +45,17 @@
 # away from ${jiraAllowedAssignees} is still caught by
 # deny-assignee-outside-allowed below, same as before. The "*" bypass is
 # honored here too, matching the disable-the-whole-check semantics.
+# deny-issue-type-outside-allowed (HAH-92): create/update calls that set
+# issueType (create's top-level issue_type arg, or an 'issuetype'/'issueType'
+# key smuggled into update's fields/additional_fields JSON -- update has no
+# top-level issue_type arg at all) to anything outside
+# ${jiraAllowedIssueTypes} are denied -- project scoping alone doesn't stop
+# an agent from creating/reshaping a project's planning hierarchy with an
+# Epic/Subtask it shouldn't. Mirrors the assignee allowlist's "*" bypass
+# semantics exactly: "*" disables the check entirely, the safe default until
+# the operator opts in, since there was no pre-existing issue-type
+# restriction to preserve.
+#
 # Do NOT add tools here to permit them; that belongs in the vMCP tools
 # allowlist.
 apiVersion: api.cerbos.dev/v1
@@ -113,6 +124,22 @@ resourcePolicy:
           ruleActivated: >-
             "This agent may only assign Jira issues to an allowed user."
             + " The requested assignee is outside that scope."
+    - name: deny-issue-type-outside-allowed
+      actions: [write]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.issueType) && request.resource.attr.issueType
+            != ""
+            && !("*" in [${jiraAllowedIssueTypes}])
+            && !(request.resource.attr.issueType in [${jiraAllowedIssueTypes}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only create/update Jira issues of an allowed"
+            + " issue type. The requested issue type is outside that scope."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
