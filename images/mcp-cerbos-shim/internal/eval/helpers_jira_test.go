@@ -230,3 +230,96 @@ func TestJiraFieldsAttr_NoAssigneeAnywhereResolvesEmpty(t *testing.T) {
 		t.Errorf("assignee = %q, want empty when no assignee is set anywhere", got)
 	}
 }
+
+func TestJiraFieldsAttr_TopLevelIssueTypeSurfaced(t *testing.T) {
+	e := compileJiraTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "jira_jira_create_issue",
+		Args: map[string]any{
+			"project_key": "CHANGE",
+			"issue_type":  "Epic",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := res.Attr["issueType"]; got != "Epic" {
+		t.Errorf("issueType = %q, want Epic (top-level create_issue arg)", got)
+	}
+}
+
+func TestJiraFieldsAttr_IssueTypeSmuggledInFieldsAsPlainString(t *testing.T) {
+	// update_issue has no top-level issue_type arg -- it only ever arrives
+	// inside fields/additional_fields JSON, either a plain string or Jira's
+	// own REST-API {"name": "Epic"} object shape.
+	e := compileJiraTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "jira_jira_create_issue",
+		Args: map[string]any{
+			"project_key": "CHANGE",
+			"fields":      `{"issuetype": "Subtask"}`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := res.Attr["issueType"]; got != "Subtask" {
+		t.Errorf("issueType = %q, want Subtask", got)
+	}
+}
+
+func TestJiraFieldsAttr_IssueTypeSmuggledAsRESTAPIObjectShape(t *testing.T) {
+	e := compileJiraTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "jira_jira_create_issue",
+		Args: map[string]any{
+			"project_key":       "CHANGE",
+			"additional_fields": `{"issueType": {"name": "Epic"}}`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := res.Attr["issueType"]; got != "Epic" {
+		t.Errorf("issueType = %q, want Epic (Jira REST-API {\"name\": ...} object shape)", got)
+	}
+}
+
+func TestJiraFieldsAttr_TopLevelIssueTypeTakesPrecedenceOverFieldsJSON(t *testing.T) {
+	e := compileJiraTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "jira_jira_create_issue",
+		Args: map[string]any{
+			"project_key": "CHANGE",
+			"issue_type":  "Task",
+			"fields":      `{"issuetype": "Epic"}`,
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := res.Attr["issueType"]; got != "Task" {
+		t.Errorf("issueType = %q, want Task (top-level arg wins)", got)
+	}
+}
+
+func TestJiraFieldsAttr_NoIssueTypeAnywhereResolvesEmpty(t *testing.T) {
+	e := compileJiraTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "jira_jira_create_issue",
+		Args: map[string]any{
+			"project_key": "CHANGE",
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if got := res.Attr["issueType"]; got != "" {
+		t.Errorf("issueType = %q, want empty when no issue_type is set anywhere", got)
+	}
+}

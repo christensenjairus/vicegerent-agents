@@ -15,7 +15,10 @@ import (
 // *decision* itself is proven by defs/jira_test.yaml. Also proves the
 // HAH-90-follow-up jiraFieldsAttr wiring: additional_fields/fields JSON
 // smuggling an out-of-scope epicKey/parent reaches Cerbos as
-// extraEpicKey/extraParentKey attrs.
+// extraEpicKey/extraParentKey attrs. Also proves the HAH-92 issue-type
+// wiring: create_issue's top-level issue_type, and update_issue's fields-JSON
+// side channel (no top-level arg exists there), both reach Cerbos as
+// issueType.
 
 func TestDeployedJiraMapping_ReadToolsUseReadAction(t *testing.T) {
 	m := deployedMapping(t)
@@ -105,5 +108,55 @@ func TestDeployedJiraMapping_AdditionalFieldsEpicKeySmugglingReachesCerbos(t *te
 	}
 	if d.gotAttr["projectKey"] != "CHANGE" {
 		t.Errorf("attr.projectKey = %q, want CHANGE -- Attr overlay must survive attrFrom merge", d.gotAttr["projectKey"])
+	}
+}
+
+func TestDeployedJiraMapping_TopLevelIssueTypeReachesCerbos(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("jira_jira_create_issue", map[string]any{
+			"project_key": "CHANGE",
+			"issue_type":  "Epic",
+		})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny when Cerbos denies")
+	}
+	if d.gotAttr["issueType"] != "Epic" {
+		t.Errorf("attr.issueType = %q, want Epic -- the shipped mapping must surface create_issue's top-level issue_type", d.gotAttr["issueType"])
+	}
+}
+
+func TestDeployedJiraMapping_SmuggledIssueTypeInFieldsReachesCerbos(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("jira_jira_update_issue", map[string]any{
+			"issue_key": "CHANGE-1",
+			"fields":    `{"issuetype": "Subtask"}`,
+		})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny when Cerbos denies")
+	}
+	if d.gotAttr["issueType"] != "Subtask" {
+		t.Errorf("attr.issueType = %q, want Subtask -- update_issue has no top-level issue_type arg, only via fields JSON", d.gotAttr["issueType"])
 	}
 }

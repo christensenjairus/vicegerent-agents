@@ -32,6 +32,13 @@ data:
   jiraAllowedAssignees: >-
     "*"
 
+  # Jira issue types this machine's agents may create/set on an issue
+  # (resource_jira.yaml) -- "*" disables the check entirely (safe default
+  # until the operator opts in, matching jiraAllowedAssignees above; there
+  # was no pre-existing issue-type restriction to preserve).
+  jiraAllowedIssueTypes: >-
+    "*"
+
   # Linear team this machine's agents may create/update issues for
   # (resource_linear.yaml). CEL-list-ready set of the team's three identifier
   # forms — the real team UUID, the display name, and the issue-key prefix —
