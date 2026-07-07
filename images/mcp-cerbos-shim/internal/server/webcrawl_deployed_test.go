@@ -11,9 +11,11 @@ import (
 // using the backend name ("vmcp") and prefixed tool names ("tavily_*"/"firecrawl_*")
 // exactly as ToolHive's vMCP presents them. They prove the wiring that turns a
 // crawl/map tool call into the web_crawl resource Cerbos denies for internal
-// targets/out-of-cap limits (HAH-74), and (HAH-93) that the single-URL/multi-URL
+// targets/out-of-cap limits (HAH-74), (HAH-93) that the single-URL/multi-URL
 // fetch tools left unmapped by HAH-74 now reach the same resource via a separate
-// `fetch` action; the deny *decision* itself is proven by defs/webcrawl_test.yaml.
+// `fetch` action, and (HAH-94) that firecrawl_monitor_create/firecrawl_monitor_update
+// reach the same resource via a separate `monitor` action; the deny *decision*
+// itself is proven by defs/webcrawl_test.yaml.
 
 func TestDeployedWebCrawlMapping_MappedToolsReachCerbos(t *testing.T) {
 	m := deployedMapping(t)
@@ -202,6 +204,74 @@ func TestDeployedWebFetchMapping_ExternalURLPasses(t *testing.T) {
 	}
 	if !isPass(res) {
 		t.Fatalf("expected pass for an external url")
+	}
+	if d.gotAttr["isInternalTarget"] != "false" {
+		t.Errorf("attr.isInternalTarget = %q, want false", d.gotAttr["isInternalTarget"])
+	}
+}
+
+// TestDeployedWebMonitorMapping_MappedToolsReachCerbos (HAH-94): proves
+// firecrawl_monitor_create/firecrawl_monitor_update reach Cerbos via the
+// web_crawl resource's new `monitor` action.
+func TestDeployedWebMonitorMapping_MappedToolsReachCerbos(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	cases := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"firecrawl_firecrawl_monitor_create", map[string]any{"page": "http://host.docker.internal:4483/mcp"}},
+		{"firecrawl_firecrawl_monitor_update", map[string]any{"id": "monitor-123", "body": map[string]any{"url": "http://169.254.169.254/latest/meta-data/"}}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			d := &stubDecider{allow: false}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall(tc.tool, tc.args)))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isDeny(res) {
+				t.Fatalf("expected deny when Cerbos denies, got pass")
+			}
+			if d.calls != 1 {
+				t.Fatalf("expected exactly one Cerbos check, got %d", d.calls)
+			}
+			if d.gotType != "web_crawl" {
+				t.Errorf("resourceType = %q, want web_crawl", d.gotType)
+			}
+			if d.gotAct != "monitor" {
+				t.Errorf("action = %q, want monitor", d.gotAct)
+			}
+			if d.gotAttr["isInternalTarget"] != "true" {
+				t.Errorf("attr.isInternalTarget = %q, want true -- the shipped mapping must surface the SSRF check", d.gotAttr["isInternalTarget"])
+			}
+		})
+	}
+}
+
+func TestDeployedWebMonitorMapping_ExternalTargetPasses(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("firecrawl_firecrawl_monitor_create",
+			map[string]any{"page": "https://example.com"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass for an external target")
 	}
 	if d.gotAttr["isInternalTarget"] != "false" {
 		t.Errorf("attr.isInternalTarget = %q, want false", d.gotAttr["isInternalTarget"])

@@ -33,6 +33,7 @@ import (
 func init() {
 	registerHelper("webCrawlAttr", webCrawlAttrOption)
 	registerHelper("webFetchAttr", webFetchAttrOption)
+	registerHelper("webMonitorAttr", webMonitorAttrOption)
 }
 
 // webCrawlAttrOption computes isInternalTarget (host-based SSRF check against
@@ -106,6 +107,61 @@ func webFetchAttrOption() []cel.EnvOption {
 							if urlIsInternalTarget(u) {
 								internal = true
 								break
+							}
+						}
+					}
+
+					return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{
+						"isInternalTarget": strconv.FormatBool(internal),
+					})
+				}),
+			),
+		),
+	}
+}
+
+// webMonitorAttrOption (HAH-94): computes isInternalTarget for
+// firecrawl_monitor_create/firecrawl_monitor_update -- these set up a
+// PERSISTENT recurring fetch (per its own scheduleText/searchWindow args),
+// so an internal-only target here is worse than a one-shot HAH-93 SSRF hit:
+// it's a standing probe against the platform's trust boundary, and
+// monitor_create's optional webhookUrl means results can be actively pushed
+// back out too. Checks the top-level `page` string and every element of the
+// `pages` array (both present on monitor_create; monitor_update only ever
+// carries them nested inside its opaque, freeform `body` object, which this
+// also best-effort-inspects for `url`/`urls` keys since that's the shape
+// monitor_create's own body arg documents "advanced requests such as crawl
+// targets" using).
+func webMonitorAttrOption() []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("webMonitorAttr",
+			cel.Overload("webMonitorAttr_map",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.StringType),
+				cel.UnaryBinding(func(arg ref.Val) ref.Val {
+					m := toAnyMap(arg)
+
+					internal := urlIsInternalTarget(lookupCI(m, "page", ""))
+					if !internal {
+						for _, u := range lookupCIStringSlice(m, "pages") {
+							if urlIsInternalTarget(u) {
+								internal = true
+								break
+							}
+						}
+					}
+					if !internal {
+						body := anyMapValue(m, "body")
+						if urlIsInternalTarget(lookupCI(body, "url", "")) ||
+							urlIsInternalTarget(lookupCI(body, "page", "")) {
+							internal = true
+						}
+						if !internal {
+							for _, u := range append(lookupCIStringSlice(body, "urls"), lookupCIStringSlice(body, "pages")...) {
+								if urlIsInternalTarget(u) {
+									internal = true
+									break
+								}
 							}
 						}
 					}
