@@ -68,12 +68,17 @@ data:
   apexWildcardDomains: github.com,githubusercontent.com
   exactOnlyDomains: pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,storage.googleapis.com
 
-  # Grafana datasource this machine's agents may NOT read from
+  # Grafana datasources this machine's agents may NOT read from
   # (resource_grafana.yaml). Matched by uid or by name — whichever the calling
   # tool populates — since either can identify the datasource depending on the
-  # Grafana MCP tool used.
-  grafanaDeniedDatasourceUid: fess5o6x6evb4b  # I don't have off-limits datasources for personal
-  grafanaDeniedDatasourceName: dev-opensearch-datasource  # I don't have off-limits datasources for personal
+  # Grafana MCP tool used. CEL-list-ready: pre-quoted, comma-joined, same
+  # pattern as githubAllowedRepos/linearAllowedTeams -- add more datasources
+  # here without touching resource_grafana.yaml.
+  # I don't have off-limits datasources for personal.
+  grafanaDeniedDatasourceUids: >-
+    "fess5o6x6evb4b"
+  grafanaDeniedDatasourceNames: >-
+    "dev-opensearch-datasource"
 
   # Notion page id notion-create-pages is pinned to (Cerbos denies any create
   # call whose parent isn't this page, defs/resource_notion.yaml) — your
