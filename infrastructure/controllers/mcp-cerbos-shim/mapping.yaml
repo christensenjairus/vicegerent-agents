@@ -234,17 +234,29 @@ backends:
       # surfaces teamId on every create, and on update only when the call
       # itself sets `team` (a deliberate reassignment); an ordinary update
       # with no team arg gets no teamId key at all and falls through to
-      # allow-all. save_comment targets an existing comment by issueId and
-      # carries no team of its own in the call args — the shim can't verify
-      # its team without an ancestry lookup (same limitation as Notion's
-      # update-page, deferred to HAH-69), so it's intentionally unmapped and
-      # passes. save_project is different: its addTeams/setTeams args are a
-      # directly-verifiable team signal, so it's mapped below (HAH-70).
+      # allow-all. save_project is different: its addTeams/setTeams args are
+      # a directly-verifiable team signal, so it's mapped below (HAH-70).
+      # save_comment (HAH-69) targets an existing comment/thread by issueId
+      # (or projectId/initiativeId/documentId/milestoneId, but only issueId
+      # is team-resolvable) and carries no team of its own in the call args
+      # -- the shim runs a live linear_get_issue lookup BEFORE this policy is
+      # consulted (server.go's checkLinearCommentTeam, mirrors HAH-88's
+      # Notion ancestry gate) and injects the resolved team as this same
+      # teamId attr so Cerbos's existing deny-non-devops-team rule fires
+      # identically to save_issue's. A call with no issueId (project/
+      # initiative/document/milestone comment, or a reply via parentId with
+      # no entity ref) has nothing to resolve and passes the gate unchecked.
       linear_save_issue:
         resourceType: linear_team
         action: access
         id: get(args,'id', get(args,'team',''))
         attrFrom: linearIssueAttr(args)
+      linear_save_comment:
+        resourceType: linear_team
+        action: access
+        id: get(args,'issueId','*')
+        attr:
+          issueId: get(args,'issueId','')
       # Linear save_project (create+reassign in one tool, HAH-70) -> reuses
       # linear_team; the verifiable signal here is addTeams/setTeams (the
       # array args a project's team membership is set through), not a single

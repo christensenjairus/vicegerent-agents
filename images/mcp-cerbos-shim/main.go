@@ -62,6 +62,17 @@ func main() {
 		log.Printf("WARNING: NOTION_ALLOWED_PARENT_PAGE_IDS unset/empty; notion update-page/create-comment will fail closed")
 	}
 
+	// Linear save_comment team-resolution gate (HAH-69): unlike the Notion
+	// gate above, this needs no allowlist of its own -- it resolves
+	// issueId->team and hands that off to the SAME ${linearAllowedTeams}
+	// Cerbos rule save_issue already uses (resource_linear.yaml), so it's
+	// unconditionally enabled whenever the shim can reach vMCP. No env var
+	// to gate on; a lookup failure at call time fails closed on its own
+	// (checkLinearIssueTeam), same posture as the Notion gate's per-call
+	// failure path.
+	opts = append(opts, server.WithLinearIssueTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
+	log.Printf("linear save_comment team-resolution gate enabled")
+
 	srv := server.New(mapping, engine, decider, server.Principal{
 		ID:    "hermes",
 		Roles: []string{"agent"},

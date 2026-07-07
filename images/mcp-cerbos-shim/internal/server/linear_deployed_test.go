@@ -110,24 +110,33 @@ func TestDeployedLinearMapping_UpdateReassigningTeamReachesCerbos(t *testing.T) 
 	}
 }
 
-func TestDeployedLinearMapping_SaveCommentIsUnmapped(t *testing.T) {
+// linear_save_comment is now mapped and team-gated (HAH-69, see
+// linear_comment_team_deployed_test.go for the full gate matrix: allow on a
+// DEVOPS-team issue, deny on any other team, fail-closed on a lookup error,
+// and pass-through for a comment with no issueId to resolve). This test only
+// guards the previously-true-but-now-outdated "unmapped, no lookup wired"
+// shape: without WithLinearIssueTeam configured (as production's main.go
+// always wires -- see WARNING-log posture mirrored from the Notion gate),
+// the gate is mandatory and fails closed rather than silently passing an
+// unverified team through.
+func TestDeployedLinearMapping_SaveCommentWithoutGateConfiguredFailsClosed(t *testing.T) {
 	m := deployedMapping(t)
 	e, err := eval.Compile(m)
 	if err != nil {
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: false}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}) // no WithLinearIssueTeam
 	res, err := s.CheckRequest(context.Background(),
-		mcpReq("vmcp", "tools/call", toolCall("linear_save_comment", map[string]any{"id": "issue-1"})))
+		mcpReq("vmcp", "tools/call", toolCall("linear_save_comment", map[string]any{"issueId": "issue-1"})))
 	if err != nil {
 		t.Fatalf("CheckRequest: %v", err)
 	}
-	if !isPass(res) {
-		t.Fatalf("expected pass for unmapped tool (no verifiable team)")
+	if !isDeny(res) {
+		t.Fatalf("expected deny (fail closed): gate not configured, cannot verify team")
 	}
 	if d.calls != 0 {
-		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
+		t.Errorf("must not reach Cerbos when the gate itself is unconfigured, got %d calls", d.calls)
 	}
 }
 
