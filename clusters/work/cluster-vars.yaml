@@ -41,6 +41,14 @@ data:
   linearAllowedTeams: >-
     "6deab0c5-9bda-4f82-b552-41f4aa9e449b", "DevOps", "DEVOPS"
 
+  # Linear assignees this machine's agents may set on an issue
+  # (resource_linear.yaml) -- "*" disables the check entirely, mirroring
+  # jiraAllowedAssignees. "me" is always implicitly valid regardless of this
+  # list (Linear's own API treats "me" as the OAuth-connected identity, i.e.
+  # this operator, so it's synonymous with the literal email below).
+  linearAllowedAssignees: >-
+    "jchristensen@moveworks.ai"
+
   # This machine's git-over-SSH FQDN and every intermediate hostname in its CNAME
   # chain (charts/agent/templates/networkpolicy.yaml). Generic to any CNAME-chained
   # FQDN the SSH egress block allowlists, not git-specific. Cilium's toFQDNs DNS

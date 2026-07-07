@@ -24,6 +24,7 @@ resources:
       epicKey: ''
       extraEpicKey: ''
       extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
   create_in_other:
     id: FOO
     kind: jira_project
@@ -134,6 +135,7 @@ resources:
       epicKey: ''
       extraEpicKey: CHANGE-9
       extraParentKey: ''
+      assignee: jchristensen@moveworks.ai
   create_with_disallowed_assignee:
     id: CHANGE
     kind: jira_project
@@ -164,6 +166,18 @@ resources:
     attr:
       projectKey: CHANGE
       issueKey: ''
+      inwardKey: ''
+      outwardKey: ''
+      epicKey: ''
+      extraEpicKey: ''
+      extraParentKey: ''
+      assignee: ''
+  update_with_no_assignee:
+    id: CHANGE-1
+    kind: jira_project
+    attr:
+      projectKey: ''
+      issueKey: CHANGE-1
       inwardKey: ''
       outwardKey: ''
       epicKey: ''
@@ -263,13 +277,15 @@ tests:
         actions: {write: EFFECT_DENY}
   - name: assignee scoping (jiraAllowedAssignees is jchristensen@moveworks.ai on this
       cluster, matching validate.sh's work cluster-vars.yaml) denies any other assignee,
-      allows the configured one, and allows no assignee at all
+      allows the configured one, requires an assignee on create (force-self-assignee),
+      but doesn't require one on an ordinary update that doesn't touch assignee
     input:
       principals: [hermes]
       resources:
         - create_with_disallowed_assignee
         - create_with_allowed_assignee
         - create_with_no_assignee
+        - update_with_no_assignee
       actions: [write]
     expected:
       - principal: hermes
@@ -280,4 +296,7 @@ tests:
         actions: {write: EFFECT_ALLOW}
       - principal: hermes
         resource: create_with_no_assignee
+        actions: {write: EFFECT_DENY}
+      - principal: hermes
+        resource: update_with_no_assignee
         actions: {write: EFFECT_ALLOW}

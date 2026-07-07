@@ -24,6 +24,16 @@ func init() {
 // deliberate reassignment) — otherwise omit the key entirely so the call
 // falls through to allow-all, matching how update_issue was left unmapped
 // before Linear merged the tools.
+//
+// isCreate + assignee (added for the force-self-assignee guardrail): unlike
+// team, assignee is surfaced on EVERY call that carries it, create or
+// update, since a deliberate reassignment on update should be checked just
+// as much as an initial assignment on create. isCreate additionally lets
+// Cerbos deny a create call that OMITS assignee entirely (every new issue
+// must be self-assigned), without also denying an ordinary update that
+// doesn't touch assignee at all -- an update with no assignee arg gets an
+// empty assignee attr AND isCreate="false", so the create-only deny rule
+// never fires for it.
 func linearIssueAttrOption() []cel.EnvOption {
 	return []cel.EnvOption{
 		cel.Function("linearIssueAttr",
@@ -34,16 +44,40 @@ func linearIssueAttrOption() []cel.EnvOption {
 					m := toAnyMap(arg)
 					isUpdate := lookupCI(m, "id", "") != ""
 					team := lookupCI(m, "team", "")
-					if isUpdate && team == "" {
-						return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{})
+
+					out := map[string]string{
+						"isCreate": boolStr(!isUpdate),
 					}
-					return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{
-						"teamId": team,
-					})
+					// teamId: only include the key when verifiable (create,
+					// or update with an explicit reassignment) -- has() in
+					// Cerbos checks key PRESENCE, not value truthiness, so an
+					// empty-but-present key would wrongly trip the existing
+					// deny-non-devops-team rule on every ordinary update.
+					if !isUpdate || team != "" {
+						out["teamId"] = team
+					}
+					// assignee: include only when the call actually carries
+					// one, same has()-presence reasoning -- an ordinary
+					// update that doesn't touch assignee must get no
+					// assignee key at all, not an empty one.
+					if assignee := lookupCI(m, "assignee", ""); assignee != "" {
+						out["assignee"] = assignee
+					}
+					return types.NewStringStringMap(types.DefaultTypeAdapter, out)
 				}),
 			),
 		),
 	}
+}
+
+// boolStr renders a bool as Cerbos-CEL-friendly "true"/"false" string, since
+// this helper's overload returns map[string]string (mixing string/bool
+// values in one native Go map isn't representable via NewStringStringMap).
+func boolStr(b bool) string {
+	if b {
+		return "true"
+	}
+	return "false"
 }
 
 // linearProjectAttrOption: save_project's addTeams/setTeams args are the only

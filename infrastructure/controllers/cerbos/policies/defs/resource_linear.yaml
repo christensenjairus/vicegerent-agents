@@ -13,6 +13,22 @@
 # allow-all; likewise a save_project call that sets neither addTeams nor
 # setTeams has no teams attr key (linearProjectAttr helper) and falls
 # through too.
+#
+# force-self-assignee follow-up: also deny (a) a save_issue CREATE call
+# (isCreate="true", i.e. no `id` arg) that doesn't set assignee at all, and
+# (b) any save_issue call (create or update) that sets assignee to someone
+# outside ${linearAllowedAssignees} -- mirrors Jira's identical pair of
+# rules exactly (resource_jira.yaml). "me" is always implicitly valid
+# regardless of the allowlist, since Linear's own API treats it as the
+# OAuth-connected identity (this operator) -- checked as a literal string
+# match against the raw `assignee` arg value before Cerbos ever sees it
+# (linearIssueAttrOption, helpers_linear.go), so `assignee: "me"` never
+# even reaches the allowlist comparison. isCreate/assignee are surfaced by
+# the same linearIssueAttr helper the pre-existing teamId check already
+# uses -- has()-guarded the same way, so an ordinary update that never
+# touches assignee gets no assignee key at all and isn't affected by
+# either new rule. The "*" bypass is honored here too, matching
+# jiraAllowedAssignees's disable-the-whole-check semantics.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -46,6 +62,40 @@ resourcePolicy:
         when:
           ruleActivated: >-
             "This agent may only assign Linear projects to the DEVOPS team."
+    - name: deny-create-missing-assignee
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.isCreate) &&
+            request.resource.attr.isCreate == "true" &&
+            (!has(request.resource.attr.assignee) || request.resource.attr.assignee
+            == "")
+            && !("*" in [${linearAllowedAssignees}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent must set an allowed assignee when creating a new"
+            + " Linear issue. Pass assignee explicitly (or \"me\")."
+    - name: deny-assignee-outside-allowed
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.assignee) && request.resource.attr.assignee
+            != ""
+            && request.resource.attr.assignee != "me"
+            && !("*" in [${linearAllowedAssignees}])
+            && !(request.resource.attr.assignee in [${linearAllowedAssignees}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only assign Linear issues to an allowed user."
+            + " The requested assignee is outside that scope."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

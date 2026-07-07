@@ -2,11 +2,17 @@
 # Fixtures use the literal team forms matching cluster-vars.yaml's linearAllowedTeams —
 # validate.sh compiles the substituted policy against them, so keep the two in sync.
 name: linear_devops_team_block_test
-description: Linear save_issue calls that supply a team other than DEVOPS are denied;
-  calls confined to the DEVOPS team (by uuid, name, or key), and calls that supply
-  no team at all, are allowed. Linear save_project calls whose addTeams/setTeams contain
-  any team other than DEVOPS are denied (HAH-70); calls confined to DEVOPS, or that
-  supply neither addTeams nor setTeams, are allowed.
+description: >-
+  Linear save_issue calls that supply a team other than DEVOPS are denied;
+  calls confined to the DEVOPS team (by uuid, name, or key), and calls that
+  supply no team at all, are allowed. Linear save_project calls whose
+  addTeams/setTeams contain any team other than DEVOPS are denied (HAH-70);
+  calls confined to DEVOPS, or that supply neither addTeams nor setTeams, are
+  allowed. force-self-assignee: a save_issue CREATE call (isCreate true) with
+  no assignee is denied; an ordinary update that doesn't touch assignee is
+  unaffected; any call that sets assignee to someone outside
+  linearAllowedAssignees is denied, but the literal value me is always
+  allowed regardless of the allowlist.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -48,6 +54,30 @@ resources:
   project_no_teams_args:
     id: '*'
     kind: linear_team
+  create_with_no_assignee:
+    id: '*'
+    kind: linear_team
+    attr: {isCreate: 'true'}
+  create_with_allowed_assignee:
+    id: '*'
+    kind: linear_team
+    attr: {isCreate: 'true', assignee: jchristensen@moveworks.ai}
+  create_with_me_assignee:
+    id: '*'
+    kind: linear_team
+    attr: {isCreate: 'true', assignee: me}
+  create_with_disallowed_assignee:
+    id: '*'
+    kind: linear_team
+    attr: {isCreate: 'true', assignee: someone-else@example.com}
+  update_with_no_assignee:
+    id: LIN-123
+    kind: linear_team
+    attr: {isCreate: 'false'}
+  update_with_disallowed_assignee:
+    id: LIN-123
+    kind: linear_team
+    attr: {isCreate: 'false', assignee: someone-else@example.com}
 tests:
   - name: save_issue confined to DEVOPS (uuid, name, or key), or with no team supplied,
       is allowed
@@ -107,4 +137,35 @@ tests:
         actions: {access: EFFECT_DENY}
       - principal: hermes
         resource: project_setteams_other_only
+        actions: {access: EFFECT_DENY}
+  - name: force-self-assignee -- create requires an allowed assignee (or "me"), ordinary
+      update untouched, reassignment still scoped
+    input:
+      principals: [hermes]
+      resources:
+        - create_with_no_assignee
+        - create_with_allowed_assignee
+        - create_with_me_assignee
+        - create_with_disallowed_assignee
+        - update_with_no_assignee
+        - update_with_disallowed_assignee
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_with_no_assignee
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_with_allowed_assignee
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_with_me_assignee
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_with_disallowed_assignee
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: update_with_no_assignee
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: update_with_disallowed_assignee
         actions: {access: EFFECT_DENY}
