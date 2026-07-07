@@ -80,6 +80,15 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
     && rm /tmp/terraform-ls.zip \
     && terraform-ls version
 
+# terragrunt for formatting HCL/Terraform files in repos that use it.
+# renovate: datasource=github-releases depName=gruntwork-io/terragrunt
+ARG TERRAGRUNT_VERSION=v1.1.0
+ARG TARGETARCH
+RUN curl -fsSL -o /usr/local/bin/terragrunt \
+        "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_${TARGETARCH}" \
+    && chmod +x /usr/local/bin/terragrunt \
+    && terragrunt --version
+
 # Full Go toolchain so agents can build/test Go code (e.g. mcp-cerbos-shim).
 COPY --from=gopls /usr/local/go /usr/local/go
 ENV PATH="/usr/local/go/bin:${PATH}" \
