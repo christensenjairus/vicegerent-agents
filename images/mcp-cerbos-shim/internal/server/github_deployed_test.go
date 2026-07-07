@@ -96,10 +96,14 @@ func TestDeployedGithubMapping_AllowedRepoPasses(t *testing.T) {
 // add_reply_to_pull_request_comment is also removed -- it carries no author
 // info the shim could use to distinguish a reply to a human's comment from a
 // reply to the bot's own, so the honest fallback is to remove the whole
-// surface rather than partially enforce it. Every one of these tool names
-// should therefore never reach Cerbos at all -- they're not mapped tool keys
-// anymore, confirming the removal actually took (not just left unmapped by
-// omission, which would be indistinguishable from a typo in the allowlist).
+// surface rather than partially enforce it. pull_request_review_write and
+// add_comment_to_pending_review are removed for the same reason, on operator
+// instruction: no comment/review text of any kind (inline pending-review
+// comments or COMMENT/REQUEST_CHANGES review-verdict bodies) may leave the
+// bot on a PR. Every one of these tool names should therefore never reach
+// Cerbos at all -- they're not mapped tool keys anymore, confirming the
+// removal actually took (not just left unmapped by omission, which would be
+// indistinguishable from a typo in the allowlist).
 func TestDeployedGithubMapping_RemovedToolsAreUnmapped(t *testing.T) {
 	m := deployedMapping(t)
 	e, err := eval.Compile(m)
@@ -115,6 +119,9 @@ func TestDeployedGithubMapping_RemovedToolsAreUnmapped(t *testing.T) {
 		"github_create_branch", "github_create_or_update_file", "github_push_files",
 		// PR-comment-reply -- no author info to distinguish human vs. bot comments.
 		"github_add_reply_to_pull_request_comment",
+		// Review/comment-text tools -- operator does not want the bot leaving
+		// any comment/review text on a PR, of any kind.
+		"github_pull_request_review_write", "github_add_comment_to_pending_review",
 	}
 	for _, tool := range removed {
 		t.Run(tool, func(t *testing.T) {
@@ -232,41 +239,6 @@ func TestDeployedGithubMapping_GetMeIsUnmappedAndPasses(t *testing.T) {
 	}
 	if d.calls != 0 {
 		t.Errorf("unmapped tool must not call Cerbos, got %d calls", d.calls)
-	}
-}
-
-// TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo
-// proves the shipped mapping surfaces method for resolve_thread/unresolve_thread
-// and that the real Cerbos deny fires for it -- confirmed against
-// defs/github_test.yaml's deny-resolve-thread rule, this only proves the wiring.
-func TestDeployedGithubMapping_ResolveThreadCarriesMethodAndDeniesRegardlessOfRepo(t *testing.T) {
-	m := deployedMapping(t)
-	e, err := eval.Compile(m)
-	if err != nil {
-		t.Fatalf("compile: %v", err)
-	}
-
-	for _, method := range []string{"resolve_thread", "unresolve_thread"} {
-		t.Run(method, func(t *testing.T) {
-			// allow=true here on purpose: this proves the SHIM surfaces the
-			// method attr correctly, independent of whatever the real Cerbos
-			// policy decides -- the actual deny is exercised in
-			// defs/github_test.yaml against the real policy.
-			d := &stubDecider{allow: true}
-			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
-			res, err := s.CheckRequest(context.Background(),
-				mcpReq("vmcp", "tools/call", toolCall("github_pull_request_review_write",
-					map[string]any{"owner": "christensenjairus", "repo": "vicegerent-agents", "method": method, "threadId": "PRRT_abc"})))
-			if err != nil {
-				t.Fatalf("CheckRequest: %v", err)
-			}
-			if !isPass(res) {
-				t.Fatalf("stubDecider allows unconditionally; expected pass")
-			}
-			if d.gotAttr["method"] != method {
-				t.Errorf("attr.method = %q, want %q -- the shipped mapping must surface method for pull_request_review_write", d.gotAttr["method"], method)
-			}
-		})
 	}
 }
 

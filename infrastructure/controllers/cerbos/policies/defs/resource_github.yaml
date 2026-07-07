@@ -2,40 +2,25 @@
 # github_repo policy: deny any GitHub call whose owner/repo isn't in the allowed
 # list (${githubAllowedRepos}, from clusters/personal/cluster-vars.yaml), or
 # whose branch arg names a protected branch (main/master/production), or any
-# pull_request_review_write call whose event is APPROVE (the bot must
-# never approve ANY pull request, full stop, regardless of who opened it;
-# comment/request-changes unaffected), or whose method is resolve_thread/
-# unresolve_thread (see below), or any create/update_pull_request
-# call that sets reviewers (see below); allow everything else. The
-# shim maps every repo-bearing GitHub tool to this resource, carrying
-# owner+repo (always populated) and branch (populated only for
-# push_files/create_or_update_file/create_branch — the tools that write or
+# create/update_pull_request call that sets reviewers (see below); allow
+# everything else. The shim maps every repo-bearing GitHub tool to this
+# resource, carrying owner+repo (always populated) and branch (populated only
+# for push_files/create_or_update_file/create_branch — the tools that write or
 # name a branch directly; everything else, including create_pull_request's
-# base/head, resolves to ''). pull_request_review_write additionally carries
-# event (populated only for method=create|submit_pending) and method.
-# Opening a PR against main is not blocked here — that's normal and doesn't
-# write to the branch. Do NOT add tools here to permit them; that belongs in
-# the vMCP tools allowlist.
+# base/head, resolves to ''). Opening a PR against main is not blocked here —
+# that's normal and doesn't write to the branch. Do NOT add tools here to
+# permit them; that belongs in the vMCP tools allowlist.
 #
-# resolve_thread/unresolve_thread carry ONLY threadId per the tool's
-# own schema — "owner, repo, and pullNumber parameters are not used for this
-# method" — even though the JSON schema still marks owner/repo/pullNumber as
-# required fields the caller must supply *some* value for. Because GitHub's
-# API ignores those fields for this method, a caller can pass SPOOFED
-# allowlisted owner/repo values while threadId alone determines the actual
-# target — trivially defeating deny-non-allowed-repo above, since it only
-# checks the (possibly fabricated) owner/repo attrs, never the real repo the
-# thread lives in. No tool in this allowlist resolves a threadId back to its
-# real owner/repo (pull_request_read's get_review_comments method needs
-# owner/repo as INPUT to list threads, not as output from a threadId — wrong
-# direction), so there's no live lookup to gate on here, unlike the
-# Linear/Notion ancestry checks elsewhere in this shim. Denying the method
-# outright is the honest fallback (same "no discriminating signal, remove
-# the capability" pattern as add_reply_to_pull_request_comment's removal and
-# Alertmanager's deleteSilence) rather than accepting the bypass as residual
-# risk. This is also a self-approval-adjacent risk: resolving a
-# human reviewer's blocking comment thread silences their pushback just as
-# effectively as approving the PR would.
+# pull_request_review_write (review submissions/approvals, inline pending-
+# review comments via add_comment_to_pending_review, and the resolve_thread/
+# unresolve_thread methods that structurally bypassed the owner/repo
+# allowlist below) is no longer in the tool surface at all — the operator
+# does not want the bot leaving ANY comment/review text on a PR, so the whole
+# capability was removed at the source (toolhive-servers.json / mapping.yaml)
+# rather than partially enforced here. The deny-approve and
+# deny-resolve-thread rules that used to key off that tool's event/method
+# attrs are gone with it — they can never fire against a tool that doesn't
+# exist, so keeping them as "defense in depth" would just be dead code.
 #
 # create_pull_request/update_pull_request's reviewers arg (GitHub
 # usernames or ORG/team-slug reviewers to request) is the actual PR analog
@@ -77,33 +62,6 @@ resourcePolicy:
           ruleActivated: >-
             "Direct writes to protected branch '" + request.resource.attr.branch
             + "' are not allowed. Use a feature branch and open a pull/merge request."
-    - name: deny-approve
-      actions: ['*']
-      effect: EFFECT_DENY
-      roles: ['*']
-      condition:
-        match:
-          expr: >-
-            has(request.resource.attr.event) && request.resource.attr.event == "APPROVE"
-      output:
-        when:
-          ruleActivated: >-
-            "This agent is not allowed to approve pull requests (event=APPROVE). Use"
-            + " event=COMMENT or REQUEST_CHANGES instead, or ask a human to approve."
-    - name: deny-resolve-thread
-      actions: ['*']
-      effect: EFFECT_DENY
-      roles: ['*']
-      condition:
-        match:
-          expr: >-
-            has(request.resource.attr.method) && request.resource.attr.method in
-            ["resolve_thread", "unresolve_thread"]
-      output:
-        when:
-          ruleActivated: >-
-            "This agent is not allowed to resolve or unresolve pull request review"
-            + " threads. Ask a human to resolve the thread instead."
     - name: deny-reviewers
       actions: ['*']
       effect: EFFECT_DENY
