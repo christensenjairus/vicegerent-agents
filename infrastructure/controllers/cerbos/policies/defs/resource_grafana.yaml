@@ -1,10 +1,11 @@
 ---
-# grafana_datasource policy: deny reads targeting the denied datasource
-# (${grafanaDeniedDatasourceUid}/${grafanaDeniedDatasourceName}, from
-# clusters/personal/cluster-vars.yaml — matched by uid or name); allow
-# everything else. The shim maps every datasource-bearing Grafana tool to
-# this resource, carrying uid+name attrs. Do NOT add tools/kinds here to
-# permit them; that belongs in the gateway allowlist.
+# grafana_datasource policy: deny reads targeting any denied datasource
+# (${grafanaDeniedDatasourceUids}/${grafanaDeniedDatasourceNames}, from
+# clusters/personal/cluster-vars.yaml — matched by uid or name, CEL-list-ready
+# same as githubAllowedRepos/linearAllowedTeams); allow everything else. The
+# shim maps every datasource-bearing Grafana tool to this resource, carrying
+# uid+name attrs. Do NOT add tools/kinds here to permit them; that belongs in
+# the gateway allowlist.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -17,9 +18,9 @@ resourcePolicy:
       condition:
         match:
           expr: >-
-            (has(request.resource.attr.uid) && request.resource.attr.uid in ["${grafanaDeniedDatasourceUid}"])
+            (has(request.resource.attr.uid) && request.resource.attr.uid in [${grafanaDeniedDatasourceUids}])
             ||
-            (has(request.resource.attr.name) && request.resource.attr.name in ["${grafanaDeniedDatasourceName}"])
+            (has(request.resource.attr.name) && request.resource.attr.name in [${grafanaDeniedDatasourceNames}])
       output:
         when:
           ruleActivated: >-
