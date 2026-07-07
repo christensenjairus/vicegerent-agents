@@ -194,10 +194,12 @@ RUN case "${TARGETARCH}" in \
 # releases.bazel.build at runtime for that one pinned version -- but this build step
 # itself needs releases.bazel.build reachable from wherever `docker build` runs (the
 # operator's laptop per this README, not the sandbox). Bzlmod dependency resolution
-# (bcr.bazel.build) is a separate concern this does not attempt to solve -- a
-# Bzlmod-using repo's first build still needs either a BCR egress allowlist entry or a
-# pre-seeded MODULE.bazel dependency cache; this bake only guarantees
-# bazel/buildozer/buildifier themselves are present and runnable offline.
+# (bcr.bazel.build, or an internal mirror) still needs its host reachable at *runtime* --
+# this bake only guarantees bazel/buildozer/buildifier themselves are present offline.
+#
+# JVM trust for that runtime registry fetch (JAVA_TOOL_OPTIONS + PKCS12 truststore) is
+# set up in charts/agent/templates/_sandbox.tpl, not here -- the proxy CA cert content
+# is a cluster Secret, unavailable at image-build time.
 # renovate: datasource=github-releases depName=bazelbuild/bazelisk
 ARG BAZELISK_VERSION=v1.29.0
 # renovate: datasource=github-releases depName=bazelbuild/buildtools
