@@ -1,24 +1,45 @@
 ---
-# linear_team policy: deny a save_issue call that supplies a team other than the
-# allowed one (${linearAllowedTeams}, from clusters/personal/cluster-vars.yaml);
-# deny a save_project call whose addTeams/setTeams contain any team other
-# than the allowed one (HAH-70); deny a save_comment call on an issue whose
-# team the shim resolved (via a live linear_get_issue lookup, HAH-69) to
-# anything other than the allowed one; allow everything else. The team is
-# matched by any of its three known identifiers, since the caller's `team`/
-# addTeams/setTeams entries (or the shim's resolved lookup result for
-# save_comment) may be the real Linear team UUID, its display name
-# ("DevOps"), or its issue-key prefix ("DEVOPS") — an exact match against
+# linear_team policy: deny a save_issue call that supplies (or, since HAH-91,
+# whose target issue currently HAS, per a live resolution) a team other than
+# the allowed one (${linearAllowedTeams}, from clusters/personal/cluster-vars.yaml);
+# deny a save_project call whose addTeams/setTeams (or, since HAH-91, whose
+# target project's CURRENT teams, per a live resolution) contain any team
+# other than the allowed one (HAH-70, extended HAH-91); deny a save_comment
+# call on an issue whose team the shim resolved (via a live linear_get_issue
+# lookup, HAH-69) to anything other than the allowed one; deny a
+# create_issue_label call whose teamId is set to anything other than the
+# allowed one (HAH-91 — a workspace-scoped label has no teamId at all and
+# isn't checked); allow everything else. The team is matched by any of its
+# three known identifiers, since the caller's `team`/addTeams/setTeams/teamId
+# entries (or the shim's resolved lookup result for save_comment/save_issue
+# updates/save_project updates) may be the real Linear team UUID, its display
+# name ("DevOps"), or its issue-key prefix ("DEVOPS") — an exact match against
 # only one form would wrongly deny legitimate DEVOPS calls that use a
-# different form. A save_issue call that supplies no team at all (every
-# ordinary issue update — team is optional there) has no teamId attr key at
-# all (see mapping.yaml's linearIssueAttr helper) and falls through to
-# allow-all; likewise a save_project call that sets neither addTeams nor
-# setTeams has no teams attr key (linearProjectAttr helper), and a
-# save_comment call with no issueId to resolve (a comment on a project/
-# initiative/document/milestone, or a reply via parentId) has no teamId
-# attr either (server.go's HAH-69 gate) -- all fall through to allow-all
-# rather than deny on an unverifiable team.
+# different form.
+#
+# HAH-91 closed a real enforcement gap: previously, a save_issue UPDATE with
+# no `team` arg (an ordinary field edit — the overwhelming majority of
+# updates) got no teamId attr at all and fell through to allow-all
+# REGARDLESS of the issue's actual current team, since linearIssueAttr only
+# ever populated teamId from the call's own `team` argument. The same gap
+# existed for save_project updates that touched neither addTeams nor
+# setTeams. The shim now runs a live lookup (linear_get_issue /
+# linear_get_project, server.go) whenever the call itself didn't supply an
+# explicit, already-verifiable team signal, and injects the resolved
+# current team(s) into this same teamId/teams attr — so this policy's rules
+# below are unchanged; only what populates the attr got stricter. A
+# save_issue call that supplies an explicit team at all (create, required;
+# update, a deliberate reassignment) has that value take precedence over any
+# live resolution — see mapping.yaml's linearIssueAttr helper. The only calls
+# that still fall through to allow-all with NO teamId/teams attr at all are
+# ones with genuinely nothing to verify or resolve: a save_comment call with
+# no issueId (a comment on a project/initiative/document/milestone, or a
+# reply via parentId — server.go's HAH-69 gate has no id to look up), and a
+# create_issue_label call with no teamId arg (a workspace-scoped label isn't
+# team-owned at all — mapping.yaml's linearLabelAttr helper). Every OTHER
+# Linear write against an existing team-scoped entity now gets either an
+# explicit, caller-supplied team signal or a live-resolved current one before
+# reaching this policy.
 #
 # force-self-assignee follow-up: also deny (a) a save_issue CREATE call
 # (isCreate="true", i.e. no `id` arg) that doesn't set assignee at all, and

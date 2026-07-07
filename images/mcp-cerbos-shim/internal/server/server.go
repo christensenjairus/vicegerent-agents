@@ -44,15 +44,29 @@ var notionAncestryGatedActions = map[string]bool{
 	notionCommentAction: true,
 }
 
-// linearSaveCommentTool and linearTeamResource identify the one call the
-// HAH-69 team-resolution gate applies to: linear_save_comment mapped to
-// linear_team/access (mapping.yaml). Keying off the tool name (not just the
-// resource/action pair, unlike the Notion gate above) because save_issue
-// shares the exact same resourceType/action and must NOT be re-resolved --
-// its own teamId is already populated directly from the call's own `team`
-// arg by linearIssueAttr, a genuinely different, already-verifiable signal.
+// linearSaveCommentTool, linearSaveIssueTool, linearSaveProjectTool, and
+// linearTeamResource identify the Linear write calls the team-resolution
+// gates apply to, all mapped to linear_team/access (mapping.yaml). Keying
+// off the tool name (not just the resource/action pair, unlike the Notion
+// gate above) because all three tools share that exact same
+// resourceType/action, and each needs different resolution logic:
+//   - linear_save_comment (HAH-69): never carries a team of its own --
+//     always resolved via issueId lookup when issueId is set.
+//   - linear_save_issue (HAH-91): an EXPLICIT `team` arg (create, or a
+//     deliberate update reassignment) is already a directly-verifiable
+//     signal populated by linearIssueAttr and must NOT be re-resolved or
+//     overridden. Only an UPDATE call that omits `team` entirely gets a
+//     lookup here, resolving the issue's CURRENT team by its `id` -- this
+//     closes the gap where an ordinary field edit on an out-of-allowlist-team
+//     issue previously fell through to allow-all with no teamId attr at all.
+//   - linear_save_project (HAH-91): same shape as save_issue -- an explicit
+//     addTeams/setTeams arg is already verifiable via linearProjectAttr and
+//     is never re-resolved; only an update that sets NEITHER gets a lookup
+//     here, resolving the project's CURRENT teams by its `id`.
 const (
 	linearSaveCommentTool = "linear_save_comment"
+	linearSaveIssueTool   = "linear_save_issue"
+	linearSaveProjectTool = "linear_save_project"
 	linearTeamResource    = "linear_team"
 )
 
@@ -110,15 +124,27 @@ type Server struct {
 	notionAncestry         upstream.ToolCaller
 	notionAllowedParentIDs []string
 
-	// linearIssueTeam, when set, resolves a Linear save_comment call's
-	// issueId to its team via a live linear_get_issue lookup -- a network
-	// round trip the CEL/Cerbos path can't make, same rationale as
-	// notionAncestry above. Unlike the Notion gate this doesn't deny
-	// directly: it injects the resolved team into the resource's teamId attr
-	// so Cerbos's existing deny-non-devops-team rule (resource_linear.yaml)
-	// evaluates it exactly like a save_issue call, with zero duplication of
-	// the allowlist.
+	// linearIssueTeam, when set, resolves a Linear issueId/id to its current
+	// team via a live linear_get_issue lookup -- a network round trip the
+	// CEL/Cerbos path can't make, same rationale as notionAncestry above.
+	// Used by: save_comment (always, HAH-69), and save_issue UPDATE calls
+	// that omit an explicit `team` arg (HAH-91 -- an explicit team is
+	// already resolved directly by linearIssueAttr and never re-looked-up
+	// here). Unlike the Notion gate this doesn't deny directly: it injects
+	// the resolved team into the resource's teamId attr so Cerbos's existing
+	// deny-non-devops-team rule (resource_linear.yaml) evaluates it exactly
+	// like an explicit-team call, with zero duplication of the allowlist.
 	linearIssueTeam upstream.ToolCaller
+
+	// linearProjectTeam, when set, resolves a Linear project id to its
+	// CURRENT team(s) via a live linear_get_project lookup, same rationale
+	// as linearIssueTeam above. Used only by save_project UPDATE calls that
+	// set neither addTeams nor setTeams (HAH-91) -- a call that sets either
+	// is already resolved directly by linearProjectAttr and never
+	// re-looked-up here. Injects the resolved teams into the resource's
+	// teams attr so Cerbos's existing deny-non-devops-project-teams rule
+	// evaluates it exactly like an explicit addTeams/setTeams call.
+	linearProjectTeam upstream.ToolCaller
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -139,12 +165,23 @@ func WithNotionAncestry(client upstream.ToolCaller, allowedParentIDs []string) O
 	}
 }
 
-// WithLinearIssueTeam enables the Linear save_comment issueId->team
-// resolution gate (HAH-69). client resolves an issue id to its team
-// (production: an upstream.Client to vMCP; tests: a stub).
+// WithLinearIssueTeam enables the Linear issue team-resolution gate: always
+// for save_comment (HAH-69), and for save_issue UPDATE calls that omit an
+// explicit `team` arg (HAH-91). client resolves an issue id to its current
+// team (production: an upstream.Client to vMCP; tests: a stub).
 func WithLinearIssueTeam(client upstream.ToolCaller) Option {
 	return func(s *Server) {
 		s.linearIssueTeam = client
+	}
+}
+
+// WithLinearProjectTeam enables the Linear save_project UPDATE team-
+// resolution gate (HAH-91): fires only when the call sets neither addTeams
+// nor setTeams. client resolves a project id to its current team(s)
+// (production: an upstream.Client to vMCP; tests: a stub).
+func WithLinearProjectTeam(client upstream.ToolCaller) Option {
+	return func(s *Server) {
+		s.linearProjectTeam = client
 	}
 }
 
@@ -273,6 +310,55 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		}
 	}
 
+	// Linear save_issue UPDATE team-resolution gate (HAH-91): closes the gap
+	// where a plain field edit on an existing issue (no `team` arg at all)
+	// fell through to allow-all regardless of the issue's REAL team, since
+	// linearIssueAttr only surfaces teamId when the call itself sets `team`.
+	// Fires only when: (a) this is save_issue, (b) the call is an update
+	// (has an `id` arg -- res.ID is that same id per mapping.yaml's
+	// `id: get(args,'id', get(args,'team',''))`), and (c) attr already has
+	// NO teamId key, meaning the call didn't set `team` itself (an explicit
+	// team, create or update, is linearIssueAttr's own directly-verifiable
+	// signal and must never be overridden by a lookup here). A create call
+	// always sets `team`+has no `id`, so it never reaches this branch.
+	if cp.Name == linearSaveIssueTool && res.ResourceType == linearTeamResource {
+		if _, hasTeam := res.Attr["teamId"]; !hasTeam {
+			if issueID, _ := cp.Arguments["id"].(string); issueID != "" {
+				team, derr := s.checkLinearIssueTeam(ctx, issueID)
+				if derr != nil {
+					log.Printf("deny: linear save_issue update team lookup (issue=%q backend=%s): %v", issueID, backend, derr)
+					return deny(derr.Error()), nil
+				}
+				res.Attr["teamId"] = team
+			}
+		}
+	}
+
+	// Linear save_project UPDATE team-resolution gate (HAH-91): same shape
+	// as the save_issue gate above -- closes the gap where a plain project
+	// field edit (no addTeams/setTeams) fell through to allow-all regardless
+	// of the project's REAL team(s), since linearProjectAttr only surfaces
+	// a `teams` attr when the call itself sets one of those args. Fires only
+	// when: (a) this is save_project, (b) the call is an update (has an `id`
+	// arg), and (c) attr has NO teams key, meaning neither addTeams nor
+	// setTeams was set (an explicit reassignment is linearProjectAttr's own
+	// directly-verifiable signal and must never be overridden here). A
+	// create call always sets one of addTeams/setTeams (Linear requires at
+	// least one team on project creation) and has no `id`, so it never
+	// reaches this branch.
+	if cp.Name == linearSaveProjectTool && res.ResourceType == linearTeamResource {
+		if _, hasTeams := res.Attr["teams"]; !hasTeams {
+			if projectID, _ := cp.Arguments["id"].(string); projectID != "" {
+				teams, derr := s.checkLinearProjectTeam(ctx, projectID)
+				if derr != nil {
+					log.Printf("deny: linear save_project update team lookup (project=%q backend=%s): %v", projectID, backend, derr)
+					return deny(derr.Error()), nil
+				}
+				res.Attr["teams"] = teams
+			}
+		}
+	}
+
 	allowed, reason, err := s.decider.IsAllowed(ctx,
 		s.principal.ID, s.principal.Roles,
 		res.ResourceType, res.ID, res.Attr, res.Action)
@@ -356,7 +442,7 @@ func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
 // entirely, the exact hole HAH-69 closes).
 func (s *Server) checkLinearIssueTeam(ctx context.Context, issueID string) (string, error) {
 	if s.linearIssueTeam == nil {
-		return "", fmt.Errorf("linear issue-team gate not configured; denying save_comment for issue %q", issueID)
+		return "", fmt.Errorf("linear issue-team gate not configured; denying write for issue %q", issueID)
 	}
 	ctx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
 	defer cancel()
@@ -365,6 +451,26 @@ func (s *Server) checkLinearIssueTeam(ctx context.Context, issueID string) (stri
 		return "", fmt.Errorf("could not verify this Linear issue's team (failing closed): %v", err)
 	}
 	return team, nil
+}
+
+// checkLinearProjectTeam resolves projectID to its current team(s) via a
+// live lookup, or returns an error (used verbatim as the deny reason) on any
+// failure -- fail-closed contract mirrors checkLinearIssueTeam/
+// checkNotionAncestry above: an unconfigured gate or a lookup error both
+// deny rather than silently allow-through with no teams attr (which would
+// let the call skip Cerbos's team check entirely, the exact hole HAH-91
+// closes for save_project updates).
+func (s *Server) checkLinearProjectTeam(ctx context.Context, projectID string) ([]string, error) {
+	if s.linearProjectTeam == nil {
+		return nil, fmt.Errorf("linear project-team gate not configured; denying update for project %q", projectID)
+	}
+	ctx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
+	defer cancel()
+	teams, err := upstream.ProjectTeams(ctx, s.linearProjectTeam, projectID)
+	if err != nil {
+		return nil, fmt.Errorf("could not verify this Linear project's team(s) (failing closed): %v", err)
+	}
+	return teams, nil
 }
 
 // resolveBackend enforces exactly-one mapped backend in service_names.

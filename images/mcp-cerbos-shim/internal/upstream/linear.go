@@ -47,3 +47,52 @@ func IssueTeam(ctx context.Context, client ToolCaller, issueID string) (string, 
 	}
 	return parsed.Team, nil
 }
+
+// linearGetProjectTool is the vMCP tool name for Linear's read-only project
+// fetch, same recursion-safety posture as linearGetIssueTool above: keep it
+// unmapped in Cerbos, or any future deny rule on it will silently fail-closed
+// every save_project update-team lookup (HAH-91) instead of the intended
+// per-call fail-closed behavior tied to the actual project team check.
+const linearGetProjectTool = "linear_get_project"
+
+// linearProjectResult is the subset of linear_get_project's JSON result this
+// package needs -- a project can belong to more than one team (verified live:
+// e.g. "SN Support for Azure Re-platform Effort" carries just Infrastructure,
+// "Database Migration Workflow and Visiblity" carries both DevOps and
+// Infrastructure), so unlike linear_get_issue's single "team" string this is
+// an array of {id, name, key} objects. Only "name" is used, to stay
+// consistent with linearProjectAttrOption's existing addTeams/setTeams
+// handling (which also compares by whatever form the caller supplied,
+// resolved against ${linearAllowedTeams}'s three-identifier-form allowlist).
+type linearProjectResult struct {
+	Teams []struct {
+		Name string `json:"name"`
+	} `json:"teams"`
+}
+
+// ProjectTeams resolves a Linear project id/slug to the display names of
+// every team it currently belongs to, via ONE linear_get_project call.
+// Returns an error on any lookup failure (timeout, non-200, malformed
+// result, tool-reported error) so the caller can fail closed -- mirrors
+// IssueTeam's contract above. A project with zero teams is a genuine
+// Linear API invariant violation (every project requires at least one team
+// on creation), so an empty result also fails closed rather than silently
+// passing an empty teams list through as "nothing to check."
+func ProjectTeams(ctx context.Context, client ToolCaller, projectID string) ([]string, error) {
+	result, err := client.CallTool(ctx, linearGetProjectTool, map[string]any{"query": projectID})
+	if err != nil {
+		return nil, fmt.Errorf("linear project team lookup for %q: %w", projectID, err)
+	}
+	var parsed linearProjectResult
+	if err := json.Unmarshal([]byte(result.Text()), &parsed); err != nil {
+		return nil, fmt.Errorf("linear project team lookup for %q: malformed get_project result: %w", projectID, err)
+	}
+	if len(parsed.Teams) == 0 {
+		return nil, fmt.Errorf("linear project team lookup for %q: get_project result has no teams", projectID)
+	}
+	teams := make([]string, 0, len(parsed.Teams))
+	for _, t := range parsed.Teams {
+		teams = append(teams, t.Name)
+	}
+	return teams, nil
+}
