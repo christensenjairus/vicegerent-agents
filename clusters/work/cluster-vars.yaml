@@ -61,7 +61,10 @@ data:
   # destination.) Go proxy/sumdb/GCS added for `go mod download` (GCS is where
   # proxy.golang.org redirects zip fetches — golang/go#45248).
   apexWildcardDomains: github.com,githubusercontent.com
-  exactOnlyDomains: pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,storage.googleapis.com
+  exactOnlyDomains: pypi.org,files.pythonhosted.org,proxy.golang.org,sum.golang.org,storage.googleapis.com,artifactory.global.mgmt.moveworks.io
+
+  # Comma-joined CIDR carve-outs (except) from egressDeny's 10.0.0.0/8 block.
+  internalAllowlistCIDRs: 10.230.0.0/16
 
   # Grafana datasource this machine's agents may NOT read from
   # (resource_grafana.yaml). Matched by uid or by name — whichever the calling

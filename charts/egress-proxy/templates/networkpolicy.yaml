@@ -74,10 +74,19 @@ spec:
               - method: GET
   # Explicit deny for private/link-local/loopback/CGNAT — defence-in-depth.
   # egressDeny takes precedence over egress allows, guarding against DNS rebinding
-  # and future accidental CIDR additions.
+  # and future accidental CIDR additions. internalAllowlistCIDRs (cluster-vars.yaml)
+  # carves a machine-scoped except out of 10.0.0.0/8 below; empty by default.
   egressDeny:
     - toCIDRSet:
         - cidr: 10.0.0.0/8
+          {{- if .Values.internalAllowlistCIDRs }}
+          except:
+            {{- range (splitList "," .Values.internalAllowlistCIDRs) }}
+            {{- if . }}
+            - {{ . }}
+            {{- end }}
+            {{- end }}
+          {{- end }}
         - cidr: 172.16.0.0/12
         - cidr: 192.168.0.0/16
         - cidr: 169.254.0.0/16
