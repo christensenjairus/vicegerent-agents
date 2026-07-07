@@ -95,3 +95,121 @@ func TestLinearProjectAttrEval(t *testing.T) {
 		})
 	}
 }
+
+func TestLinearIssueHelperSelfRegisters(t *testing.T) {
+	if _, ok := helperOptions("linearIssueAttr"); !ok {
+		t.Fatal("linearIssueAttr not registered; helpers_linear.go init() did not run")
+	}
+}
+
+// TestLinearIssueAttrEval covers the isCreate/teamId/assignee attr surface
+// added for the force-self-assignee guardrail (resource_linear.yaml's
+// deny-create-missing-assignee + deny-assignee-outside-allowed rules).
+// has()-presence matters here: a key must be OMITTED, not empty-stringed,
+// when not verifiable, since Cerbos's has() checks key presence.
+func TestLinearIssueAttrEval(t *testing.T) {
+	m := &config.Mapping{Backends: map[string]config.Backend{
+		"linear": {
+			Helpers: []string{"linearIssueAttr"},
+			Tools: map[string]config.Tool{
+				"save_issue": {
+					ResourceType: "linear_team",
+					ID:           "get(args,'id', get(args,'team',''))",
+					AttrFrom:     "linearIssueAttr(args)",
+				},
+			},
+		},
+	}}
+	eng, err := Compile(m)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	cases := []struct {
+		name         string
+		args         map[string]any
+		wantIsCreate string
+		wantTeamID   *string // nil means no teamId key at all
+		wantAssignee *string // nil means no assignee key at all
+	}{
+		{
+			name:         "create with team and assignee",
+			args:         map[string]any{"title": "New issue", "team": "DEVOPS", "assignee": "jchristensen@moveworks.ai"},
+			wantIsCreate: "true",
+			wantTeamID:   strPtr("DEVOPS"),
+			wantAssignee: strPtr("jchristensen@moveworks.ai"),
+		},
+		{
+			name:         "create with no assignee at all",
+			args:         map[string]any{"title": "New issue", "team": "DEVOPS"},
+			wantIsCreate: "true",
+			wantTeamID:   strPtr("DEVOPS"),
+			wantAssignee: nil,
+		},
+		{
+			name:         "update with no team, no assignee (ordinary update)",
+			args:         map[string]any{"id": "LIN-123", "state": "Done"},
+			wantIsCreate: "false",
+			wantTeamID:   nil,
+			wantAssignee: nil,
+		},
+		{
+			name:         "update that reassigns",
+			args:         map[string]any{"id": "LIN-123", "assignee": "someone-else@example.com"},
+			wantIsCreate: "false",
+			wantTeamID:   nil,
+			wantAssignee: strPtr("someone-else@example.com"),
+		},
+		{
+			name:         "update with team reassignment",
+			args:         map[string]any{"id": "LIN-123", "team": "some-other-team"},
+			wantIsCreate: "false",
+			wantTeamID:   strPtr("some-other-team"),
+			wantAssignee: nil,
+		},
+		{
+			name:         "create with assignee=me",
+			args:         map[string]any{"title": "New issue", "team": "DEVOPS", "assignee": "me"},
+			wantIsCreate: "true",
+			wantTeamID:   strPtr("DEVOPS"),
+			wantAssignee: strPtr("me"),
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := eng.Eval(CallInput{Tool: "save_issue", Backend: "linear", Args: c.args})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if got, _ := res.Attr["isCreate"].(string); got != c.wantIsCreate {
+				t.Errorf("isCreate = %q, want %q", got, c.wantIsCreate)
+			}
+			checkOptStringAttr(t, res.Attr, "teamId", c.wantTeamID)
+			checkOptStringAttr(t, res.Attr, "assignee", c.wantAssignee)
+		})
+	}
+}
+
+func checkOptStringAttr(t *testing.T, attr map[string]any, key string, want *string) {
+	t.Helper()
+	v, ok := attr[key]
+	if want == nil {
+		if ok {
+			t.Errorf("expected no %s key, got %v", key, v)
+		}
+		return
+	}
+	if !ok {
+		t.Fatalf("expected %s key %q, got none; attr=%v", key, *want, attr)
+	}
+	got, ok := v.(string)
+	if !ok {
+		t.Fatalf("expected %s to be string, got %T (%v)", key, v, v)
+	}
+	if got != *want {
+		t.Errorf("%s = %q, want %q", key, got, *want)
+	}
+}
+
+func strPtr(s string) *string { return &s }

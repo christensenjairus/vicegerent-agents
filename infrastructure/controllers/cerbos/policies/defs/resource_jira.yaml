@@ -27,8 +27,26 @@
 # the safe default until the operator opts into scoping it -- unlike the
 # project allowlist, which already had real enforced values before this
 # change, there's no pre-existing assignee restriction to preserve, so a
-# silent behavior change on deploy would be a surprise). Do NOT add tools
-# here to permit them; that belongs in the vMCP tools allowlist.
+# silent behavior change on deploy would be a surprise).
+#
+# deny-create-missing-assignee (force-self-assignee follow-up): every NEW
+# issue must set assignee, not just avoid a disallowed one -- an omitted
+# assignee on create used to fall through to allow-all (verified live: a
+# create_issue call with no assignee reached Jira's own API and only failed
+# there on unrelated required-field validation, never denied by Cerbos).
+# create_issue is distinguished from every other jira_* tool mapped here by
+# shape, not a dedicated attr: it's the only one that supplies project_key
+# without an issue_key (update/transition/comment/link/link_to_epic all take
+# issue_key, never project_key) -- so `projectKey != "" && issueKey == ""`
+# reliably identifies a create call using attrs already on this resource,
+# with no mapping.yaml/helper change needed. Updates that don't touch
+# assignee at all are untouched by this rule (issueKey is set, so the
+# create-shape condition never matches) -- reassigning an EXISTING issue
+# away from ${jiraAllowedAssignees} is still caught by
+# deny-assignee-outside-allowed below, same as before. The "*" bypass is
+# honored here too, matching the disable-the-whole-check semantics.
+# Do NOT add tools here to permit them; that belongs in the vMCP tools
+# allowlist.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -62,6 +80,23 @@ resourcePolicy:
           ruleActivated: >-
             "This agent may only create/update Jira issues in its allowed"
             + " projects. The targeted project/issue/epic is outside that scope."
+    - name: deny-create-missing-assignee
+      actions: [write]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.projectKey != "" &&
+            request.resource.attr.issueKey == "" &&
+            (!has(request.resource.attr.assignee) || request.resource.attr.assignee
+            == "")
+            && !("*" in [${jiraAllowedAssignees}])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent must set an allowed assignee when creating a new"
+            + " Jira issue. Pass assignee explicitly."
     - name: deny-assignee-outside-allowed
       actions: [write]
       effect: EFFECT_DENY

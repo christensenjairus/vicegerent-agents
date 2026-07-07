@@ -39,6 +39,13 @@ data:
   linearAllowedTeams: >-
     "91f312b9-73e9-45ea-8b80-4d3a1ef7aff9", "HAHomelabs", "HAH"
 
+  # Linear assignees this machine's agents may set on an issue
+  # (resource_linear.yaml) -- "*" disables the check entirely, mirroring
+  # jiraAllowedAssignees above. "me" is always implicitly valid regardless of
+  # this list (Linear's own API treats "me" as the OAuth-connected identity).
+  linearAllowedAssignees: >-
+    "*"
+
   # This machine's git-over-SSH FQDN and every intermediate hostname in its CNAME
   # chain (charts/agent/templates/networkpolicy.yaml). Generic to any CNAME-chained
   # FQDN the SSH egress block allowlists, not git-specific. Cilium's toFQDNs DNS
