@@ -2,11 +2,11 @@
 # github_repo policy: deny any GitHub call whose owner/repo isn't in the allowed
 # list (${githubAllowedRepos}, from clusters/personal/cluster-vars.yaml), or
 # whose branch arg names a protected branch (main/master/production), or any
-# pull_request_review_write call whose event is APPROVE (HAH-65 — the bot must
+# pull_request_review_write call whose event is APPROVE (the bot must
 # never approve ANY pull request, full stop, regardless of who opened it;
 # comment/request-changes unaffected), or whose method is resolve_thread/
-# unresolve_thread (HAH-75 — see below), or any create/update_pull_request
-# call that sets reviewers (HAH-84 — see below); allow everything else. The
+# unresolve_thread (see below), or any create/update_pull_request
+# call that sets reviewers (see below); allow everything else. The
 # shim maps every repo-bearing GitHub tool to this resource, carrying
 # owner+repo (always populated) and branch (populated only for
 # push_files/create_or_update_file/create_branch — the tools that write or
@@ -17,7 +17,7 @@
 # write to the branch. Do NOT add tools here to permit them; that belongs in
 # the vMCP tools allowlist.
 #
-# HAH-75: resolve_thread/unresolve_thread carry ONLY threadId per the tool's
+# resolve_thread/unresolve_thread carry ONLY threadId per the tool's
 # own schema — "owner, repo, and pullNumber parameters are not used for this
 # method" — even though the JSON schema still marks owner/repo/pullNumber as
 # required fields the caller must supply *some* value for. Because GitHub's
@@ -33,11 +33,11 @@
 # outright is the honest fallback (same "no discriminating signal, remove
 # the capability" pattern as add_reply_to_pull_request_comment's removal and
 # Alertmanager's deleteSilence) rather than accepting the bypass as residual
-# risk. This is also a self-approval-adjacent risk (HAH-65): resolving a
+# risk. This is also a self-approval-adjacent risk: resolving a
 # human reviewer's blocking comment thread silences their pushback just as
 # effectively as approving the PR would.
 #
-# HAH-84: create_pull_request/update_pull_request's reviewers arg (GitHub
+# create_pull_request/update_pull_request's reviewers arg (GitHub
 # usernames or ORG/team-slug reviewers to request) is the actual PR analog
 # of an "assignee" — a PR has no separate assignees concept at all
 # (assignees only exists on issue_write, which isn't in this tool allowlist

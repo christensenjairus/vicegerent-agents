@@ -72,7 +72,7 @@ resources:
     kind: github_repo
     attr: {owner: someoneelse, repo: some-repo, branch: main}
   review_approve_own_pr:
-    # pull_request_review_write with event=APPROVE — HAH-65, blocked unconditionally.
+    # pull_request_review_write with event=APPROVE — blocked unconditionally.
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', event: APPROVE}
@@ -92,7 +92,7 @@ resources:
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: ''}
   review_resolve_thread:
-    # HAH-75: method=resolve_thread carries only threadId per the tool's own
+    # method=resolve_thread carries only threadId per the tool's own
     # schema, but the shim still fills owner/repo/branch/event from whatever
     # (possibly spoofed) values the caller supplied — denied unconditionally
     # regardless of what those attrs say, since they can't be trusted for
@@ -112,7 +112,7 @@ resources:
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', method: create,
       event: COMMENT}
   create_pr_with_reviewers:
-    # HAH-84: create_pull_request setting reviewers is denied outright.
+    # create_pull_request setting reviewers is denied outright.
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', hasReviewers: 'true'}

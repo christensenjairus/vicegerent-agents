@@ -14,7 +14,7 @@
 # page, also not under Scratchpad) or set to database_id/data_source_id
 # (never Scratchpad, which is a plain page).
 #
-# update-page/create-comment: TWO complementary gates apply (HAH-88, extended
+# update-page/create-comment: TWO complementary gates apply (extended
 # to create-comment and multi-parent scoping). The shim runs a live ancestry
 # lookup BEFORE this policy is consulted (it calls notion-fetch back through
 # vMCP -- Cerbos itself has no I/O and can't resolve a page's parent) and

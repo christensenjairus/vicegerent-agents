@@ -71,7 +71,7 @@ func TestDeployedNotionMapping_CreatePagesOmittedParentStillReachesCerbos(t *tes
 	}
 }
 
-// update-page now passes through a live Scratchpad-ancestry gate (HAH-88)
+// update-page now passes through a live Scratchpad-ancestry gate
 // BEFORE Cerbos is consulted, so this test wires a fake upstream reporting
 // the target page as a Scratchpad descendant -- otherwise the unconfigured
 // gate fails closed before Cerbos ever sees the call, and this test would be

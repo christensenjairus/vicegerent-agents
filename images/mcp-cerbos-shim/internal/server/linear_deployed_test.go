@@ -51,7 +51,7 @@ func TestDeployedLinearMapping_CreateIssueReachesCerbos(t *testing.T) {
 	}
 }
 
-// HAH-91: an ordinary save_issue UPDATE (no `team` arg) now resolves the
+// An ordinary save_issue UPDATE (no `team` arg) now resolves the
 // issue's CURRENT team via a live lookup instead of omitting teamId
 // entirely -- this closes the gap where such a call previously fell through
 // to allow-all regardless of the issue's real team. This test proves the
@@ -87,7 +87,7 @@ func TestDeployedLinearMapping_OrdinaryUpdateResolvesCurrentTeam(t *testing.T) {
 }
 
 // TestDeployedLinearMapping_OrdinaryUpdateGateUnconfiguredFailsClosed proves
-// the fail-closed contract when the HAH-91 lookup gate isn't wired at all
+// the fail-closed contract when the lookup gate isn't wired at all
 // (a broken deploy, not a license to allow an unverified team through).
 func TestDeployedLinearMapping_OrdinaryUpdateGateUnconfiguredFailsClosed(t *testing.T) {
 	m := deployedMapping(t)
@@ -166,7 +166,7 @@ func TestDeployedLinearMapping_UpdateReassigningTeamReachesCerbos(t *testing.T) 
 	}
 }
 
-// linear_save_comment is now mapped and team-gated (HAH-69, see
+// linear_save_comment is now mapped and team-gated (see
 // linear_comment_team_deployed_test.go for the full gate matrix: allow on a
 // DEVOPS-team issue, deny on any other team, fail-closed on a lookup error,
 // and pass-through for a comment with no issueId to resolve). This test only
@@ -196,10 +196,10 @@ func TestDeployedLinearMapping_SaveCommentWithoutGateConfiguredFailsClosed(t *te
 	}
 }
 
-// linear_save_project IS mapped (HAH-70, linearProjectAttr helper) — unlike
+// linear_save_project IS mapped (linearProjectAttr helper) — unlike
 // save_comment above, every call reaches Cerbos; what varies is whether a
 // `teams` attr is present. A call that sets neither addTeams nor setTeams has
-// nothing to verify directly from the call args -- HAH-91 now resolves the
+// nothing to verify directly from the call args -- a lookup gate now resolves the
 // project's CURRENT team(s) via a live lookup instead (defs/linear_test.yaml
 // proves the allow/deny decision itself once teams is populated).
 func TestDeployedLinearMapping_SaveProjectUpdateResolvesCurrentTeams(t *testing.T) {
@@ -235,7 +235,7 @@ func TestDeployedLinearMapping_SaveProjectUpdateResolvesCurrentTeams(t *testing.
 }
 
 // TestDeployedLinearMapping_SaveProjectUpdateGateUnconfiguredFailsClosed
-// proves the fail-closed contract when the HAH-91 project lookup gate isn't
+// proves the fail-closed contract when the project lookup gate isn't
 // wired at all.
 func TestDeployedLinearMapping_SaveProjectUpdateGateUnconfiguredFailsClosed(t *testing.T) {
 	m := deployedMapping(t)
@@ -287,7 +287,7 @@ func TestDeployedLinearMapping_SaveProjectDeniesNonAllowedTeam(t *testing.T) {
 	}
 }
 
-// linear_create_issue_label (HAH-91) is mapped to linear_team/access, same
+// linear_create_issue_label is mapped to linear_team/access, same
 // resource as save_issue/save_comment/save_project, but needs no lookup:
 // the caller's own teamId arg is already the directly-verifiable signal
 // (linearLabelAttr). A workspace-scoped label (no teamId) must reach Cerbos

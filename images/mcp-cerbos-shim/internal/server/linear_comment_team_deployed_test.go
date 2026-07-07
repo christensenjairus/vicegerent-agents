@@ -12,7 +12,7 @@ import (
 // These tests run the SHIPPED mapping (not a fixture) through the request
 // path for linear_save_comment, with a FAKE upstream (no network) standing
 // in for the live vMCP linear_get_issue call the team-resolution gate makes.
-// They prove the gate wiring (HAH-69): a comment on an issue outside the
+// They prove the gate wiring: a comment on an issue outside the
 // allowed team is denied, a comment on an allowed-team issue reaches Cerbos
 // with teamId populated, a lookup failure fails closed, and save_issue
 // itself is untouched by this gate (it resolves its own teamId directly from
@@ -30,8 +30,8 @@ func newLinearServer(t *testing.T, d *stubDecider, up upstream.ToolCaller) *Serv
 }
 
 // linearIssueResultDevops/linearIssueResultOther mirror the live
-// linear_get_issue result shape captured against the real vMCP route
-// (HAH-69): a single JSON object with "team" as the team's display name
+// linear_get_issue result shape captured against the real vMCP route:
+// a single JSON object with "team" as the team's display name
 // directly at the top level, no extra nesting (unlike Notion's
 // double-JSON-wrapped notion-fetch result -- see ancestry.go's
 // notionFetchEnvelope doc).

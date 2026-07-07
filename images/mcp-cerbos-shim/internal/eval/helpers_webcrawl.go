@@ -2,7 +2,7 @@ package eval
 
 // Web-crawl-specific helper (Tavily/Firecrawl); self-registers via init().
 //
-// HAH-74: tavily_crawl/tavily_map/firecrawl_crawl accept a `url` to start
+// tavily_crawl/tavily_map/firecrawl_crawl accept a `url` to start
 // from and, for Tavily, `select_domains` regex patterns that can widen which
 // domains the crawl is allowed to follow links into. None of these tools
 // touch anything this platform owns (see toolhive-servers.json's own
@@ -81,8 +81,8 @@ func webCrawlAttrOption() []cel.EnvOption {
 	}
 }
 
-// webFetchAttrOption (HAH-93): computes isInternalTarget for the single-URL/
-// multi-URL fetch tools that HAH-74 deliberately left unmapped -- firecrawl_scrape's
+// webFetchAttrOption computes isInternalTarget for the single-URL/
+// multi-URL fetch tools that were deliberately left unmapped by the crawl/map gate above -- firecrawl_scrape's
 // `url` (a single string), and firecrawl_extract/firecrawl_agent/tavily_extract's
 // `urls` (a JSON array). These tools don't discover new targets the way crawl/map
 // do, but the SEED target itself is exactly as caller-controlled and exactly as
@@ -120,10 +120,10 @@ func webFetchAttrOption() []cel.EnvOption {
 	}
 }
 
-// webMonitorAttrOption (HAH-94): computes isInternalTarget for
+// webMonitorAttrOption computes isInternalTarget for
 // firecrawl_monitor_create/firecrawl_monitor_update -- these set up a
 // PERSISTENT recurring fetch (per its own scheduleText/searchWindow args),
-// so an internal-only target here is worse than a one-shot HAH-93 SSRF hit:
+// so an internal-only target here is worse than a one-shot single-URL/multi-URL SSRF hit:
 // it's a standing probe against the platform's trust boundary, and
 // monitor_create's optional webhookUrl means results can be actively pushed
 // back out too. Checks the top-level `page` string and every element of the

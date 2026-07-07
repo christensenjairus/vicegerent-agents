@@ -30,6 +30,23 @@
 # short of an outright block. Read-only tools (get_incident, list_incidents,
 # schedules, on-calls, services, teams, users, escalation policies) are
 # unmapped and pass.
+#
+# deny-write-outside-allowed-services: status-only scoping isn't
+# enough if the agent can act on ANY incident it can reach -- neither
+# manage_incidents nor add_note_to_incident carries a service/team
+# identifier in its own args at all, only an opaque incident_id/
+# incident_ids, so there's nothing here for Cerbos alone to check. The
+# shim resolves every targeted incident to its owning service via a live
+# pagerduty_get_incident lookup BEFORE this policy is consulted (server.go's
+# checkPagerdutyIncidentServices, same pattern as the Notion ancestry gate
+# and Linear issue/project team gates elsewhere in this shim) and injects
+# the resolved id(s) into serviceIds; a write is denied if ANY resolved
+# service isn't in ${pagerdutyAllowedServiceIds} -- a bulk manage_incidents
+# call is treated as a single unit (deny the whole batch on any
+# out-of-scope member), not per-incident, mirroring this same policy's own
+# no-bulk-cap rationale for manage_incidents above. "*" disables the check
+# entirely, the safe default until the operator opts in, since there was
+# no pre-existing service restriction to preserve.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -50,6 +67,22 @@ resourcePolicy:
             "This agent may only acknowledge or resolve PagerDuty incidents."
             + " Reopening to 'triggered', and urgency/escalation/assignment"
             + " changes, are not allowed."
+    - name: deny-write-outside-allowed-services
+      actions: [manage, annotate]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.serviceIds) &&
+            !("*" in [${pagerdutyAllowedServiceIds}]) &&
+            request.resource.attr.serviceIds.exists(s, !(s in [${pagerdutyAllowedServiceIds}]))
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may only act on PagerDuty incidents belonging to an"
+            + " allowed service. At least one targeted incident is outside"
+            + " that scope."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

@@ -220,8 +220,8 @@ func TestLinearLabelHelperSelfRegisters(t *testing.T) {
 	}
 }
 
-// TestLinearLabelAttrEval covers create_issue_label's teamId presence rule
-// (HAH-91): a workspace-scoped label (no teamId arg) must get no teamId key
+// TestLinearLabelAttrEval covers create_issue_label's teamId presence rule:
+// a workspace-scoped label (no teamId arg) must get no teamId key
 // at all, not an empty-but-present one, or Cerbos's has()-based
 // deny-non-devops-team check would wrongly trip on every workspace label.
 func TestLinearLabelAttrEval(t *testing.T) {

@@ -15,10 +15,10 @@ func init() {
 	registerHelper("jiraFieldsAttr", jiraFieldsAttrOption)
 }
 
-// jiraFieldsAttrOption closes two follow-up gaps on top of HAH-90's
+// jiraFieldsAttrOption closes two follow-up gaps on top of the earlier
 // project-scoping widen:
 //
-//   - HAH-82: jira_create_issue's additional_fields and jira_update_issue's
+//   - jira_create_issue's additional_fields and jira_update_issue's
 //     fields/additional_fields are raw JSON strings, invisible to the
 //     existing deny-write-outside-allowed-projects rule -- that rule only
 //     inspects the top-level project_key/issue_key/epic_key args
@@ -28,7 +28,7 @@ func init() {
 //     DIFFERENT project's issue -- an actual bypass of the project-scoping
 //     control, not just an unmapped extra arg (same severity class as a
 //     documented security boundary being routed around via a side channel).
-//   - HAH-85: assignee scoping, mirroring Linear's teamId allowlist pattern.
+//   - Assignee scoping, mirroring Linear's teamId allowlist pattern.
 //     Note there is NO reporter field on either jira_create_issue or
 //     jira_update_issue at all (confirmed directly against
 //     docs/available-mcp-tools/jira.yaml's real argument schema) -- the
@@ -41,7 +41,7 @@ func init() {
 //
 // This parses BOTH raw-JSON args (additional_fields on create; fields AND
 // additional_fields on update) with encoding/json (a real parse, not CEL
-// string matching, which the original HAH-82 proposal correctly flagged as
+// string matching, which the original proposal correctly flagged as
 // too fragile for JSON-in-a-string) and surfaces any embedded epicKey/
 // epic_link/parent value as extraEpicKey/extraParentKey, so the existing
 // Cerbos rule's has()-guarded prefix check can inspect it exactly like it
@@ -52,7 +52,7 @@ func init() {
 // this shim -- this is a strict widening of what's checked, never a
 // narrowing.
 //
-//   - HAH-92: issue-type scoping. jira_create_issue's top-level issue_type
+//   - Issue-type scoping. jira_create_issue's top-level issue_type
 //     arg (required -- 'Task', 'Bug', 'Story', 'Epic', 'Subtask', per the
 //     tool's own docs) is surfaced as issueType, same side channel risk as
 //     epicKey/parent: jira_update_issue has NO top-level issue_type arg at

@@ -11,9 +11,9 @@ import (
 // using the backend name ("vmcp") and prefixed tool names ("tavily_*"/"firecrawl_*")
 // exactly as ToolHive's vMCP presents them. They prove the wiring that turns a
 // crawl/map tool call into the web_crawl resource Cerbos denies for internal
-// targets/out-of-cap limits (HAH-74), (HAH-93) that the single-URL/multi-URL
-// fetch tools left unmapped by HAH-74 now reach the same resource via a separate
-// `fetch` action, and (HAH-94) that firecrawl_monitor_create/firecrawl_monitor_update
+// targets/out-of-cap limits, that the single-URL/multi-URL
+// fetch tools left unmapped by the crawl/map gate now reach the same resource via a separate
+// `fetch` action, and that firecrawl_monitor_create/firecrawl_monitor_update
 // reach the same resource via a separate `monitor` action; the deny *decision*
 // itself is proven by defs/webcrawl_test.yaml.
 
@@ -117,8 +117,8 @@ func TestDeployedWebCrawlMapping_UnmappedToolsPass(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 	// tavily_search has no crawl/discovery surface and no target-fetch surface
-	// (HAH-93) either -- must stay unmapped even given an internal-looking url.
-	// tavily_extract/firecrawl_scrape were unmapped pre-HAH-93; they are now
+	// either -- must stay unmapped even given an internal-looking url.
+	// tavily_extract/firecrawl_scrape were unmapped in an earlier pass; they are now
 	// covered by TestDeployedWebFetchMapping_MappedToolsReachCerbos below.
 	for _, tool := range []string{"tavily_tavily_search"} {
 		t.Run(tool, func(t *testing.T) {
@@ -140,8 +140,8 @@ func TestDeployedWebCrawlMapping_UnmappedToolsPass(t *testing.T) {
 	}
 }
 
-// TestDeployedWebFetchMapping_MappedToolsReachCerbos (HAH-93): proves the
-// single-URL/multi-URL fetch tools left unmapped by HAH-74 now reach Cerbos
+// TestDeployedWebFetchMapping_MappedToolsReachCerbos proves the
+// single-URL/multi-URL fetch tools left unmapped by the crawl/map gate now reach Cerbos
 // via the web_crawl resource's new `fetch` action.
 func TestDeployedWebFetchMapping_MappedToolsReachCerbos(t *testing.T) {
 	m := deployedMapping(t)
@@ -210,7 +210,7 @@ func TestDeployedWebFetchMapping_ExternalURLPasses(t *testing.T) {
 	}
 }
 
-// TestDeployedWebMonitorMapping_MappedToolsReachCerbos (HAH-94): proves
+// TestDeployedWebMonitorMapping_MappedToolsReachCerbos proves
 // firecrawl_monitor_create/firecrawl_monitor_update reach Cerbos via the
 // web_crawl resource's new `monitor` action.
 func TestDeployedWebMonitorMapping_MappedToolsReachCerbos(t *testing.T) {

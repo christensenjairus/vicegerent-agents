@@ -120,7 +120,7 @@ func (r *CallToolResult) Text() string {
 // there is no raw notion_notion-fetch tool at that level to call directly.
 // Every real tool invocation, including this package's own outbound ancestry
 // lookup, must go through call_tool{tool_name, parameters} or vMCP returns
-// "tool not found" (confirmed live: HAH-88's first deploy attempt hit exactly
+// "tool not found" (confirmed live: an earlier deploy attempt hit exactly
 // this before it was fixed here -- see git history / MR revert). This is the
 // EXACT mirror, on the outbound side, of what server.go's callToolMeta
 // unwrapping does on the inbound side for calls arriving at the shim.

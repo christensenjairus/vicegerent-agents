@@ -6,15 +6,15 @@ description: >-
   Linear save_issue calls that supply a team other than DEVOPS are denied;
   calls confined to the DEVOPS team (by uuid, name, or key), and calls that
   supply no team at all, are allowed. Linear save_project calls whose
-  addTeams/setTeams contain any team other than DEVOPS are denied (HAH-70);
+  addTeams/setTeams contain any team other than DEVOPS are denied;
   calls confined to DEVOPS, or that supply neither addTeams nor setTeams, are
-  allowed. These same allow/deny rules also cover the HAH-91 live-resolved
+  allowed. These same allow/deny rules also cover the live-resolved
   case (an ordinary save_issue/save_project update's CURRENT team, injected
   by the shim as this same teamId/teams attr) -- Cerbos itself can't tell the
   difference between an explicit and a resolved team, by design (see
-  resource_linear.yaml's HAH-91 doc). create_issue_label with a teamId other
+  resource_linear.yaml's doc). create_issue_label with a teamId other
   than DEVOPS is denied; a team-scoped label confined to DEVOPS, or a
-  workspace-scoped label (no teamId at all), is allowed (HAH-91).
+  workspace-scoped label (no teamId at all), is allowed.
   force-self-assignee: a save_issue CREATE call (isCreate true) with no
   assignee is denied; an ordinary update that doesn't touch assignee is
   unaffected; any call that sets assignee to someone outside
@@ -85,7 +85,7 @@ resources:
     id: LIN-123
     kind: linear_team
     attr: {isCreate: 'false', assignee: someone-else@example.com}
-  # HAH-91: create_issue_label -- a team-scoped label's teamId is checked
+  # create_issue_label -- a team-scoped label's teamId is checked
   # exactly like save_issue/save_project's team(s); a workspace-scoped label
   # (no teamId arg at all) has nothing to verify and is allowed.
   label_devops_team:

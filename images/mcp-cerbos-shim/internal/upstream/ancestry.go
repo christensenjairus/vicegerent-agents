@@ -106,7 +106,7 @@ func PageIsUnderAnyAncestor(ctx context.Context, client ToolCaller, pageID strin
 // instead of a real quote character, or a literal two-char backslash-n instead
 // of a real newline). Discovered live: the original
 // unit-test fixtures used bare <page> XML directly as CallTool's return,
-// which is why 147 passing tests never caught this -- see HAH-88 postmortem.
+// which is why 147 passing tests never caught this in an earlier pass.
 type notionFetchEnvelope struct {
 	Text string `json:"text"`
 }

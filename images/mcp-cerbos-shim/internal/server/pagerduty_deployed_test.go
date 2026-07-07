@@ -2,10 +2,21 @@ package server
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
 )
+
+// pagerdutyIncidentResultServiceA mirrors get_incident's inferred REST-API-
+// convention result shape (see upstream/pagerduty.go's own caveat: NOT
+// verified against a live call). Every existing ack/resolve-scoping test
+// below now also wires WithPagerdutyIncidentService(up) with this fixture --
+// they only care that the call still reaches Cerbos with the right
+// hasOutOfScopeChange, not about the new serviceIds attr this gate adds
+// alongside it, so a single allowed-looking service keeps their existing
+// assertions unaffected.
+const pagerdutyIncidentResultServiceA = `{"service":{"id":"PSERVICEA"}}`
 
 // These tests run the SHIPPED mapping (not a fixture) through the request path.
 // They prove the wiring that turns a PagerDuty manage_incidents/
@@ -23,7 +34,8 @@ func TestDeployedPagerdutyMapping_ManageIncidentsReachesCerbosWithStatus(t *test
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: true}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
 			map[string]any{
@@ -56,7 +68,8 @@ func TestDeployedPagerdutyMapping_ManageIncidentsTriggeredStatusFlagged(t *testi
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: false}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
 			map[string]any{
@@ -86,7 +99,8 @@ func TestDeployedPagerdutyMapping_ManageIncidentsUrgencyFlagged(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: false}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
 			map[string]any{
@@ -119,7 +133,8 @@ func TestDeployedPagerdutyMapping_ManageIncidentsEscalationLevelFlagged(t *testi
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: false}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
 			map[string]any{
@@ -146,7 +161,8 @@ func TestDeployedPagerdutyMapping_AddNoteToIncidentReachesCerbos(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 	d := &stubDecider{allow: true}
-	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("pagerduty_add_note_to_incident",
 			map[string]any{"incident_id": "PT4KHLK", "note": "Investigating"})))
@@ -161,5 +177,166 @@ func TestDeployedPagerdutyMapping_AddNoteToIncidentReachesCerbos(t *testing.T) {
 	}
 	if d.gotAttr["incidentId"] != "PT4KHLK" {
 		t.Errorf("attr.incidentId = %q, want PT4KHLK", d.gotAttr["incidentId"])
+	}
+}
+
+// pagerdutyIncidentResultServiceB is a second distinct service id, used to
+// prove the allowlist actually discriminates rather than always passing.
+const pagerdutyIncidentResultServiceB = `{"service":{"id":"PSERVICEB"}}`
+
+func TestDeployedPagerdutyMapping_ServiceGateInjectsServiceIdsAttr(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
+			map[string]any{
+				"manage_request": map[string]any{
+					"incident_ids": []any{"PT1", "PT2"},
+					"status":       "acknowledged",
+				},
+			})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass when Cerbos allows, got deny")
+	}
+	if up.calls != 2 {
+		t.Errorf("expected exactly two get_incident lookups (one per targeted incident), got %d", up.calls)
+	}
+	gotServiceIds, ok := d.gotAttr["serviceIds"].([]string)
+	if !ok || len(gotServiceIds) != 2 || gotServiceIds[0] != "PSERVICEA" || gotServiceIds[1] != "PSERVICEA" {
+		t.Errorf("attr.serviceIds = %#v, want [PSERVICEA PSERVICEA] (both incidents resolved to the same service)", d.gotAttr["serviceIds"])
+	}
+}
+
+func TestDeployedPagerdutyMapping_AddNoteServiceGateInjectsServiceIdsAttr(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceB}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_add_note_to_incident",
+			map[string]any{"incident_id": "PT4KHLK", "note": "Investigating"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass when Cerbos allows, got deny")
+	}
+	if up.calls != 1 {
+		t.Errorf("expected exactly one get_incident lookup, got %d", up.calls)
+	}
+	gotServiceIds, ok := d.gotAttr["serviceIds"].([]string)
+	if !ok || len(gotServiceIds) != 1 || gotServiceIds[0] != "PSERVICEB" {
+		t.Errorf("attr.serviceIds = %#v, want [PSERVICEB]", d.gotAttr["serviceIds"])
+	}
+}
+
+func TestDeployedPagerdutyMapping_ServiceLookupFailureFailsClosed(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	// allow=true: proves the deny comes from the shim's own fail-closed gate,
+	// not from Cerbos -- Cerbos is never even reached.
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{err: errors.New("connection refused")}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
+			map[string]any{
+				"manage_request": map[string]any{
+					"incident_ids": []any{"PT1"},
+					"status":       "acknowledged",
+				},
+			})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny on lookup failure (fail closed), got pass")
+	}
+	if d.calls != 0 {
+		t.Errorf("expected Cerbos never reached on a fail-closed lookup error, got %d calls", d.calls)
+	}
+}
+
+func TestDeployedPagerdutyMapping_UnconfiguredServiceGateFailsClosed(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	// No WithPagerdutyIncidentService: production's main.go always wires it,
+	// so reaching here unconfigured means a broken deploy, not a license to
+	// allow an unscoped incident write through -- same posture as the Notion
+	// ancestry gate's unconfigured-gate test.
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
+			map[string]any{
+				"manage_request": map[string]any{
+					"incident_ids": []any{"PT1"},
+					"status":       "acknowledged",
+				},
+			})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny with the service gate unconfigured (fail closed), got pass")
+	}
+	if d.calls != 0 {
+		t.Errorf("expected Cerbos never reached with the gate unconfigured, got %d calls", d.calls)
+	}
+}
+
+func TestDeployedPagerdutyMapping_NoIncidentIdsSkipsGateAndReachesCerbosUnaffected(t *testing.T) {
+	// manage_incidents with an empty incident_ids array has nothing to
+	// resolve -- the gate must not fire (and must not deny), same
+	// fail-open-when-genuinely-nothing-to-check posture as the Linear
+	// save_comment gate's no-issueId case.
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	// No WithPagerdutyIncidentService configured at all -- proves the gate
+	// genuinely never fires here (an unconfigured gate would otherwise deny,
+	// per the test above).
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_manage_incidents",
+			map[string]any{
+				"manage_request": map[string]any{
+					"incident_ids": []any{},
+					"status":       "acknowledged",
+				},
+			})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass: no incident ids to resolve, gate must not fire")
+	}
+	if d.calls != 1 {
+		t.Fatalf("expected the call to still reach Cerbos once (just without a serviceIds attr), got %d", d.calls)
+	}
+	if _, hasServiceIds := d.gotAttr["serviceIds"]; hasServiceIds {
+		t.Errorf("attr.serviceIds should be absent when there are no incident ids to resolve, got %#v", d.gotAttr["serviceIds"])
 	}
 }
