@@ -35,6 +35,8 @@ import os
 import base64
 import re
 import shutil
+import signal
+import socket
 import subprocess
 import sys
 import time
@@ -209,6 +211,92 @@ def default_listen() -> str:
 
 def _thv_path() -> str:
     return shutil.which(THV) or THV
+
+
+def _addr_reachable(addr: str, timeout: float = 0.3) -> bool:
+    """True if something is already accepting connections on host:port.
+
+    Used to detect a vmcp/ghostunnel/rclone-s3 instance left running outside
+    supervisord's control (e.g. orphaned by a killed supervisord) so `start`
+    can leave it in place instead of racing it for the port.
+    """
+    host, _, port_s = addr.rpartition(":")
+    try:
+        port = int(port_s)
+    except ValueError:
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(timeout)
+        return s.connect_ex((host, port)) == 0
+
+
+def _pid_alive(pid: int) -> bool:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    return True
+
+
+def _terminate_pids(pids: list[int], timeout: float = 5.0) -> None:
+    """SIGTERM a set of pids, then SIGKILL whichever are still alive after timeout."""
+    for pid in pids:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    deadline = time.time() + timeout
+    while time.time() < deadline and any(_pid_alive(p) for p in pids):
+        time.sleep(0.2)
+    for pid in pids:
+        if _pid_alive(pid):
+            try:
+                os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+
+
+def _kill_addr_listeners(addr: str, timeout: float = 5.0) -> list[int]:
+    """Kill whatever is listening on host:port (SIGTERM, then SIGKILL); returns
+    the pids killed.
+
+    `stop` uses this to clear vmcp/ghostunnel/rclone-s3 processes supervisord
+    wasn't tracking (orphaned by e.g. a killed supervisord) so the next `start`
+    always gets a fresh, fully supervisord-managed instance rather than one it
+    has to leave alone because the port's already taken.
+    """
+    _, _, port_s = addr.rpartition(":")
+    result = subprocess.run(
+        ["lsof", "-t", "-nP", f"-iTCP:{port_s}", "-sTCP:LISTEN"],
+        capture_output=True, text=True,
+    )
+    pids = sorted({int(p) for p in result.stdout.split() if p.strip()})
+    if pids:
+        _terminate_pids(pids, timeout)
+    return pids
+
+
+def _kill_stray_supervisord(paths: dict[str, Path], timeout: float = 10.0) -> list[int]:
+    """Kill any supervisord process still pointing at our conf file.
+
+    `supervisorctl shutdown` only ever reaches whichever supervisord currently
+    owns the socket *path* -- but `start` unconditionally unlinks and recreates
+    that path, so a supervisord that a prior `stop` failed to reach becomes
+    permanently unreachable that way while it keeps running, autorestart=true,
+    forever resurrecting vmcp/ghostunnel/rclone-s3 the instant something else
+    kills them. Find strays by command line instead of by socket.
+    """
+    conf = str(paths["supervisord_conf"])
+    result = subprocess.run(
+        ["pgrep", "-f", f"supervisord -c {conf}"],
+        capture_output=True, text=True,
+    )
+    pids = sorted({int(p) for p in result.stdout.split() if p.strip()})
+    if pids:
+        _terminate_pids(pids, timeout)
+    return pids
 
 
 # ---------------------------------------------------------------------------
@@ -691,10 +779,18 @@ def build_supervisord_conf(
     rcloneshell: Path,
     rclone_env: dict[str, str],
     caffeinate: bool = False,
+    preexisting: frozenset[str] = frozenset(),
 ) -> str:
+    """preexisting: SUPERVISED_PROGRAMS names already running outside supervisord
+    (e.g. orphaned by a killed supervisord) -- give them autostart=false so
+    supervisord doesn't spawn a competing instance and fail on the bound port."""
     sock = paths["supervisord_sock"]
     pidfile = paths["supervisord_pid"]
     logs = paths["logs"]
+
+    def autostart(name: str) -> str:
+        return "false" if name in preexisting else "true"
+
     caffeinate_block = f"""\
 [program:caffeinate]
 command=caffeinate -i
@@ -731,7 +827,7 @@ serverurl=unix://{sock}
 command={vmcp_command}
 directory={REPO_ROOT}
 environment={_supervisord_env_str(vmcp_env)}
-autostart=true
+autostart={autostart("vmcp")}
 autorestart=true
 startsecs=3
 stopwaitsecs=10
@@ -744,7 +840,7 @@ stdout_logfile_backups=2
 command={ghostshell}
 directory={REPO_ROOT}
 environment={_supervisord_env_str(tunnel_env)}
-autostart=true
+autostart={autostart("ghostunnel")}
 autorestart=true
 startsecs=2
 stopwaitsecs=8
@@ -757,7 +853,7 @@ stdout_logfile_backups=2
 command={rcloneshell}
 directory={REPO_ROOT}
 environment={_supervisord_env_str(rclone_env)}
-autostart=true
+autostart={autostart("rclone-s3")}
 autorestart=true
 startsecs=2
 stopwaitsecs=8
@@ -786,6 +882,10 @@ def get_supervisor_states(runtime_dir: Path) -> dict[str, str]:
     if not runtime_paths(runtime_dir)["supervisord_sock"].exists():
         return {}
     result = supervisorctl("status", runtime_dir=runtime_dir)
+    if result.returncode not in (0, 3):
+        # 0: all RUNNING, 3: reachable but some programs not RUNNING/FATAL etc.
+        # Anything else (e.g. 4 "refused connection") means the socket is stale.
+        return {}
     states: dict[str, str] = {}
     for line in result.stdout.splitlines():
         parts = line.split()
@@ -841,6 +941,8 @@ def _require_rich() -> tuple[Any, Any]:
 def _style_proc(state: str) -> str:
     if state == "RUNNING":
         return f"[green]{state}[/green]"
+    if state == "EXTERNAL":
+        return f"[cyan]{state}[/cyan]"
     if state in ("STARTING", "BACKOFF"):
         return f"[yellow]{state}[/yellow]"
     if state in ("STOPPED", "EXITED", "FATAL", "UNKNOWN"):
@@ -887,11 +989,22 @@ def status(
 
     sup_states = get_supervisor_states(runtime_dir)
     not_running = not sup_states
+    # A program supervisord isn't managing (never started, or left autostart=false
+    # because `start` found it already running externally) shows as STOPPED here --
+    # probe its port so an inherited, actually-up process doesn't read as down.
+    probe_addrs = {
+        "vmcp": vmcp_target(config),
+        "ghostunnel": default_listen(),
+        "rclone-s3": os.environ.get("RCLONE_ADDR", DEFAULT_RCLONE_ADDR),
+    }
     proc_table = Table(title="Host stack", show_header=True, header_style="bold cyan")
     proc_table.add_column("Process", style="bold")
     proc_table.add_column("State")
     for prog in ALL_PROGRAMS:
-        proc_table.add_row(prog, _style_proc(sup_states.get(prog, "STOPPED" if not_running else "")))
+        state = sup_states.get(prog, "STOPPED" if not_running else "")
+        if state in ("", "STOPPED") and prog in probe_addrs and _addr_reachable(probe_addrs[prog]):
+            state = "EXTERNAL"
+        proc_table.add_row(prog, _style_proc(state))
     console.print(proc_table)
     return 0
 
@@ -1072,9 +1185,18 @@ def start_stack(
         "HOME": str(Path.home()),
     }
 
+    # A prior supervisord could have died without stopping its children, leaving
+    # vmcp/ghostunnel/rclone-s3 orphaned but still bound to their ports. Starting a
+    # fresh instance for one of those would just lose the port race and go FATAL, so
+    # leave any already-reachable one alone instead (autostart=false in the conf).
+    probe_addrs = {"vmcp": target, "ghostunnel": effective_listen, "rclone-s3": rclone_addr}
+    preexisting = frozenset(name for name, addr in probe_addrs.items() if _addr_reachable(addr))
+    if preexisting:
+        print(f"Already running outside supervisord, leaving in place: {', '.join(sorted(preexisting))}")
+
     conf_text = build_supervisord_conf(
         paths, effective_ghostshell, tunnel_env, vmcp_command, vmcp_env,
-        DEFAULT_RCLONESHELL, rclone_env, use_caffeinate,
+        DEFAULT_RCLONESHELL, rclone_env, use_caffeinate, preexisting,
     )
     paths["supervisord_conf"].write_text(conf_text, encoding="utf-8")
 
@@ -1091,22 +1213,26 @@ def start_stack(
         ) from None
 
     expected = (("caffeinate", *SUPERVISED_PROGRAMS) if use_caffeinate else SUPERVISED_PROGRAMS)
-    # Wait up to 15s for all programs to reach RUNNING.
+    # preexisting programs are autostart=false -- supervisord never touches them,
+    # so only wait on the ones it's actually meant to bring up.
+    managed = [p for p in expected if p not in preexisting]
+    # Wait up to 15s for all managed programs to reach RUNNING.
     deadline = time.time() + 15
     while time.time() < deadline:
         sup_states = get_supervisor_states(runtime_dir)
-        if all(sup_states.get(p) == "RUNNING" for p in expected):
+        if all(sup_states.get(p) == "RUNNING" for p in managed):
             break
         time.sleep(0.5)
 
     sup_states = get_supervisor_states(runtime_dir)
     for prog in expected:
-        print(f"  {prog}: {sup_states.get(prog, 'unknown')}")
+        state = "RUNNING (external, inherited)" if prog in preexisting else sup_states.get(prog, "unknown")
+        print(f"  {prog}: {state}")
     print(f"vMCP:          127.0.0.1:{port}  (ToolHive, group '{group_name(config)}')")
     print(f"ghostunnel:    {effective_listen} -> {target}")
     print(f"rclone-s3:     {rclone_addr} -> {rclone_serve_dir} (bucket '{RCLONE_BUCKET}')")
     print(f"caffeinate:    {'on' if use_caffeinate else 'off'}")
-    failed = [p for p in expected if sup_states.get(p) != "RUNNING"]
+    failed = [p for p in managed if sup_states.get(p) != "RUNNING"]
     if failed:
         print(f"\nwarning: {failed} did not reach RUNNING; check logs under {paths['logs']}", file=sys.stderr)
         return 1
@@ -1125,8 +1251,9 @@ def stop_stack(
     sessions survive and the next `start` won't re-prompt. Pass stop_workloads=False
     (`--keep-workloads`) to leave them running.
     """
+    config = load_servers_config(servers_config)
     if stop_workloads:
-        group = group_name(load_servers_config(servers_config))
+        group = group_name(config)
         running = [name for name, st in list_workloads(group).items() if st == "running"]
         if running:
             print(f"  stopping {len(running)} workloads: {', '.join(running)} …")
@@ -1134,24 +1261,50 @@ def stop_stack(
             with ThreadPoolExecutor(max_workers=len(running)) as pool:
                 list(pool.map(lambda n: thv("stop", n), running))
 
-    if not is_supervisor_running(runtime_dir):
-        print("supervisord is not running")
-        return 0
-    result = supervisorctl("shutdown", runtime_dir=runtime_dir)
-    print(result.stdout.strip() or "supervisord shutdown initiated")
+    paths = runtime_paths(runtime_dir)
+    rc = 0
+    if is_supervisor_running(runtime_dir):
+        result = supervisorctl("shutdown", runtime_dir=runtime_dir)
+        print(result.stdout.strip() or "supervisord shutdown initiated")
 
-    # Wait up to 15s for the supervisor socket to disappear (processes fully exited).
-    sock = runtime_paths(runtime_dir)["supervisord_sock"]
-    deadline = time.time() + 15
-    while time.time() < deadline:
-        if not sock.exists():
-            break
-        time.sleep(0.5)
+        # Wait up to 15s for the supervisor socket to disappear (processes fully exited).
+        sock = paths["supervisord_sock"]
+        deadline = time.time() + 15
+        while time.time() < deadline:
+            if not sock.exists():
+                break
+            time.sleep(0.5)
+        else:
+            print("warning: supervisord did not exit within 15s", file=sys.stderr)
+            rc = 1
     else:
-        print("warning: supervisord did not exit within 15s", file=sys.stderr)
-        return 1
+        print("supervisord is not running")
 
-    return 0
+    # `supervisorctl shutdown` above only ever reaches whichever supervisord
+    # currently owns the socket path -- a stray instance a *prior* stop failed to
+    # reach (e.g. orphaned when some earlier `start` recreated that path out from
+    # under it) keeps running with autorestart=true, immune to the check above.
+    # Find and kill it by command line instead, or it'll just resurrect whatever
+    # the port sweep below kills.
+    stray = _kill_stray_supervisord(paths)
+    if stray:
+        print(f"  killed stray supervisord ({', '.join(str(p) for p in stray)})")
+
+    # supervisorctl shutdown only stops what supervisord is currently tracking --
+    # anything still listening on these ports afterward is an orphan (see start's
+    # autostart=false inherit path). Kill it so the next `start` always gets a
+    # fresh, fully supervisord-managed instance instead of inheriting one again.
+    port_addrs = {
+        "vmcp": vmcp_target(config),
+        "ghostunnel": default_listen(),
+        "rclone-s3": os.environ.get("RCLONE_ADDR", DEFAULT_RCLONE_ADDR),
+    }
+    for name, addr in port_addrs.items():
+        killed = _kill_addr_listeners(addr)
+        if killed:
+            print(f"  killed orphaned {name} ({', '.join(str(p) for p in killed)})")
+
+    return rc
 
 
 _LOG_NAMES = ("ghostunnel", "vmcp", "rclone-s3", "supervisord", "caffeinate")

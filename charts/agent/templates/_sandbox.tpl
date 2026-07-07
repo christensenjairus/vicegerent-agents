@@ -89,10 +89,13 @@ spec:
               i=0
               for f in "${splitdir}"/ca-cert-*.pem; do
                 i=$((i + 1))
-                keytool -importcert -noprompt -trustcacerts \
+                if ! out=$(keytool -importcert -noprompt -trustcacerts \
                   -alias "ca-${i}" -file "$f" \
                   -keystore /opt/data/certs/java-cacerts.p12 \
-                  -storetype PKCS12 -storepass changeit >/dev/null
+                  -storetype PKCS12 -storepass changeit 2>&1); then
+                  echo "$out" >&2
+                  exit 1
+                fi
               done
               rm -rf "${splitdir}"
               # Bazel ignores JAVA_TOOL_OPTIONS; give it a ~/.bazelrc instead.
