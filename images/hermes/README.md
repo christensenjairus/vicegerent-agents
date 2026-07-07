@@ -78,6 +78,20 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   Central Registry egress allowlist entry or a pre-seeded `MODULE.bazel`
   dependency cache; this bake only guarantees the `bazel`/`buildozer`/`buildifier`
   binaries themselves are present and the pinned Bazel version runs offline.
+- `absl-py` (`absl`), `pygithub` (`github`), `toml`, `validators`, `yamllint` via
+  `requirements.txt` — an internal monorepo's own `tools/ci/*` and
+  `tools/precommit_hooks/*` entry points declare their local hooks `language: system`
+  in `.pre-commit-config.yaml` (i.e. run against whatever `python` is on `PATH`,
+  not an isolated pre-commit-managed venv) — so they must be importable from the
+  hermes venv directly, not installable at runtime (`/opt/hermes/.venv` is
+  read-only outside the build). `toml` is load-bearing for that repo's `tools.ci.*`
+  entry points via `tools/common/repo_utils.py`; `absl`/`pygithub`/`validators`
+  are used by `tools/base`, `tools/utils/bcdr`, and `tools/fix_builds` respectively;
+  `yamllint` backs the `yamllint` pre-commit hook itself (`python -m yamllint`).
+  Confirmed by actually running that repo's `tools.ci.ci_lint` end-to-end
+  after adding these — the only remaining pre-commit dependency, `ruff`, already
+  works unmodified: it's a hosted (non-`local`) pre-commit repo, so pre-commit
+  manages its own isolated env for it on first run, independent of this venv.
 
 ## Patches
 
