@@ -3,9 +3,14 @@
 # the agent needs at runtime must be installed here at build time.
 # Pinned for reproducibility; Renovate's pip_requirements manager tracks updates.
 # Add a package = add a line. No renovate.json change needed.
+absl-py==2.5.0
 agentburn==0.11.0
 detect-secrets==1.5.0
 mnemosyne-hermes[all]==0.3.1
 pre-commit==4.6.0
+pygithub==2.9.1
 pygount==3.2.0
 rtk-hermes==1.2.3
+toml==0.10.2
+validators==0.35.0
+yamllint==1.38.0
