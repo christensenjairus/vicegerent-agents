@@ -100,3 +100,11 @@ data:
   # createSilence's duration is capped by this value; personal machine gets a
   # longer leash than work.
   alertmanagerMaxSilenceSeconds: '1209600'  # 14 days
+
+  # Tavily/Firecrawl crawl+map caps (resource_webcrawl.yaml). Same value on
+  # both machines -- there's no per-machine reason for a looser crawl budget
+  # the way silence duration has (a stale silence's blast radius scales with
+  # team size; a crawl budget doesn't).
+  webCrawlMaxLimit: '200'
+  webCrawlMaxDepth: '3'
+  webCrawlMaxBreadth: '50'

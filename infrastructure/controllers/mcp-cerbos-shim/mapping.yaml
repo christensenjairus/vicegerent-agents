@@ -8,8 +8,9 @@
 # ${jiraAllowedProjects} (reads are unrestricted), GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
 # DEVOPS, Alertmanager silences over the duration cap, out-of-scope
-# PagerDuty incident changes, and Notion create-pages calls whose parent isn't
-# the Scratchpad folder. GitLab has no mapped tools or Cerbos resource at all
+# PagerDuty incident changes, Notion create-pages calls whose parent isn't
+# the Scratchpad folder, and Tavily/Firecrawl crawl+map calls targeting an
+# internal-only host or exceeding the limit/depth/breadth caps. GitLab has no mapped tools or Cerbos resource at all
 # (see the GitLab tools comment below). A `force` block instead
 # allows-with-rewritten-args — that's a mutation, not a deny (see server.go):
 # GitHub PR create/update force draft: true. Adding a tool here to permit it
@@ -28,6 +29,7 @@ backends:
       - notionCreateAttr
       - jiraFieldsAttr
       - githubReviewersAttr
+      - webCrawlAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -398,3 +400,28 @@ backends:
         id: get(args,'scrapeId', get(args,'url',''))
         attr:
           code: get(args,'code','')
+      # Tavily/Firecrawl crawl+map tools -> web_crawl (HAH-74): these are the
+      # only tools in either backend that follow links outward from a caller-
+      # supplied url rather than fetching/searching a single caller-supplied
+      # target, so they're the ones an SSRF-style internal-target url or an
+      # unbounded limit/depth/breadth actually matters for. tavily_search/
+      # tavily_extract/tavily_research and every other firecrawl_* tool
+      # (scrape/search/extract/monitor/etc.) fetch exactly what the caller
+      # named and don't discover new targets, so they stay unmapped -- same
+      # reasoning firecrawl_interact's comment above uses to justify why nothing
+      # else in that backend is mapped.
+      tavily_tavily_crawl:
+        resourceType: web_crawl
+        action: crawl
+        id: get(args,'url','')
+        attrFrom: webCrawlAttr(args)
+      tavily_tavily_map:
+        resourceType: web_crawl
+        action: crawl
+        id: get(args,'url','')
+        attrFrom: webCrawlAttr(args)
+      firecrawl_firecrawl_crawl:
+        resourceType: web_crawl
+        action: crawl
+        id: get(args,'url','')
+        attrFrom: webCrawlAttr(args)
