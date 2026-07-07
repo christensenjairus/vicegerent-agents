@@ -121,6 +121,18 @@ func mcpReq(backend, method string, body []byte) *pb.McpRequest {
 	return &pb.McpRequest{ServiceNames: []string{backend}, Method: method, McpRequest: body}
 }
 
+// fakeSlackBotToken/fakeBearerHeader build secret-shaped-but-fake test
+// fixtures via concatenation so no literal credential-pattern string sits
+// verbatim in this source file (keeps local secret scanners from flagging
+// the test file itself).
+func fakeSlackBotToken() string {
+	return "xox" + "b-" + strings.Repeat("1", 10) + "-" + strings.Repeat("2", 10) + "-" + strings.Repeat("a", 24) // pragma: allowlist secret
+}
+
+func fakeBearerHeader() string {
+	return "Bear" + "er " + strings.Repeat("z", 20) + "." + strings.Repeat("y", 20) + "." + strings.Repeat("x", 10) // pragma: allowlist secret
+}
+
 func isPass(r *pb.McpRequestResult) bool    { return r.GetPass() != nil }
 func isDeny(r *pb.McpRequestResult) bool    { return r.GetError() != nil }
 func isMutated(r *pb.McpRequestResult) bool { return r.GetMutated() != nil }
@@ -677,9 +689,9 @@ func TestCheckRequest_ForceOverride(t *testing.T) {
 	})
 }
 
-func TestCheckResponse_AlwaysPassNoMutation(t *testing.T) {
+func TestCheckResponse_NonToolsCallAlwaysPassNoMutation(t *testing.T) {
 	s := newTestServer(t, &stubDecider{})
-	r, err := s.CheckResponse(context.Background(), &pb.McpResponse{ServiceNames: []string{"kubernetes"}, Method: "tools/call"})
+	r, err := s.CheckResponse(context.Background(), &pb.McpResponse{ServiceNames: []string{"kubernetes"}, Method: "tools/list"})
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -688,5 +700,290 @@ func TestCheckResponse_AlwaysPassNoMutation(t *testing.T) {
 	}
 	if r.GetMutated() != nil {
 		t.Errorf("response carried mutation")
+	}
+}
+
+func TestCheckResponse_CleanToolsCallResultPassesUnmutated(t *testing.T) {
+	s := newTestServer(t, &stubDecider{})
+	body := []byte(`{"content":[{"type":"text","text":"all good, no secrets here"}],"isError":false}`)
+	r, err := s.CheckResponse(context.Background(), &pb.McpResponse{ServiceNames: []string{"kubernetes"}, Method: "tools/call", McpResponse: body})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if r.GetPass() == nil {
+		t.Fatalf("expected pass for a clean result, got mutated=%v", r.GetMutated() != nil)
+	}
+}
+
+func TestCheckResponse_EmptyOrUnparseableBodyPassesUnmutated(t *testing.T) {
+	s := newTestServer(t, &stubDecider{})
+
+	t.Run("empty body", func(t *testing.T) {
+		r, err := s.CheckResponse(context.Background(), &pb.McpResponse{Method: "tools/call", McpResponse: nil})
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if r.GetPass() == nil {
+			t.Fatalf("expected pass for an empty body")
+		}
+	})
+
+	t.Run("unparseable body", func(t *testing.T) {
+		r, err := s.CheckResponse(context.Background(), &pb.McpResponse{Method: "tools/call", McpResponse: []byte("not json")})
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if r.GetPass() == nil {
+			t.Fatalf("expected pass for an unparseable body (fail-open on redaction, not fail-closed)")
+		}
+	})
+}
+
+func TestCheckResponse_RedactsSecretInToolResult(t *testing.T) {
+	s := newTestServer(t, &stubDecider{})
+	secret := fakeSlackBotToken()
+	payload := map[string]any{
+		"content": []any{map[string]any{"type": "text", "text": "here is the token: " + secret}},
+		"isError": false,
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal fixture: %v", err)
+	}
+	r, err := s.CheckResponse(context.Background(), &pb.McpResponse{ServiceNames: []string{"kubernetes"}, Method: "tools/call", McpResponse: body})
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	mutated := r.GetMutated()
+	if mutated == nil {
+		t.Fatalf("expected a mutated (redacted) result, got pass=%v", r.GetPass() != nil)
+	}
+	if strings.Contains(string(mutated), secret) {
+		t.Errorf("secret leaked through unredacted: %s", mutated)
+	}
+	if !strings.Contains(string(mutated), redactedPlaceholder) {
+		t.Errorf("expected redaction placeholder in mutated result: %s", mutated)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(mutated, &decoded); err != nil {
+		t.Fatalf("mutated result is not valid JSON: %v", err)
+	}
+}
+
+func TestCheckRequest_RedactsSecretInArguments(t *testing.T) {
+	secret := fakeSlackBotToken()
+	d := &stubDecider{allow: true}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+		toolCall("create_issue", map[string]any{"repo": "r", "body": "leaked key: " + secret})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isMutated(r) {
+		t.Fatalf("expected a mutated result for a call carrying a secret-shaped argument, got pass=%v deny=%v", isPass(r), isDeny(r))
+	}
+	_, args := decodeMutated(t, r)
+	body, _ := args["body"].(string)
+	if strings.Contains(body, secret) {
+		t.Errorf("secret leaked through unredacted: %q", body)
+	}
+	if !strings.Contains(body, redactedPlaceholder) {
+		t.Errorf("expected redaction placeholder in mutated arg: %q", body)
+	}
+	if args["repo"] != "r" {
+		t.Errorf("non-secret args should be preserved unchanged: %v", args)
+	}
+}
+
+func TestCheckRequest_NoSecretMeansPlainPassWhenNoForce(t *testing.T) {
+	d := &stubDecider{allow: true}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+		toolCall("create_issue", map[string]any{"repo": "r", "body": "just an ordinary comment"})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isPass(r) {
+		t.Fatalf("expected a plain pass when nothing needs redacting and the tool has no force block")
+	}
+}
+
+func TestCheckRequest_DeniedCallNeverMutatesEvenWithSecret(t *testing.T) {
+	secret := fakeSlackBotToken()
+	d := &stubDecider{allow: false}
+	s := newTestServer(t, d)
+	r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+		toolCall("create_issue", map[string]any{"repo": "r", "body": secret})))
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !isDeny(r) {
+		t.Fatalf("expected deny, got pass=%v mutated=%v", isPass(r), isMutated(r))
+	}
+	if isMutated(r) {
+		t.Fatalf("a denied call must never carry a mutation, secret-redaction or otherwise")
+	}
+}
+
+func TestRedactString(t *testing.T) {
+	// Fixtures are built via string concatenation (strings.Repeat / manual
+	// joins) rather than literal secret-shaped constants, so no
+	// credential-pattern-matching string sits in this source file itself.
+	sshKey := "-----BEGIN " + "RSA " + "PRIVATE" + " KEY-----\n" + // pragma: allowlist secret
+		strings.Repeat("QUJDRUZHSElKS0xNTk9QUVJTVFVWV1hZWg==\n", 3) +
+		"-----END " + "RSA " + "PRIVATE" + " KEY-----"
+	slackBot := "xox" + "b-" + strings.Repeat("1", 10) + "-" + strings.Repeat("2", 10) + "-" + strings.Repeat("a", 24)    // pragma: allowlist secret
+	slackApp := "xapp-" + "1-" + strings.Repeat("A", 10) + "-" + strings.Repeat("9", 20)                                  // pragma: allowlist secret
+	bearerVal := "Bear" + "er " + strings.Repeat("z", 20) + "." + strings.Repeat("y", 20) + "." + strings.Repeat("x", 10) // pragma: allowlist secret
+	basicVal := "Bas" + "ic " + strings.Repeat("b", 24) + "=="                                                            // pragma: allowlist secret
+
+	cases := []struct {
+		name       string
+		in         string
+		wantRedact bool
+		wantAbsent string // substring that must NOT survive redaction
+	}{
+		{
+			name:       "ssh private key",
+			in:         "leading noise " + sshKey + " trailing noise",
+			wantRedact: true,
+			wantAbsent: sshKey,
+		},
+		{
+			name:       "slack bot token",
+			in:         "token=" + slackBot,
+			wantRedact: true,
+			wantAbsent: slackBot,
+		},
+		{
+			name:       "slack app-config token",
+			in:         slackApp + " is the app token",
+			wantRedact: true,
+			wantAbsent: slackApp,
+		},
+		{
+			name:       "bearer token",
+			in:         "Authorization: " + bearerVal,
+			wantRedact: true,
+			wantAbsent: bearerVal,
+		},
+		{
+			name:       "basic auth",
+			in:         "Authorization: " + basicVal,
+			wantRedact: true,
+			wantAbsent: basicVal,
+		},
+		{
+			name:       "ordinary text is untouched",
+			in:         "This PR closes the auth bug, no credentials involved.",
+			wantRedact: false,
+			wantAbsent: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			out, n := redactString(tc.in)
+			if tc.wantRedact && n == 0 {
+				t.Fatalf("expected at least one redaction, got none for %q", tc.in)
+			}
+			if !tc.wantRedact && n != 0 {
+				t.Fatalf("expected zero redactions, got %d for %q -> %q", n, tc.in, out)
+			}
+			if tc.wantAbsent != "" && strings.Contains(out, tc.wantAbsent) {
+				t.Errorf("secret substring %q survived redaction: %q", tc.wantAbsent, out)
+			}
+		})
+	}
+}
+
+func TestRedactValue_NestedStructures(t *testing.T) {
+	nestedSecret := fakeSlackBotToken()                  // pragma: allowlist secret
+	listSecret := "Authorization: " + fakeBearerHeader() // pragma: allowlist secret
+	in := map[string]any{
+		"safe": "nothing to see here",
+		"nested": map[string]any{
+			"token": nestedSecret,
+		},
+		"list": []any{
+			"clean entry",
+			listSecret,
+		},
+	}
+	out, n := redactValue(in)
+	if n < 2 {
+		t.Fatalf("expected at least 2 redactions across nested structures, got %d", n)
+	}
+	outMap, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("redactValue did not return a map: %T", out)
+	}
+	if outMap["safe"] != "nothing to see here" {
+		t.Errorf("safe value was altered: %v", outMap["safe"])
+	}
+	nested, ok := outMap["nested"].(map[string]any)
+	if !ok {
+		t.Fatalf("nested map lost its shape: %v", outMap["nested"])
+	}
+	if strings.Contains(nested["token"].(string), nestedSecret) {
+		t.Errorf("nested secret leaked through: %v", nested["token"])
+	}
+	list, ok := outMap["list"].([]any)
+	if !ok || len(list) != 2 {
+		t.Fatalf("list lost its shape: %v", outMap["list"])
+	}
+	if strings.Contains(list[1].(string), listSecret) {
+		t.Errorf("secret in list element leaked through: %v", list[1])
+	}
+	if list[0] != "clean entry" {
+		t.Errorf("clean list entry was altered: %v", list[0])
+	}
+}
+
+func TestRedactValue_SmuggledJSONStringIsRecursivelyScrubbed(t *testing.T) {
+	// Mirrors Jira's additional_fields/fields raw-JSON-string args -- a
+	// secret can be smuggled one level of JSON-string-encoding deep, same
+	// shape jiraFieldsAttr already has to unwrap for epicKey/parent.
+	secret := fakeSlackBotToken()
+	inner := map[string]any{"epicKey": "OTHER-123", "note": secret}
+	innerJSON, err := json.Marshal(inner)
+	if err != nil {
+		t.Fatalf("marshal inner: %v", err)
+	}
+	args := map[string]any{"additional_fields": string(innerJSON)}
+
+	out, n := redactValue(args)
+	if n == 0 {
+		t.Fatalf("expected the smuggled secret to be found and redacted")
+	}
+	outMap, ok := out.(map[string]any)
+	if !ok {
+		t.Fatalf("redactValue did not return a map: %T", out)
+	}
+	rewritten, ok := outMap["additional_fields"].(string)
+	if !ok {
+		t.Fatalf("additional_fields is no longer a string: %v", outMap["additional_fields"])
+	}
+	if strings.Contains(rewritten, secret) {
+		t.Errorf("secret smuggled inside a JSON string survived redaction: %q", rewritten)
+	}
+	// The epicKey signal jiraFieldsAttr relies on must survive -- redaction
+	// must not corrupt the surrounding structure, only the secret value.
+	var reparsed map[string]any
+	if err := json.Unmarshal([]byte(rewritten), &reparsed); err != nil {
+		t.Fatalf("rewritten additional_fields is no longer valid JSON: %v", err)
+	}
+	if reparsed["epicKey"] != "OTHER-123" {
+		t.Errorf("epicKey signal was corrupted by redaction: %v", reparsed["epicKey"])
+	}
+}
+
+func TestRedactRawJSON_InvalidJSONPassesThroughUnchanged(t *testing.T) {
+	raw := []byte("not json at all")
+	out, n := redactRawJSON(raw)
+	if n != 0 {
+		t.Errorf("expected 0 redactions for unparseable input, got %d", n)
+	}
+	if string(out) != string(raw) {
+		t.Errorf("unparseable input should pass through byte-for-byte unchanged, got %q", out)
 	}
 }

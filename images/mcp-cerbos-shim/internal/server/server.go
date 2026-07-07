@@ -462,7 +462,21 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		return deny(msg), nil
 	}
 
-	if len(tool.Force) == 0 {
+	// Secret redaction: scrub credential-shaped strings out of the call's
+	// arguments before it ever reaches vMCP -- see secrets_redact.go for why
+	// this has to happen here and not in the egress-proxy. Runs on every
+	// allowed call regardless of Force, since a tool with no force-override
+	// can still carry a secret in one of its own arguments. Redaction never
+	// denies (a pattern match on an otherwise-legitimate call shouldn't
+	// break it) -- only rewrites via the same mutate() path Force already
+	// uses.
+	redactedArgs, redactedCount := redactArguments(cp.Arguments)
+	if redactedCount > 0 {
+		log.Printf("redact: %d secret-shaped value(s) scrubbed from %s args (backend=%s)", redactedCount, cp.Name, backend)
+		cp.Arguments = redactedArgs
+	}
+
+	if len(tool.Force) == 0 && redactedCount == 0 {
 		return pass(), nil
 	}
 	mutated, err := buildMutatedParams(cp, wrapped, tool.Force)
@@ -650,9 +664,42 @@ func mutate(params []byte) *pb.McpRequestResult {
 	return &pb.McpRequestResult{Result: &pb.McpRequestResult_Mutated{Mutated: params}}
 }
 
-// CheckResponse is stubbed for v1: always Pass with no mutation.
-func (s *Server) CheckResponse(ctx context.Context, _ *pb.McpResponse) (*pb.McpResponseResult, error) {
-	return &pb.McpResponseResult{Result: &pb.McpResponseResult_Pass{Pass: &pb.Pass{}}}, nil
+// responsePass returns a clean allow with no mutation, for CheckResponse.
+func responsePass() *pb.McpResponseResult {
+	return &pb.McpResponseResult{Result: &pb.McpResponseResult_Pass{Pass: &pb.Pass{}}}
+}
+
+// responseMutate replaces the JSON-RPC result before it reaches the model,
+// mirroring mutate()'s request-side contract: must parse as a valid result
+// for the method, or the gateway treats it as a protocol violation.
+func responseMutate(result []byte) *pb.McpResponseResult {
+	return &pb.McpResponseResult{Result: &pb.McpResponseResult_Mutated{Mutated: result}}
+}
+
+// CheckResponse scrubs credential-shaped strings out of a tool's RESULT
+// before it reaches the model -- the response-side half of the redaction
+// gap secrets_redact.go documents. Only tools/call responses carry
+// meaningful content to scrub (other methods, and the empty/unparseable
+// case, pass through unmutated). Redaction failures never deny -- a
+// response that can't be parsed/re-encoded passes through as-is rather
+// than breaking an otherwise-successful tool call; this is a
+// best-effort, defense-in-depth layer, not a hard boundary (see
+// secrets_redact.go's doc comment on why deny is never the right response
+// here).
+func (s *Server) CheckResponse(ctx context.Context, resp *pb.McpResponse) (*pb.McpResponseResult, error) {
+	if resp.GetMethod() != toolsCall {
+		return responsePass(), nil
+	}
+	raw := resp.GetMcpResponse()
+	if len(raw) == 0 {
+		return responsePass(), nil
+	}
+	redacted, n := redactRawJSON(raw)
+	if n == 0 {
+		return responsePass(), nil
+	}
+	log.Printf("redact: %d secret-shaped value(s) scrubbed from a tool result (backend=%v)", n, resp.GetServiceNames())
+	return responseMutate(redacted), nil
 }
 
 // Compile-time guard: gRPC-level errors are gateway transport failures, not denies.
