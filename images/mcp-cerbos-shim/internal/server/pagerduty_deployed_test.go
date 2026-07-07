@@ -304,6 +304,74 @@ func TestDeployedPagerdutyMapping_UnconfiguredServiceGateFailsClosed(t *testing.
 	}
 }
 
+func TestDeployedPagerdutyMapping_GovBackendReachesCerbosViaItsOwnGetIncidentTool(t *testing.T) {
+	// pagerduty_gov mirrors pagerduty (toolhive-servers.json) and must get the
+	// SAME ack/resolve-only + service-allowlist scoping, but via ITS OWN
+	// get_incident tool -- an incident in the gov account doesn't exist in the
+	// commercial one, so querying the wrong tool would fail-closed-deny every
+	// gov manage_incidents call. fakeUpstream records exactly which tool name
+	// it was called with, proving the routing (not just the mapping) is right.
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceA}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_gov_manage_incidents",
+			map[string]any{
+				"manage_request": map[string]any{
+					"incident_ids": []any{"PT1"},
+					"status":       "acknowledged",
+				},
+			})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass when Cerbos allows, got deny")
+	}
+	if d.gotType != "pagerduty_incident" {
+		t.Errorf("resourceType = %q, want pagerduty_incident (mapping must resolve pagerduty_gov_manage_incidents)", d.gotType)
+	}
+	if up.gotTool != "pagerduty_gov_get_incident" {
+		t.Errorf("get_incident lookup used tool %q, want pagerduty_gov_get_incident (looked up the wrong backend's incident)", up.gotTool)
+	}
+	gotServiceIds, ok := d.gotAttr["serviceIds"].([]string)
+	if !ok || len(gotServiceIds) != 1 || gotServiceIds[0] != "PSERVICEA" {
+		t.Errorf("attr.serviceIds = %#v, want [PSERVICEA]", d.gotAttr["serviceIds"])
+	}
+}
+
+func TestDeployedPagerdutyMapping_GovAddNoteReachesCerbosViaItsOwnGetIncidentTool(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	up := &fakeUpstream{text: pagerdutyIncidentResultServiceB}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithPagerdutyIncidentService(up))
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("pagerduty_gov_add_note_to_incident",
+			map[string]any{"incident_id": "PT4KHLK", "note": "Investigating"})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass when Cerbos allows, got deny")
+	}
+	if up.gotTool != "pagerduty_gov_get_incident" {
+		t.Errorf("get_incident lookup used tool %q, want pagerduty_gov_get_incident", up.gotTool)
+	}
+	gotServiceIds, ok := d.gotAttr["serviceIds"].([]string)
+	if !ok || len(gotServiceIds) != 1 || gotServiceIds[0] != "PSERVICEB" {
+		t.Errorf("attr.serviceIds = %#v, want [PSERVICEB]", d.gotAttr["serviceIds"])
+	}
+}
+
 func TestDeployedPagerdutyMapping_NoIncidentIdsSkipsGateAndReachesCerbosUnaffected(t *testing.T) {
 	// manage_incidents with an empty incident_ids array has nothing to
 	// resolve -- the gate must not fire (and must not deny), same

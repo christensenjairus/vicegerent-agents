@@ -26,13 +26,15 @@ const testScratchpadID = "393de8859710809c9f5ec57a91d2c81a" // pragma: allowlist
 // fakeUpstream is a server-package ToolCaller stub: it returns a canned
 // notion-fetch text or an error, with no network.
 type fakeUpstream struct {
-	text  string
-	err   error
-	calls int
+	text    string
+	err     error
+	calls   int
+	gotTool string // last tool name CallTool was invoked with
 }
 
-func (f *fakeUpstream) CallTool(_ context.Context, _ string, _ map[string]any) (*upstream.CallToolResult, error) {
+func (f *fakeUpstream) CallTool(_ context.Context, tool string, _ map[string]any) (*upstream.CallToolResult, error) {
 	f.calls++
+	f.gotTool = tool
 	if f.err != nil {
 		return nil, f.err
 	}

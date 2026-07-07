@@ -6,17 +6,6 @@ import (
 	"fmt"
 )
 
-// pagerdutyGetIncidentTool is the vMCP tool name for PagerDuty's read-only
-// incident fetch -- backend-prefixed the same way mapping.yaml keys its
-// tools (pagerduty_get_incident), since that's the name this call re-enters
-// CheckRequest as. Kept unmapped in Cerbos for the same recursion-safety
-// reason notion_notion-fetch/linear_get_issue are documented elsewhere in
-// this package: a future deny rule on this tool would make every
-// manage_incidents/add_note_to_incident service lookup fail closed instead
-// of the intended per-call fail-closed behavior tied to the actual service
-// scoping check.
-const pagerdutyGetIncidentTool = "pagerduty_get_incident"
-
 // pagerdutyIncidentResult is the subset of get_incident's JSON result this
 // package needs. PagerDuty's REST API models an incident as always
 // belonging to exactly one service (a required, non-nullable relationship in
@@ -43,12 +32,23 @@ type pagerdutyIncidentResult struct {
 }
 
 // IncidentServiceID resolves a PagerDuty incident id/number to its owning
-// service id via ONE get_incident call. Returns an error on any lookup
-// failure (timeout, non-200, malformed result, tool-reported error, or an
-// incident with no resolvable service id) so the caller can fail closed --
-// mirrors IssueTeam/ProjectTeams's contract in linear.go.
-func IncidentServiceID(ctx context.Context, client ToolCaller, incidentID string) (string, error) {
-	result, err := client.CallTool(ctx, pagerdutyGetIncidentTool, map[string]any{"incident_id": incidentID})
+// service id via ONE get_incident call, against getIncidentTool -- the
+// caller's job to pass the SAME backend's own get_incident tool name
+// (e.g. "pagerduty_gov_get_incident" for a pagerduty_gov-originated call),
+// since this shim fronts more than one PagerDuty account and an incident
+// only exists in the one it actually belongs to. That tool stays unmapped
+// in Cerbos for every backend, for the same recursion-safety reason
+// notion_notion-fetch/linear_get_issue are documented elsewhere in this
+// package: a deny rule on it would make every manage_incidents/
+// add_note_to_incident service lookup fail closed unconditionally instead
+// of the intended per-call, service-scoping-tied check.
+//
+// Returns an error on any lookup failure (timeout, non-200, malformed
+// result, tool-reported error, or an incident with no resolvable service
+// id) so the caller can fail closed -- mirrors IssueTeam/ProjectTeams's
+// contract in linear.go.
+func IncidentServiceID(ctx context.Context, getIncidentTool string, client ToolCaller, incidentID string) (string, error) {
+	result, err := client.CallTool(ctx, getIncidentTool, map[string]any{"incident_id": incidentID})
 	if err != nil {
 		return "", fmt.Errorf("pagerduty incident service lookup for %q: %w", incidentID, err)
 	}

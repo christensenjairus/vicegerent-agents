@@ -78,26 +78,34 @@ spec:
                 > /opt/data/certs/ca-bundle.crt
               # PKCS12 truststore for JAVA_TOOL_OPTIONS/Bazel below; keytool needs
               # per-cert aliases (unlike openssl pkcs12 -export) and a non-/tmp scratch
-              # dir (seed-data has no /tmp mount).
-              rm -f /opt/data/certs/java-cacerts.p12
-              splitdir="/opt/data/certs/.ca-split"
-              rm -rf "${splitdir}"
-              mkdir -p "${splitdir}"
-              awk -v dir="${splitdir}" \
-                '/BEGIN CERTIFICATE/{n++} {print > (dir "/ca-cert-" n ".pem")}' \
-                /opt/data/certs/ca-bundle.crt
-              i=0
-              for f in "${splitdir}"/ca-cert-*.pem; do
-                i=$((i + 1))
-                if ! out=$(keytool -importcert -noprompt -trustcacerts \
-                  -alias "ca-${i}" -file "$f" \
-                  -keystore /opt/data/certs/java-cacerts.p12 \
-                  -storetype PKCS12 -storepass changeit 2>&1); then
-                  echo "$out" >&2
-                  exit 1
-                fi
-              done
-              rm -rf "${splitdir}"
+              # dir (seed-data has no /tmp mount). Digest-gated: importing 100+ certs
+              # one keytool call at a time takes ~30s, so skip it unless the bundle
+              # (system CAs or the proxy CA) actually changed since last boot.
+              truststore=/opt/data/certs/java-cacerts.p12
+              truststore_marker="${marker_dir}/.java-cacerts.sha256"
+              want_truststore="$(sha256sum /opt/data/certs/ca-bundle.crt | cut -d' ' -f1)"
+              if [ "$(cat "${truststore_marker}" 2>/dev/null || true)" != "${want_truststore}" ] || [ ! -s "${truststore}" ]; then
+                rm -f "${truststore}"
+                splitdir="/opt/data/certs/.ca-split"
+                rm -rf "${splitdir}"
+                mkdir -p "${splitdir}"
+                awk -v dir="${splitdir}" \
+                  '/BEGIN CERTIFICATE/{n++} {print > (dir "/ca-cert-" n ".pem")}' \
+                  /opt/data/certs/ca-bundle.crt
+                i=0
+                for f in "${splitdir}"/ca-cert-*.pem; do
+                  i=$((i + 1))
+                  if ! out=$(keytool -importcert -noprompt -trustcacerts \
+                    -alias "ca-${i}" -file "$f" \
+                    -keystore "${truststore}" \
+                    -storetype PKCS12 -storepass changeit 2>&1); then
+                    echo "$out" >&2
+                    exit 1
+                  fi
+                done
+                rm -rf "${splitdir}"
+                printf '%s\n' "${want_truststore}" > "${truststore_marker}"
+              fi
               # Bazel ignores JAVA_TOOL_OPTIONS; give it a ~/.bazelrc instead.
               printf '%s\n' \
                 'startup --host_jvm_args=-Djavax.net.ssl.trustStore=/opt/data/certs/java-cacerts.p12' \

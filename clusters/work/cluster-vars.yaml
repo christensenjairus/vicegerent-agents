@@ -64,7 +64,7 @@ data:
   # manage_incidents/add_note_to_incident (resource_pagerduty.yaml). "*"
   # disables the check entirely.
   pagerdutyAllowedServiceIds: >-
-    "PJD41LB", "PV3S4O5", "PORBNK3"
+    "PJD41LB", "PV3S4O5", "PORBNK3", "P7X89U2"
 
   # This machine's git-over-SSH FQDN and every intermediate hostname in its CNAME
   # chain (charts/agent/templates/networkpolicy.yaml). Generic to any CNAME-chained

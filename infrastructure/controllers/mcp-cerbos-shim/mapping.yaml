@@ -76,6 +76,16 @@ backends:
       grafana_list_prometheus_metric_names: *grafana_ds
       grafana_list_prometheus_label_names: *grafana_ds
       grafana_list_prometheus_label_values: *grafana_ds
+      # grafana_gov backend (toolhive-servers.json): same tools, same guardrail --
+      # the OpenSearch-datasource block doesn't depend on which Grafana instance
+      # the call is aimed at, so it reuses the *grafana_ds body verbatim.
+      grafana_gov_get_datasource: *grafana_ds
+      grafana_gov_query_prometheus: *grafana_ds
+      grafana_gov_query_prometheus_histogram: *grafana_ds
+      grafana_gov_list_prometheus_metric_metadata: *grafana_ds
+      grafana_gov_list_prometheus_metric_names: *grafana_ds
+      grafana_gov_list_prometheus_label_names: *grafana_ds
+      grafana_gov_list_prometheus_label_values: *grafana_ds
       # Jira project/issue-bearing tools -> jira_project, mirroring Notion's
       # read-everywhere/write-scoped model: reads (get_issue/get_project_issues/
       # get_transitions) are allowed against ANY project, since there's nothing
@@ -315,11 +325,15 @@ backends:
       # but a deny with no discriminating signal blocked legitimate
       # self-cleanup as much as it would have blocked anything else, so it was
       # removed (see resource_alertmanager.yaml for the reasoning).
-      alertmanager_createSilence:
+      alertmanager_createSilence: &alertmanager_create_silence
         resourceType: alertmanager_silence
         action: create
         id: get(args,'alertName','')
         attrFrom: alertmanagerAttr(args)
+      # alertmanager_gov backend (toolhive-servers.json): same duration cap,
+      # reused verbatim -- the cap doesn't depend on which Alertmanager
+      # instance the silence is created on.
+      alertmanager_gov_createSilence: *alertmanager_create_silence
       # PagerDuty manage_incidents -> pagerduty_incident; Cerbos denies any
       # status other than acknowledged/resolved, and denies any call that sets
       # urgency/escalation_level/assignement (this MCP tool's actual
@@ -338,17 +352,25 @@ backends:
       # from the tool allowlist entirely (toolhive-servers.json) rather than
       # mapped, since there's no useful partial scope to enforce on them short
       # of blocking them.
-      pagerduty_manage_incidents:
+      pagerduty_manage_incidents: &pagerduty_manage
         resourceType: pagerduty_incident
         action: manage
         id: "'manage_incidents'"
         attrFrom: pagerdutyManageAttr(args)
-      pagerduty_add_note_to_incident:
+      pagerduty_add_note_to_incident: &pagerduty_add_note
         resourceType: pagerduty_incident
         action: annotate
         id: get(args,'incident_id','')
         attr:
           incidentId: get(args,'incident_id','')
+      # pagerduty_gov backend (toolhive-servers.json): same ack/resolve-only
+      # and service-allowlist scoping, reused verbatim. server.go's
+      # pagerdutyManageIncidentsTools/pagerdutyAddNoteTools maps THIS tool
+      # name to pagerduty_gov's own get_incident tool for the live
+      # incident->service lookup, not pagerduty's -- an incident only exists
+      # in the account it actually belongs to.
+      pagerduty_gov_manage_incidents: *pagerduty_manage
+      pagerduty_gov_add_note_to_incident: *pagerduty_add_note
       # Notion create-pages -> only allowed with parent.page_id set to the
       # Scratchpad folder; any other parent (a different page, a database/data
       # source, or omitted entirely -- which creates a standalone workspace-level
