@@ -163,11 +163,11 @@
     },
     {
       "name": "grafana",
-      "description": "Grafana observability, read-only. Exposed tools scoped via the vMCP tools allowlist (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads); --disable-write is the fail-closed write kill-switch; Cerbos additionally blocks reads of OpenSearch datasources.",
+      "description": "Grafana observability, read-only. Exposed tools scoped via the vMCP tools allowlist (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads); --disable-write is the fail-closed write kill-switch; --disable-proxied turns off Tempo-datasource MCP discovery (unused here) which otherwise blocks every new session on a live call to the real Grafana instance -- without it, being off-VPN makes ALL sessions across every vMCP backend hang, not just this one; Cerbos additionally blocks reads of OpenSearch datasources.",
       "enabled": false,
       "type": "registry",
       "registry": "grafana",
-      "server_args": ["--disable-write"],
+      "server_args": ["--disable-write", "--disable-proxied"],
       "tools": [
         "search_dashboards", "search_folders", "list_datasources", "get_datasource",
         "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",
@@ -183,11 +183,11 @@
     },
     {
       "name": "grafana_gov",
-      "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
+      "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown and --disable-proxied rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
       "enabled": false,
       "type": "registry",
       "registry": "grafana",
-      "server_args": ["--disable-write"],
+      "server_args": ["--disable-write", "--disable-proxied"],
       "tools": [
         "search_dashboards", "search_folders", "list_datasources", "get_datasource",
         "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",

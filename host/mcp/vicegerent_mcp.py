@@ -41,6 +41,7 @@ import signal
 import socket
 import subprocess
 import sys
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -577,11 +578,21 @@ def _apply_workload(
     in_group: dict[str, str],
     all_names: set[str],
     dry_run: bool,
+    start_lock: threading.Lock,
 ) -> list[tuple[bool, str]]:
     """Bring one workload to the desired state; return [(is_warning, message), …].
 
-    Safe to run concurrently: `thv` locks are per-workload, and each server touches
-    only its own workload (and, for a kind_cluster server, its own kubeconfig file).
+    Per-workload state (fingerprint/stale checks, `thv rm`) is safe to run
+    concurrently since each server only touches its own workload. The actual
+    `thv run`/`thv restart` call is serialized via `start_lock`: ToolHive's
+    network-isolation ingress-proxy port allocator is a shared, global resource,
+    and issuing two of those calls at once can race — both pick the same free
+    host port, one bind wins and the other's ingress container is left
+    permanently stuck in `Created` (seen with grafana/grafana_gov colliding on
+    port 8001). This does mean `thv run`/`thv restart` calls (and any image pull
+    they trigger) now run one at a time rather than overlapping — correctness
+    over the pull-overlap speedup, since a lost race leaves a workload down
+    until someone notices and manually restarts it.
     """
     name = server["name"]
     state = in_group.get(name)
@@ -609,7 +620,8 @@ def _apply_workload(
     msgs: list[tuple[bool, str]] = []
     if action == "restart":
         msgs.append((False, f"  restarting workload {name} …"))
-        result = thv("restart", name)
+        with start_lock:
+            result = thv("restart", name)
         if result.returncode != 0:
             msgs.append((True, f"  warning: `thv restart {name}` failed: {result.stderr.strip()}"))
         else:
@@ -629,9 +641,10 @@ def _apply_workload(
     # capture_output so concurrent workloads don't interleave on the terminal; the
     # browser-based OAuth flow for remote servers is handled by the detached proxy
     # (logs to thv's own file), so nothing interactive is lost by not streaming here.
-    result = subprocess.run(
-        build_thv_run_argv(server, group, runtime_dir), capture_output=True, text=True
-    )
+    with start_lock:
+        result = subprocess.run(
+            build_thv_run_argv(server, group, runtime_dir), capture_output=True, text=True
+        )
     if result.returncode != 0:
         msgs.append((True, f"  warning: `thv run {name}` exited {result.returncode}: {result.stderr.strip()}"))
     else:
@@ -655,8 +668,11 @@ def run_workloads(
     - exists OUTSIDE our group (orphan / name collision) -> remove and recreate in-group
     - absent -> `thv run`
 
-    Enabled workloads are brought up concurrently (per-workload `thv` locks make
-    this safe) so npx/image pulls overlap instead of serializing.
+    Enabled workloads are brought up concurrently for their per-workload prep
+    (fingerprint/stale checks), but the actual `thv run`/`thv restart` call is
+    serialized via `start_lock` — see `_apply_workload` for why (a shared
+    ToolHive port allocator, not a per-workload lock, guards the container's
+    network-isolation ingress proxy).
     """
     group = group_name(config)
     ensure_group(group)
@@ -666,9 +682,10 @@ def run_workloads(
     targets = enabled_servers(config, runtime_dir)
     if not targets:
         return 0
+    start_lock = threading.Lock()
     with ThreadPoolExecutor(max_workers=len(targets)) as pool:
         results = pool.map(
-            lambda s: _apply_workload(s, group, runtime_dir, in_group, all_names, dry_run),
+            lambda s: _apply_workload(s, group, runtime_dir, in_group, all_names, dry_run, start_lock),
             targets,
         )
         # pool.map preserves input order, so messages print in server order.
@@ -686,19 +703,37 @@ def wait_for_workloads_running(
     `thv vmcp init` only captures backends that are healthy at that instant, so
     generating the config before slow npx workloads finish starting would silently
     drop them. Warn (don't fail) on any that never come up — they'll just be absent.
+
+    A workload stuck in `error` gets automatically `thv restart`'d (up to
+    MAX_ERROR_RETRIES times). `run_workloads` serializes the `thv run`/`thv
+    restart` calls themselves to shrink the ingress-proxy port-allocation race
+    that used to cause this, but `thv run`/`thv restart` fork a detached
+    background process and return before that process finishes creating
+    containers — so our lock can't fully close the window, and a retry here can
+    itself occasionally lose the same race. Retrying more than once, rather than
+    leaving it down until someone notices and restarts it by hand, is the actual
+    fix for the user-visible failure.
     """
+    MAX_ERROR_RETRIES = 3
     group = group_name(config)
     want = [s["name"] for s in enabled_servers(config, runtime_dir)]
     if not want:
         return
     deadline = time.time() + timeout
     pending = list(want)
+    retries: dict[str, int] = {}
     while pending and time.time() < deadline:
         states = list_workloads(group)
         pending = [n for n in want if states.get(n) != "running"]
         if not pending:
             print(f"  all {len(want)} workloads running")
             return
+        for name in pending:
+            if states.get(name) == "error" and retries.get(name, 0) < MAX_ERROR_RETRIES:
+                retries[name] = retries.get(name, 0) + 1
+                print(f"  workload {name} is in error state — restarting "
+                      f"(attempt {retries[name]}/{MAX_ERROR_RETRIES}) …")
+                thv("restart", name)
         time.sleep(2)
     print(f"  warning: workloads not running after {int(timeout)}s: {pending} "
           "— they will be omitted from the vMCP until healthy", file=sys.stderr)
