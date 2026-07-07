@@ -76,6 +76,12 @@ spec:
               # Using only the proxy CA would break direct-egress TLS (Slack, SSH).
               cat /etc/ssl/certs/ca-certificates.crt /reload/egress-proxy-ca/ca.crt \
                 > /opt/data/certs/ca-bundle.crt
+              # JVM-consumable truststore (certs only, -nokeys) for JAVA_TOOL_OPTIONS
+              # below -- JVMs (e.g. Bazel's embedded JDK) ignore SSL_CERT_FILE/CURL_CA_BUNDLE.
+              openssl pkcs12 -export -nokeys \
+                -in /opt/data/certs/ca-bundle.crt \
+                -out /opt/data/certs/java-cacerts.p12 \
+                -passout pass:changeit
               # digest-gated reseed (rm-first); layout=v2 forces reseed off old dest paths;
               # also reseed if llm_dest is empty (its own PVC, excluded from Velero backup).
               seed="/opt/hermes/mnemosyne-seed"
@@ -311,6 +317,12 @@ spec:
               value: /opt/data/certs/ca-bundle.crt
             - name: PIP_CERT
               value: /opt/data/certs/ca-bundle.crt
+            # JVMs (Bazel's embedded JDK, etc.) don't read the CA env vars above.
+            - name: JAVA_TOOL_OPTIONS
+              value: >-
+                -Djavax.net.ssl.trustStore=/opt/data/certs/java-cacerts.p12
+                -Djavax.net.ssl.trustStoreType=PKCS12
+                -Djavax.net.ssl.trustStorePassword=changeit
             # Slack bypasses the proxy — Socket Mode + Web API require POST + WebSocket.
             # Loopback stays direct. All other destinations (agentgateway, searxng, internet)
             # flow through the scrubbing proxy so secrets are redacted before forwarding.
