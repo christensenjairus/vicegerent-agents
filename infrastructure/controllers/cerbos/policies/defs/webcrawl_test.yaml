@@ -2,7 +2,8 @@
 name: webcrawl_ssrf_and_limit_guardrails_test
 description: Tavily/Firecrawl crawl+map calls targeting an internal-only host, or
   exceeding the limit/depth/breadth caps, are denied; a normal external crawl within
-  caps is allowed.
+  caps is allowed. Single-URL/multi-URL fetch tools (HAH-93) targeting an internal-only
+  host via url or urls are denied the same way; a normal external fetch is allowed.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -45,6 +46,20 @@ resources:
     id: https://example.com
     kind: web_crawl
     attr: {isInternalTarget: 'false', limit: '0', maxDepth: '0', maxBreadth: '0'}
+  fetch_external_url:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false'}
+  fetch_internal_url:
+    id: http://host.docker.internal:4483/mcp
+    kind: web_crawl
+    attr: {isInternalTarget: 'true'}
+  fetch_internal_urls_array:
+    # webFetchAttr flags internal if ANY element of urls[] is internal, even
+    # when the resource id itself (first/only url shown here) looks external.
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'true'}
 tests:
   - name: an external crawl within every cap is allowed
     input:
@@ -92,3 +107,22 @@ tests:
       - principal: hermes
         resource: breadth_too_high
         actions: {crawl: EFFECT_DENY}
+  - name: fetching an internal-only target (single url or any element of a urls array)
+      is denied; a normal external fetch is allowed
+    input:
+      principals: [hermes]
+      resources:
+        - fetch_external_url
+        - fetch_internal_url
+        - fetch_internal_urls_array
+      actions: [fetch]
+    expected:
+      - principal: hermes
+        resource: fetch_external_url
+        actions: {fetch: EFFECT_ALLOW}
+      - principal: hermes
+        resource: fetch_internal_url
+        actions: {fetch: EFFECT_DENY}
+      - principal: hermes
+        resource: fetch_internal_urls_array
+        actions: {fetch: EFFECT_DENY}

@@ -189,3 +189,98 @@ func TestWebCrawlAttr_UnsetNumericFieldsAreZero(t *testing.T) {
 		}
 	}
 }
+
+func TestWebFetchHelperSelfRegisters(t *testing.T) {
+	if _, ok := helperOptions("webFetchAttr"); !ok {
+		t.Fatal("webFetchAttr not registered; helpers_webcrawl.go init() did not run")
+	}
+}
+
+func compileWebFetchTestEngine(t *testing.T) *Engine {
+	t.Helper()
+	m := &config.Mapping{
+		Backends: map[string]config.Backend{
+			"vmcp": {
+				DefaultAction: config.ActionAllow,
+				Helpers:       []string{"webFetchAttr"},
+				Tools: map[string]config.Tool{
+					"web_fetch_tool": {
+						ResourceType: "web_crawl",
+						Action:       "fetch",
+						ID:           "get(args,'url','')",
+						AttrFrom:     "webFetchAttr(args)",
+					},
+				},
+			},
+		},
+	}
+	e, err := Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	return e
+}
+
+func TestWebFetchAttr_ExternalURL(t *testing.T) {
+	e := compileWebFetchTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_fetch_tool",
+		Args:    map[string]any{"url": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "false" {
+		t.Errorf("isInternalTarget = %q, want false", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebFetchAttr_InternalSingleURLFlagged(t *testing.T) {
+	e := compileWebFetchTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_fetch_tool",
+		Args:    map[string]any{"url": "http://host.docker.internal:4483/mcp"},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebFetchAttr_InternalURLInArrayFlagged(t *testing.T) {
+	e := compileWebFetchTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_fetch_tool",
+		Args: map[string]any{
+			"urls": []any{"https://example.com", "http://169.254.169.254/latest/meta-data/"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true (one of urls[] is internal)", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebFetchAttr_AllExternalURLsInArray(t *testing.T) {
+	e := compileWebFetchTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_fetch_tool",
+		Args: map[string]any{
+			"urls": []any{"https://example.com", "https://docs.example.com"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "false" {
+		t.Errorf("isInternalTarget = %q, want false", res.Attr["isInternalTarget"])
+	}
+}

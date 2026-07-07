@@ -32,6 +32,7 @@ import (
 
 func init() {
 	registerHelper("webCrawlAttr", webCrawlAttrOption)
+	registerHelper("webFetchAttr", webFetchAttrOption)
 }
 
 // webCrawlAttrOption computes isInternalTarget (host-based SSRF check against
@@ -72,6 +73,45 @@ func webCrawlAttrOption() []cel.EnvOption {
 						"limit":            strconv.FormatInt(limit, 10),
 						"maxDepth":         strconv.FormatInt(depth, 10),
 						"maxBreadth":       strconv.FormatInt(breadth, 10),
+					})
+				}),
+			),
+		),
+	}
+}
+
+// webFetchAttrOption (HAH-93): computes isInternalTarget for the single-URL/
+// multi-URL fetch tools that HAH-74 deliberately left unmapped -- firecrawl_scrape's
+// `url` (a single string), and firecrawl_extract/firecrawl_agent/tavily_extract's
+// `urls` (a JSON array). These tools don't discover new targets the way crawl/map
+// do, but the SEED target itself is exactly as caller-controlled and exactly as
+// exposed to the platform's trust boundary (host.docker.internal, RFC1918/link-local
+// ranges, the cloud metadata IP, *.local/*.internal/*.svc.cluster.local names) as
+// crawl/map's starting url -- reusing urlIsInternalTarget here closes that gap with
+// no new detection logic, just a different set of caller args to check. A call is
+// flagged internal if EITHER its single `url` OR any element of `urls` resolves
+// internal.
+func webFetchAttrOption() []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("webFetchAttr",
+			cel.Overload("webFetchAttr_map",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.StringType),
+				cel.UnaryBinding(func(arg ref.Val) ref.Val {
+					m := toAnyMap(arg)
+
+					internal := urlIsInternalTarget(lookupCI(m, "url", ""))
+					if !internal {
+						for _, u := range lookupCIStringSlice(m, "urls") {
+							if urlIsInternalTarget(u) {
+								internal = true
+								break
+							}
+						}
+					}
+
+					return types.NewStringStringMap(types.DefaultTypeAdapter, map[string]string{
+						"isInternalTarget": strconv.FormatBool(internal),
 					})
 				}),
 			),
