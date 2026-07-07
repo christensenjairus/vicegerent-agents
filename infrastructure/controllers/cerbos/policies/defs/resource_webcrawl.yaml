@@ -1,0 +1,83 @@
+---
+# web_crawl policy (HAH-74): deny Tavily/Firecrawl crawl+map calls whose url
+# (or Tavily's select_domains regex patterns) targets this platform's own
+# trust boundary -- loopback, RFC1918/link-local ranges, the cloud metadata
+# IP, *.local/*.internal/*.svc.cluster.local names, or host.docker.internal
+# specifically (the exact host/mcp/README.md-documented gap: it resolves to
+# the Mac's loopback for every sibling container regardless of who connects).
+# Also deny any call whose limit/max_depth/max_breadth (max_depth spelled
+# maxDiscoveryDepth on Firecrawl) exceeds this machine's cap -- unbounded
+# values let a crawl exhaust its own budget or run away on API cost. The
+# shim's webCrawlAttr helper (helpers_webcrawl.go) computes isInternalTarget
+# and the three numeric fields; an absent numeric field reads as 0 and never
+# trips its cap. Every other Tavily/Firecrawl tool (search/extract/research/
+# scrape/monitor/etc.) fetches only the single url/query the caller named --
+# it doesn't discover new targets the way crawl/map do -- so those stay
+# unmapped, same reasoning as firecrawl_session's comment for why only
+# firecrawl_interact is mapped in that resource.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: web_crawl
+  rules:
+    - name: deny-internal-target
+      actions: [crawl]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.isInternalTarget) &&
+            request.resource.attr.isInternalTarget == "true"
+      output:
+        when:
+          ruleActivated: >-
+            "This agent may not crawl/map an internal-only host (loopback,"
+            + " private/link-local ranges, cluster-internal names, or the"
+            + " cloud metadata address). Target a public URL instead."
+    - name: deny-limit-too-high
+      actions: [crawl]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.limit) &&
+            int(request.resource.attr.limit) > ${webCrawlMaxLimit}
+      output:
+        when:
+          ruleActivated: >-
+            "Crawl/map limit exceeds this agent's cap of ${webCrawlMaxLimit}"
+            + " links. Lower the limit, or ask a human to raise the cap."
+    - name: deny-depth-too-high
+      actions: [crawl]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.maxDepth) &&
+            int(request.resource.attr.maxDepth) > ${webCrawlMaxDepth}
+      output:
+        when:
+          ruleActivated: >-
+            "Crawl/map depth exceeds this agent's cap of ${webCrawlMaxDepth}."
+            + " Lower max_depth/maxDiscoveryDepth, or ask a human to raise the cap."
+    - name: deny-breadth-too-high
+      actions: [crawl]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.maxBreadth) &&
+            int(request.resource.attr.maxBreadth) > ${webCrawlMaxBreadth}
+      output:
+        when:
+          ruleActivated: >-
+            "Crawl/map breadth exceeds this agent's cap of ${webCrawlMaxBreadth}."
+            + " Lower max_breadth, or ask a human to raise the cap."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

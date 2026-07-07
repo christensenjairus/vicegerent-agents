@@ -1,0 +1,94 @@
+---
+name: webcrawl_ssrf_and_limit_guardrails_test
+description: Tavily/Firecrawl crawl+map calls targeting an internal-only host, or
+  exceeding the limit/depth/breadth caps, are denied; a normal external crawl within
+  caps is allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  external_within_caps:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false', limit: '50', maxDepth: '2', maxBreadth: '10'}
+  metadata_ip_target:
+    id: http://169.254.169.254/latest/meta-data/
+    kind: web_crawl
+    attr: {isInternalTarget: 'true', limit: '10', maxDepth: '1', maxBreadth: '1'}
+  docker_internal_target:
+    id: http://host.docker.internal:4483/mcp
+    kind: web_crawl
+    attr: {isInternalTarget: 'true', limit: '10', maxDepth: '1', maxBreadth: '1'}
+  select_domains_internal_pattern:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'true', limit: '10', maxDepth: '1', maxBreadth: '1'}
+  limit_too_high:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false', limit: '100000', maxDepth: '2', maxBreadth: '10'}
+  depth_too_high:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false', limit: '50', maxDepth: '10', maxBreadth: '10'}
+  breadth_too_high:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false', limit: '50', maxDepth: '2', maxBreadth: '500'}
+  unset_numeric_fields:
+    # webCrawlAttr defaults absent limit/max_depth/max_breadth to "0", which
+    # never exceeds a positive cap -- confirms an unmapped-numeric-field call
+    # isn't spuriously denied.
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false', limit: '0', maxDepth: '0', maxBreadth: '0'}
+tests:
+  - name: an external crawl within every cap is allowed
+    input:
+      principals: [hermes]
+      resources: [external_within_caps, unset_numeric_fields]
+      actions: [crawl]
+    expected:
+      - principal: hermes
+        resource: external_within_caps
+        actions: {crawl: EFFECT_ALLOW}
+      - principal: hermes
+        resource: unset_numeric_fields
+        actions: {crawl: EFFECT_ALLOW}
+  - name: crawling an internal-only target is denied regardless of how it was detected
+      (literal url host, or a select_domains pattern)
+    input:
+      principals: [hermes]
+      resources:
+        - metadata_ip_target
+        - docker_internal_target
+        - select_domains_internal_pattern
+      actions: [crawl]
+    expected:
+      - principal: hermes
+        resource: metadata_ip_target
+        actions: {crawl: EFFECT_DENY}
+      - principal: hermes
+        resource: docker_internal_target
+        actions: {crawl: EFFECT_DENY}
+      - principal: hermes
+        resource: select_domains_internal_pattern
+        actions: {crawl: EFFECT_DENY}
+  - name: exceeding any single cap (limit, depth, or breadth) is denied
+    input:
+      principals: [hermes]
+      resources: [limit_too_high, depth_too_high, breadth_too_high]
+      actions: [crawl]
+    expected:
+      - principal: hermes
+        resource: limit_too_high
+        actions: {crawl: EFFECT_DENY}
+      - principal: hermes
+        resource: depth_too_high
+        actions: {crawl: EFFECT_DENY}
+      - principal: hermes
+        resource: breadth_too_high
+        actions: {crawl: EFFECT_DENY}

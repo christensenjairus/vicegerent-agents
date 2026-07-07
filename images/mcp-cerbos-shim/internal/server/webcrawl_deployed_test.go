@@ -1,0 +1,137 @@
+package server
+
+import (
+	"context"
+	"testing"
+
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+)
+
+// These tests run the SHIPPED mapping (not a fixture) through the request path,
+// using the backend name ("vmcp") and prefixed tool names ("tavily_*"/"firecrawl_*")
+// exactly as ToolHive's vMCP presents them. They prove the wiring that turns a
+// crawl/map tool call into the web_crawl resource Cerbos denies for internal
+// targets/out-of-cap limits (HAH-74); the deny *decision* itself is proven by
+// defs/webcrawl_test.yaml.
+
+func TestDeployedWebCrawlMapping_MappedToolsReachCerbos(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+
+	cases := []struct {
+		tool string
+		args map[string]any
+	}{
+		{"tavily_tavily_crawl", map[string]any{"url": "http://169.254.169.254/latest/meta-data/"}},
+		{"tavily_tavily_map", map[string]any{"url": "http://169.254.169.254/latest/meta-data/"}},
+		{"firecrawl_firecrawl_crawl", map[string]any{"url": "http://169.254.169.254/latest/meta-data/"}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.tool, func(t *testing.T) {
+			// allow=false: the shim must forward a well-formed resource to Cerbos
+			// and honor its deny (turning it into a PERMISSION_DENIED error).
+			d := &stubDecider{allow: false}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall(tc.tool, tc.args)))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isDeny(res) {
+				t.Fatalf("expected deny when Cerbos denies, got pass")
+			}
+			if d.calls != 1 {
+				t.Fatalf("expected exactly one Cerbos check, got %d", d.calls)
+			}
+			if d.gotType != "web_crawl" {
+				t.Errorf("resourceType = %q, want web_crawl", d.gotType)
+			}
+			if d.gotAct != "crawl" {
+				t.Errorf("action = %q, want crawl", d.gotAct)
+			}
+			if d.gotAttr["isInternalTarget"] != "true" {
+				t.Errorf("attr.isInternalTarget = %q, want true -- the shipped mapping must surface the SSRF check", d.gotAttr["isInternalTarget"])
+			}
+		})
+	}
+}
+
+func TestDeployedWebCrawlMapping_ExternalURLWithinCapsPasses(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: true}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("tavily_tavily_crawl",
+			map[string]any{"url": "https://example.com", "limit": 50.0, "max_depth": 2.0})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isPass(res) {
+		t.Fatalf("expected pass for an external url within caps")
+	}
+	if d.gotAttr["isInternalTarget"] != "false" {
+		t.Errorf("attr.isInternalTarget = %q, want false", d.gotAttr["isInternalTarget"])
+	}
+	if d.gotAttr["limit"] != "50" {
+		t.Errorf("attr.limit = %q, want 50", d.gotAttr["limit"])
+	}
+}
+
+func TestDeployedWebCrawlMapping_FirecrawlMaxDiscoveryDepthWired(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	d := &stubDecider{allow: false}
+	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+	res, err := s.CheckRequest(context.Background(),
+		mcpReq("vmcp", "tools/call", toolCall("firecrawl_firecrawl_crawl",
+			map[string]any{"url": "https://example.com", "maxDiscoveryDepth": 10.0})))
+	if err != nil {
+		t.Fatalf("CheckRequest: %v", err)
+	}
+	if !isDeny(res) {
+		t.Fatalf("expected deny (Cerbos denies unconditionally in this test)")
+	}
+	if d.gotAttr["maxDepth"] != "10" {
+		t.Errorf("attr.maxDepth = %q, want 10 (from maxDiscoveryDepth) -- confirms field-name normalization is wired", d.gotAttr["maxDepth"])
+	}
+}
+
+func TestDeployedWebCrawlMapping_UnmappedToolsPass(t *testing.T) {
+	m := deployedMapping(t)
+	e, err := eval.Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	// tavily_search/tavily_extract fetch exactly the caller-named target,
+	// no crawl/discovery surface -- must stay unmapped even given an
+	// internal-looking url.
+	for _, tool := range []string{"tavily_tavily_search", "tavily_tavily_extract", "firecrawl_firecrawl_scrape"} {
+		t.Run(tool, func(t *testing.T) {
+			d := &stubDecider{allow: false}
+			s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}})
+			res, err := s.CheckRequest(context.Background(),
+				mcpReq("vmcp", "tools/call", toolCall(tool,
+					map[string]any{"url": "http://169.254.169.254/latest/meta-data/"})))
+			if err != nil {
+				t.Fatalf("CheckRequest: %v", err)
+			}
+			if !isPass(res) {
+				t.Fatalf("expected pass for unmapped tool %q (falls through to defaultAction: allow)", tool)
+			}
+			if d.calls != 0 {
+				t.Errorf("unmapped tool %q must not reach Cerbos, got %d calls", tool, d.calls)
+			}
+		})
+	}
+}
