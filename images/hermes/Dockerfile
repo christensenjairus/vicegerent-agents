@@ -197,9 +197,13 @@ RUN case "${TARGETARCH}" in \
 # (bcr.bazel.build, or an internal mirror) still needs its host reachable at *runtime* --
 # this bake only guarantees bazel/buildozer/buildifier themselves are present offline.
 #
-# JVM trust for that runtime registry fetch (JAVA_TOOL_OPTIONS + PKCS12 truststore) is
-# set up in charts/agent/templates/_sandbox.tpl, not here -- the proxy CA cert content
-# is a cluster Secret, unavailable at image-build time.
+# keytool (headless JRE) so _sandbox.tpl can build a Bazel-trusted PKCS12 truststore
+# at pod-start.
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends openjdk-21-jre-headless \
+    && rm -rf /var/lib/apt/lists/* \
+    && keytool -help >/dev/null
+
 # renovate: datasource=github-releases depName=bazelbuild/bazelisk
 ARG BAZELISK_VERSION=v1.29.0
 # renovate: datasource=github-releases depName=bazelbuild/buildtools

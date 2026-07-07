@@ -76,12 +76,31 @@ spec:
               # Using only the proxy CA would break direct-egress TLS (Slack, SSH).
               cat /etc/ssl/certs/ca-certificates.crt /reload/egress-proxy-ca/ca.crt \
                 > /opt/data/certs/ca-bundle.crt
-              # JVM-consumable truststore (certs only, -nokeys) for JAVA_TOOL_OPTIONS
-              # below -- JVMs (e.g. Bazel's embedded JDK) ignore SSL_CERT_FILE/CURL_CA_BUNDLE.
-              openssl pkcs12 -export -nokeys \
-                -in /opt/data/certs/ca-bundle.crt \
-                -out /opt/data/certs/java-cacerts.p12 \
-                -passout pass:changeit
+              # PKCS12 truststore for JAVA_TOOL_OPTIONS/Bazel below; keytool needs
+              # per-cert aliases (unlike openssl pkcs12 -export) and a non-/tmp scratch
+              # dir (seed-data has no /tmp mount).
+              rm -f /opt/data/certs/java-cacerts.p12
+              splitdir="/opt/data/certs/.ca-split"
+              rm -rf "${splitdir}"
+              mkdir -p "${splitdir}"
+              awk -v dir="${splitdir}" \
+                '/BEGIN CERTIFICATE/{n++} {print > (dir "/ca-cert-" n ".pem")}' \
+                /opt/data/certs/ca-bundle.crt
+              i=0
+              for f in "${splitdir}"/ca-cert-*.pem; do
+                i=$((i + 1))
+                keytool -importcert -noprompt -trustcacerts \
+                  -alias "ca-${i}" -file "$f" \
+                  -keystore /opt/data/certs/java-cacerts.p12 \
+                  -storetype PKCS12 -storepass changeit >/dev/null
+              done
+              rm -rf "${splitdir}"
+              # Bazel ignores JAVA_TOOL_OPTIONS; give it a ~/.bazelrc instead.
+              printf '%s\n' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStore=/opt/data/certs/java-cacerts.p12' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStoreType=PKCS12' \
+                'startup --host_jvm_args=-Djavax.net.ssl.trustStorePassword=changeit' \
+                > "${HOME}/.bazelrc"
               # digest-gated reseed (rm-first); layout=v2 forces reseed off old dest paths;
               # also reseed if llm_dest is empty (its own PVC, excluded from Velero backup).
               seed="/opt/hermes/mnemosyne-seed"
