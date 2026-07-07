@@ -19,7 +19,7 @@ spec:
       guardrails:
         processors:
           - methods:
-              tools/call: Request
+              tools/call: Full
             remote:
               backendRef:
                 name: mcp-cerbos-shim
