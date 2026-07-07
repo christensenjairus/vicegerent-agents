@@ -30,6 +30,7 @@ backends:
       - jiraFieldsAttr
       - githubReviewersAttr
       - webCrawlAttr
+      - webFetchAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -405,11 +406,10 @@ backends:
       # supplied url rather than fetching/searching a single caller-supplied
       # target, so they're the ones an SSRF-style internal-target url or an
       # unbounded limit/depth/breadth actually matters for. tavily_search/
-      # tavily_extract/tavily_research and every other firecrawl_* tool
-      # (scrape/search/extract/monitor/etc.) fetch exactly what the caller
-      # named and don't discover new targets, so they stay unmapped -- same
-      # reasoning firecrawl_interact's comment above uses to justify why nothing
-      # else in that backend is mapped.
+      # tavily_research and every other firecrawl_* tool (search/monitor/etc.)
+      # fetch exactly what the caller named and don't discover new targets, so
+      # they stay unmapped -- same reasoning firecrawl_interact's comment
+      # above uses to justify why nothing else in that backend is mapped.
       tavily_tavily_crawl:
         resourceType: web_crawl
         action: crawl
@@ -425,3 +425,30 @@ backends:
         action: crawl
         id: get(args,'url','')
         attrFrom: webCrawlAttr(args)
+      # Single-URL/multi-URL fetch tools -> web_crawl, action fetch (HAH-93):
+      # these were left unmapped by HAH-74 because they don't discover new
+      # targets, but the seed url/urls they DO fetch is exactly as caller-
+      # controlled and exactly as exposed to the SSRF trust-boundary gap
+      # (host.docker.internal, RFC1918/link-local ranges, the cloud metadata
+      # IP, cluster-internal names) as crawl/map's starting url. No limit/
+      # depth/breadth cap applies here -- these tools have no such args.
+      firecrawl_firecrawl_scrape:
+        resourceType: web_crawl
+        action: fetch
+        id: get(args,'url','')
+        attrFrom: webFetchAttr(args)
+      firecrawl_firecrawl_extract:
+        resourceType: web_crawl
+        action: fetch
+        id: get(args,'urls','')
+        attrFrom: webFetchAttr(args)
+      firecrawl_firecrawl_agent:
+        resourceType: web_crawl
+        action: fetch
+        id: get(args,'urls','')
+        attrFrom: webFetchAttr(args)
+      tavily_tavily_extract:
+        resourceType: web_crawl
+        action: fetch
+        id: get(args,'urls','')
+        attrFrom: webFetchAttr(args)
