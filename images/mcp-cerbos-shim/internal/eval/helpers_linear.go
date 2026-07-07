@@ -13,6 +13,7 @@ import (
 func init() {
 	registerHelper("linearIssueAttr", linearIssueAttrOption)
 	registerHelper("linearProjectAttr", linearProjectAttrOption)
+	registerHelper("linearLabelAttr", linearLabelAttrOption)
 }
 
 // linearIssueAttrOption: save_issue merges create+update behind one tool
@@ -133,4 +134,32 @@ func lookupCIStringSlice(m map[string]any, key string) []string {
 		return out
 	}
 	return nil
+}
+
+// linearLabelAttrOption: create_issue_label's teamId arg is optional --
+// omitted entirely for a workspace-scoped label, set for a team-scoped one
+// (HAH-91). A plain `attr: {teamId: get(args,'teamId',”)}` in mapping.yaml
+// would put an empty-but-present teamId key on every workspace label
+// (teamId omitted) and Cerbos's has()-based deny-non-devops-team check would
+// trip on all of them, same failure mode linearIssueAttr's doc comment
+// already warns about for save_issue. Surface teamId only when the call
+// actually carries a non-empty value, same has()-presence reasoning as
+// linearIssueAttr/linearProjectAttr.
+func linearLabelAttrOption() []cel.EnvOption {
+	return []cel.EnvOption{
+		cel.Function("linearLabelAttr",
+			cel.Overload("linearLabelAttr_map",
+				[]*cel.Type{cel.MapType(cel.StringType, cel.DynType)},
+				cel.MapType(cel.StringType, cel.StringType),
+				cel.UnaryBinding(func(arg ref.Val) ref.Val {
+					m := toAnyMap(arg)
+					out := map[string]string{}
+					if teamID := lookupCI(m, "teamId", ""); teamID != "" {
+						out["teamId"] = teamID
+					}
+					return types.NewStringStringMap(types.DefaultTypeAdapter, out)
+				}),
+			),
+		),
+	}
 }

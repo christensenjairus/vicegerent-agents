@@ -213,3 +213,59 @@ func checkOptStringAttr(t *testing.T, attr map[string]any, key string, want *str
 }
 
 func strPtr(s string) *string { return &s }
+
+func TestLinearLabelHelperSelfRegisters(t *testing.T) {
+	if _, ok := helperOptions("linearLabelAttr"); !ok {
+		t.Fatal("linearLabelAttr not registered; helpers_linear.go init() did not run")
+	}
+}
+
+// TestLinearLabelAttrEval covers create_issue_label's teamId presence rule
+// (HAH-91): a workspace-scoped label (no teamId arg) must get no teamId key
+// at all, not an empty-but-present one, or Cerbos's has()-based
+// deny-non-devops-team check would wrongly trip on every workspace label.
+func TestLinearLabelAttrEval(t *testing.T) {
+	m := &config.Mapping{Backends: map[string]config.Backend{
+		"linear": {
+			Helpers: []string{"linearLabelAttr"},
+			Tools: map[string]config.Tool{
+				"create_issue_label": {
+					ResourceType: "linear_team",
+					ID:           "get(args,'teamId','*')",
+					AttrFrom:     "linearLabelAttr(args)",
+				},
+			},
+		},
+	}}
+	eng, err := Compile(m)
+	if err != nil {
+		t.Fatalf("Compile: %v", err)
+	}
+
+	cases := []struct {
+		name string
+		args map[string]any
+		want *string // nil means no "teamId" key at all
+	}{
+		{
+			name: "team-scoped label carries teamId",
+			args: map[string]any{"name": "bug", "teamId": "6deab0c5-9bda-4f82-b552-41f4aa9e449b"},
+			want: strPtr("6deab0c5-9bda-4f82-b552-41f4aa9e449b"),
+		},
+		{
+			name: "workspace-scoped label (no teamId) gets no key at all",
+			args: map[string]any{"name": "bug"},
+			want: nil,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := eng.Eval(CallInput{Tool: "create_issue_label", Backend: "linear", Args: c.args})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			checkOptStringAttr(t, res.Attr, "teamId", c.want)
+		})
+	}
+}

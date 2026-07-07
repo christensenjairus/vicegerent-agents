@@ -8,8 +8,15 @@ description: >-
   supply no team at all, are allowed. Linear save_project calls whose
   addTeams/setTeams contain any team other than DEVOPS are denied (HAH-70);
   calls confined to DEVOPS, or that supply neither addTeams nor setTeams, are
-  allowed. force-self-assignee: a save_issue CREATE call (isCreate true) with
-  no assignee is denied; an ordinary update that doesn't touch assignee is
+  allowed. These same allow/deny rules also cover the HAH-91 live-resolved
+  case (an ordinary save_issue/save_project update's CURRENT team, injected
+  by the shim as this same teamId/teams attr) -- Cerbos itself can't tell the
+  difference between an explicit and a resolved team, by design (see
+  resource_linear.yaml's HAH-91 doc). create_issue_label with a teamId other
+  than DEVOPS is denied; a team-scoped label confined to DEVOPS, or a
+  workspace-scoped label (no teamId at all), is allowed (HAH-91).
+  force-self-assignee: a save_issue CREATE call (isCreate true) with no
+  assignee is denied; an ordinary update that doesn't touch assignee is
   unaffected; any call that sets assignee to someone outside
   linearAllowedAssignees is denied, but the literal value me is always
   allowed regardless of the allowlist.
@@ -78,6 +85,20 @@ resources:
     id: LIN-123
     kind: linear_team
     attr: {isCreate: 'false', assignee: someone-else@example.com}
+  # HAH-91: create_issue_label -- a team-scoped label's teamId is checked
+  # exactly like save_issue/save_project's team(s); a workspace-scoped label
+  # (no teamId arg at all) has nothing to verify and is allowed.
+  label_devops_team:
+    id: DEVOPS
+    kind: linear_team
+    attr: {teamId: DEVOPS}
+  label_other_team:
+    id: some-other-team-id
+    kind: linear_team
+    attr: {teamId: some-other-team-id}
+  label_no_team_supplied:
+    id: '*'
+    kind: linear_team
 tests:
   - name: save_issue confined to DEVOPS (uuid, name, or key), or with no team supplied,
       is allowed
@@ -168,4 +189,23 @@ tests:
         actions: {access: EFFECT_ALLOW}
       - principal: hermes
         resource: update_with_disallowed_assignee
+        actions: {access: EFFECT_DENY}
+  - name: create_issue_label confined to DEVOPS, or workspace-scoped (no teamId),
+      is allowed; targeting another team is denied
+    input:
+      principals: [hermes]
+      resources:
+        - label_devops_team
+        - label_no_team_supplied
+        - label_other_team
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: label_devops_team
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: label_no_team_supplied
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: label_other_team
         actions: {access: EFFECT_DENY}

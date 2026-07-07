@@ -71,7 +71,15 @@ func main() {
 	// (checkLinearIssueTeam), same posture as the Notion gate's per-call
 	// failure path.
 	opts = append(opts, server.WithLinearIssueTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
-	log.Printf("linear save_comment team-resolution gate enabled")
+	log.Printf("linear issue team-resolution gate enabled (save_comment always; save_issue updates without an explicit team arg, HAH-91)")
+
+	// Linear save_project UPDATE team-resolution gate (HAH-91): same
+	// unconditional-enable posture as the issue gate above -- no allowlist
+	// of its own, hands off to the same ${linearAllowedTeams} Cerbos rule
+	// via the teams attr save_project already populates via linearProjectAttr
+	// when the call sets addTeams/setTeams itself.
+	opts = append(opts, server.WithLinearProjectTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
+	log.Printf("linear project team-resolution gate enabled (save_project updates without addTeams/setTeams, HAH-91)")
 
 	srv := server.New(mapping, engine, decider, server.Principal{
 		ID:    "hermes",

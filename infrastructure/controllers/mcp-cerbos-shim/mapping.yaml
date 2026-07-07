@@ -21,6 +21,7 @@ backends:
       - canonicalK8s
       - linearIssueAttr
       - linearProjectAttr
+      - linearLabelAttr
       - alertmanagerAttr
       - pagerdutyManageAttr
       - notionAttr
@@ -232,10 +233,9 @@ backends:
       # (team omitted) and Cerbos's has()-based check would trip on all of
       # them — so attrFrom calls the linearIssueAttr helper instead: it
       # surfaces teamId on every create, and on update only when the call
-      # itself sets `team` (a deliberate reassignment); an ordinary update
-      # with no team arg gets no teamId key at all and falls through to
-      # allow-all. save_project is different: its addTeams/setTeams args are
-      # a directly-verifiable team signal, so it's mapped below (HAH-70).
+      # itself sets `team` (a deliberate reassignment). save_project is
+      # different: its addTeams/setTeams args are a directly-verifiable team
+      # signal, so it's mapped below (HAH-70).
       # save_comment (HAH-69) targets an existing comment/thread by issueId
       # (or projectId/initiativeId/documentId/milestoneId, but only issueId
       # is team-resolvable) and carries no team of its own in the call args
@@ -246,6 +246,16 @@ backends:
       # identically to save_issue's. A call with no issueId (project/
       # initiative/document/milestone comment, or a reply via parentId with
       # no entity ref) has nothing to resolve and passes the gate unchecked.
+      # HAH-91: an ordinary save_issue UPDATE with no `team` arg used to get
+      # no teamId key at all and fall through to allow-all regardless of the
+      # issue's REAL team -- e.g. any plain edit to an issue that already
+      # belongs to a non-DEVOPS team went through unchecked. server.go now
+      # runs the SAME live linear_get_issue lookup save_comment uses (keyed
+      # off the call's `id` arg) whenever save_issue's own attrFrom omitted
+      # teamId, closing that gap with zero duplication of the allowlist.
+      # A create call always sets `team` itself (required) and has no `id`,
+      # so it never reaches this lookup; only a real update with an omitted
+      # `team` does.
       linear_save_issue:
         resourceType: linear_team
         action: access
@@ -261,14 +271,31 @@ backends:
       # linear_team; the verifiable signal here is addTeams/setTeams (the
       # array args a project's team membership is set through), not a single
       # team/id like save_issue. linearProjectAttr unions both arrays into one
-      # `teams` list attr so Cerbos can deny if any entry isn't DEVOPS; a call
-      # that sets neither arg has nothing to verify and falls through to
-      # allow-all, same as save_comment above.
+      # `teams` list attr so Cerbos can deny if any entry isn't DEVOPS.
+      # HAH-91: same gap and same fix as save_issue above -- an ordinary
+      # save_project UPDATE that sets neither addTeams nor setTeams used to
+      # get no teams key at all and fall through to allow-all regardless of
+      # the project's REAL team(s) (a project can belong to more than one
+      # team). server.go now runs a live linear_get_project lookup (keyed off
+      # the call's `id` arg) whenever save_project's own attrFrom omitted
+      # teams, closing that gap. A create call always sets addTeams or
+      # setTeams itself (Linear requires at least one team on creation) and
+      # has no `id`, so it never reaches this lookup.
       linear_save_project:
         resourceType: linear_team
         action: access
         id: get(args,'id','*')
         attrFrom: linearProjectAttr(args)
+      # Linear create_issue_label (HAH-91): a workspace-scoped label needs no
+      # check (teamId omitted entirely -- workspace labels aren't team-
+      # scoped), but a team-scoped label's `teamId` arg is a directly
+      # verifiable signal, same shape as save_comment's issueId attr, no
+      # lookup needed since the caller already supplies the team id itself.
+      linear_create_issue_label:
+        resourceType: linear_team
+        action: access
+        id: get(args,'teamId','*')
+        attrFrom: linearLabelAttr(args)
       # Alertmanager silence-creating tool -> alertmanager_silence; Cerbos denies
       # a duration longer than the per-machine cap (${alertmanagerMaxSilenceSeconds},
       # from clusters/*/cluster-vars.yaml — work caps at 24h, personal at 14d).
