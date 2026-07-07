@@ -17,6 +17,7 @@ relies on. Verified against the upstream arm64 image (`v2026.7.1`):
 | mnemosyne plugin + MiniCPM embedding gguf | no |
 | hermes-lcm context engine | no |
 | LSP servers (pyright, yaml-language-server, terraform-ls, bash-language-server) | no |
+| `terragrunt` for HCL/Terraform formatting hooks | no |
 | `ddgs` Python package (web search backend) | no — only the plugin glue is present |
 | netdebug tools (ss, dig, nc) for egress diagnostics | no |
 | bazel / bazelisk / buildozer / buildifier | no |
@@ -55,6 +56,7 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   install` does not place it; selected via `context.engine: lcm` in the agent
   config. Pure stdlib, no PyPI deps.
 - LSP servers via `npm -g` (node + npm are in the base).
+- `terragrunt` via pinned GitHub release asset, for repos whose pre-commit or CI uses `terragrunt hcl format` against `.tf`/`.hcl` files.
 - `ddgs` via `uv pip install` into `/opt/hermes/.venv`.
 - netdebug tools (`iproute2`/`ss`, `dnsutils`/`dig`, `netcat-openbsd`/`nc`) via
   apt, for diagnosing egress / CiliumNetworkPolicy hangs from inside the sandbox.
