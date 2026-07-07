@@ -4,6 +4,9 @@ description: Tavily/Firecrawl crawl+map calls targeting an internal-only host, o
   exceeding the limit/depth/breadth caps, are denied; a normal external crawl within
   caps is allowed. Single-URL/multi-URL fetch tools (HAH-93) targeting an internal-only
   host via url or urls are denied the same way; a normal external fetch is allowed.
+  Firecrawl monitor create/update calls (HAH-94) targeting an internal-only host via
+  page/pages or a nested body url/urls/page/pages are denied the same way; a normal
+  external monitor target is allowed.
 options:
   now: '2026-07-02T00:00:00Z'
 principals:
@@ -57,6 +60,20 @@ resources:
   fetch_internal_urls_array:
     # webFetchAttr flags internal if ANY element of urls[] is internal, even
     # when the resource id itself (first/only url shown here) looks external.
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'true'}
+  monitor_external_target:
+    id: https://example.com
+    kind: web_crawl
+    attr: {isInternalTarget: 'false'}
+  monitor_internal_page:
+    id: http://host.docker.internal:4483/mcp
+    kind: web_crawl
+    attr: {isInternalTarget: 'true'}
+  monitor_internal_nested_body_url:
+    # webMonitorAttr flags internal even when the top-level page/pages look
+    # external and the internal target is only reachable via body.url/urls.
     id: https://example.com
     kind: web_crawl
     attr: {isInternalTarget: 'true'}
@@ -126,3 +143,22 @@ tests:
       - principal: hermes
         resource: fetch_internal_urls_array
         actions: {fetch: EFFECT_DENY}
+  - name: monitoring an internal-only target (top-level page/pages, or a nested body
+      url/urls/page/pages) is denied; a normal external monitor target is allowed
+    input:
+      principals: [hermes]
+      resources:
+        - monitor_external_target
+        - monitor_internal_page
+        - monitor_internal_nested_body_url
+      actions: [monitor]
+    expected:
+      - principal: hermes
+        resource: monitor_external_target
+        actions: {monitor: EFFECT_ALLOW}
+      - principal: hermes
+        resource: monitor_internal_page
+        actions: {monitor: EFFECT_DENY}
+      - principal: hermes
+        resource: monitor_internal_nested_body_url
+        actions: {monitor: EFFECT_DENY}

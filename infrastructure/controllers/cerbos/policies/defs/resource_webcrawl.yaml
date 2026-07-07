@@ -1,5 +1,5 @@
 ---
-# web_crawl policy (HAH-74, extended HAH-93): deny Tavily/Firecrawl crawl+map
+# web_crawl policy (HAH-74, extended HAH-93, HAH-94): deny Tavily/Firecrawl crawl+map
 # calls whose url (or Tavily's select_domains regex patterns) targets this
 # platform's own trust boundary -- loopback, RFC1918/link-local ranges, the
 # cloud metadata IP, *.local/*.internal/*.svc.cluster.local names, or
@@ -21,18 +21,27 @@
 # to the same web_crawl resource with a separate `fetch` action (no
 # limit/depth/breadth caps apply -- these tools have no such args), using the
 # webFetchAttr helper to compute the same isInternalTarget over url/urls[].
-# Every remaining Tavily/Firecrawl tool (search/research/monitor/etc.) fetches
-# only what the caller named with no comparable target-exposure concern this
-# guardrail is built for, so those stay unmapped, same reasoning as
-# firecrawl_session's comment for why only firecrawl_interact is mapped in
-# that resource.
+#
+# HAH-94: firecrawl_monitor_create/firecrawl_monitor_update set up a
+# PERSISTENT recurring fetch, so an internal-only target there is a standing
+# SSRF probe rather than a one-shot hit -- worse than crawl/map, especially
+# with monitor_create's optional webhookUrl pushing results back out. These
+# are mapped to the same web_crawl resource with a separate `monitor` action
+# (no limit/depth/breadth cap applies -- these tools have no such args),
+# using the webMonitorAttr helper to compute the same isInternalTarget over
+# page/pages and a best-effort inspection of the tools' freeform body object.
+#
+# Every remaining Tavily/Firecrawl tool (search/research/etc.) fetches only
+# the single url/query the caller named and doesn't discover new targets or
+# persist, so those stay unmapped, same reasoning as firecrawl_session's
+# comment for why only firecrawl_interact is mapped in that resource.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
   resource: web_crawl
   rules:
     - name: deny-internal-target
-      actions: [crawl, fetch]
+      actions: [crawl, fetch, monitor]
       effect: EFFECT_DENY
       roles: ['*']
       condition:
@@ -43,7 +52,7 @@ resourcePolicy:
       output:
         when:
           ruleActivated: >-
-            "This agent may not crawl/map/fetch an internal-only host"
+            "This agent may not crawl/map/fetch/monitor an internal-only host"
             + " (loopback, private/link-local ranges, cluster-internal names,"
             + " or the cloud metadata address). Target a public URL instead."
     - name: deny-limit-too-high

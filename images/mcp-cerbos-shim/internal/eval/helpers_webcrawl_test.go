@@ -284,3 +284,150 @@ func TestWebFetchAttr_AllExternalURLsInArray(t *testing.T) {
 		t.Errorf("isInternalTarget = %q, want false", res.Attr["isInternalTarget"])
 	}
 }
+
+func TestWebMonitorHelperSelfRegisters(t *testing.T) {
+	if _, ok := helperOptions("webMonitorAttr"); !ok {
+		t.Fatal("webMonitorAttr not registered; helpers_webcrawl.go init() did not run")
+	}
+}
+
+func compileWebMonitorTestEngine(t *testing.T) *Engine {
+	t.Helper()
+	m := &config.Mapping{
+		Backends: map[string]config.Backend{
+			"vmcp": {
+				DefaultAction: config.ActionAllow,
+				Helpers:       []string{"webMonitorAttr"},
+				Tools: map[string]config.Tool{
+					"web_monitor_tool": {
+						ResourceType: "web_crawl",
+						Action:       "monitor",
+						ID:           "get(args,'page','')",
+						AttrFrom:     "webMonitorAttr(args)",
+					},
+				},
+			},
+		},
+	}
+	e, err := Compile(m)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	return e
+}
+
+func TestWebMonitorAttr_ExternalPage(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args:    map[string]any{"page": "https://example.com"},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "false" {
+		t.Errorf("isInternalTarget = %q, want false", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_InternalTopLevelPageFlagged(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args:    map[string]any{"page": "http://host.docker.internal:4483/mcp"},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_InternalPagesArrayElementFlagged(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args: map[string]any{
+			"pages": []any{"https://example.com", "http://169.254.169.254/latest/meta-data/"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true (one of pages[] is internal)", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_InternalNestedBodyURLFlagged(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args: map[string]any{
+			"id":   "monitor-123",
+			"body": map[string]any{"url": "http://host.docker.internal:4483/mcp"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true (internal target nested in body.url)", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_InternalNestedBodyURLsArrayFlagged(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args: map[string]any{
+			"id":   "monitor-123",
+			"body": map[string]any{"urls": []any{"https://example.com", "http://169.254.169.254/latest/meta-data/"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "true" {
+		t.Errorf("isInternalTarget = %q, want true (internal target nested in body.urls[])", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_ExternalNestedBodyResolvesFalse(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args: map[string]any{
+			"id":   "monitor-123",
+			"body": map[string]any{"url": "https://example.com"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "false" {
+		t.Errorf("isInternalTarget = %q, want false", res.Attr["isInternalTarget"])
+	}
+}
+
+func TestWebMonitorAttr_NoTargetAnywhereResolvesFalse(t *testing.T) {
+	e := compileWebMonitorTestEngine(t)
+	res, err := e.Eval(CallInput{
+		Backend: "vmcp",
+		Tool:    "web_monitor_tool",
+		Args:    map[string]any{"id": "monitor-123"},
+	})
+	if err != nil {
+		t.Fatalf("Eval: %v", err)
+	}
+	if res.Attr["isInternalTarget"] != "false" {
+		t.Errorf("isInternalTarget = %q, want false when no target is set anywhere", res.Attr["isInternalTarget"])
+	}
+}

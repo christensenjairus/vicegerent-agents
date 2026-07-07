@@ -31,6 +31,7 @@ backends:
       - githubReviewersAttr
       - webCrawlAttr
       - webFetchAttr
+      - webMonitorAttr
     tools:
       kubernetes_resources_get:
         resourceType: k8s_resource
@@ -455,3 +456,24 @@ backends:
         action: fetch
         id: get(args,'urls','')
         attrFrom: webFetchAttr(args)
+      # Firecrawl monitor create/update -> web_crawl, action monitor (HAH-94):
+      # these set up a PERSISTENT recurring fetch (per scheduleText/
+      # searchWindow), so an internal-only target here is a standing SSRF
+      # probe, not a one-shot hit -- worse than crawl/map, and monitor_create's
+      # optional webhookUrl means results can be actively pushed back out too.
+      # webMonitorAttr checks the top-level page/pages (monitor_create only)
+      # and best-effort inspects the opaque, freeform body object both tools
+      # carry for nested url/urls/page/pages keys, since monitor_create's own
+      # docs describe body as carrying "advanced requests such as crawl
+      # targets." monitor_list/get/delete/run/checks/check are read/lifecycle
+      # tools with no new target-setting surface, so they stay unmapped.
+      firecrawl_firecrawl_monitor_create:
+        resourceType: web_crawl
+        action: monitor
+        id: get(args,'page','')
+        attrFrom: webMonitorAttr(args)
+      firecrawl_firecrawl_monitor_update:
+        resourceType: web_crawl
+        action: monitor
+        id: get(args,'id','')
+        attrFrom: webMonitorAttr(args)
