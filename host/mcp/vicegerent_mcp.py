@@ -29,6 +29,8 @@ vMCP config here exposes ALL backend tools and adds no filter/authz.
 from __future__ import annotations
 
 import argparse
+import contextlib
+import fcntl
 import hashlib
 import json
 import os
@@ -42,7 +44,7 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Generator, Iterator
 
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -148,13 +150,42 @@ def _read_state(runtime_dir: Path) -> dict[str, Any]:
 def _write_state(runtime_dir: Path, data: dict[str, Any]) -> None:
     path = runtime_paths(runtime_dir)["servers_state"]
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    # Write-then-rename so a reader (or a crash mid-write) never sees a torn file.
+    tmp = path.with_suffix(f"{path.suffix}.tmp{os.getpid()}")
+    tmp.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    os.replace(tmp, path)
+
+
+@contextlib.contextmanager
+def _locked_state(runtime_dir: Path) -> Generator[dict[str, Any], None, None]:
+    """Read-modify-write servers-state.json as one atomic, cross-process critical
+    section: yields the current state for in-place mutation, writes it back on
+    clean exit.
+
+    `run_workloads` fires one thread per enabled server, each of which saves its
+    own fingerprint into this same file, and `enable`/`disable`/`configure` write
+    to it too. Locking only the write wouldn't help -- a writer's *read* can still
+    be stale from before it acquired the lock, so it'd write back a snapshot that's
+    missing whatever another writer committed in between, silently reverting it.
+    Locking the read+mutate+write together means each writer's read is always of
+    the latest committed state.
+    """
+    path = runtime_paths(runtime_dir)["servers_state"]
+    path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = path.with_name(f"{path.name}.lock")
+    with open(lock_path, "w") as lockfile:
+        fcntl.flock(lockfile.fileno(), fcntl.LOCK_EX)
+        try:
+            data = _read_state(runtime_dir)
+            yield data
+            _write_state(runtime_dir, data)
+        finally:
+            fcntl.flock(lockfile.fileno(), fcntl.LOCK_UN)
 
 
 def save_server_state(runtime_dir: Path, enabled: dict[str, bool]) -> None:
-    data = _read_state(runtime_dir)
-    data["enabled"] = enabled
-    _write_state(runtime_dir, data)
+    with _locked_state(runtime_dir) as data:
+        data["enabled"] = enabled
 
 
 def caffeinate_always(runtime_dir: Path) -> bool:
@@ -163,9 +194,8 @@ def caffeinate_always(runtime_dir: Path) -> bool:
 
 
 def set_caffeinate_always(runtime_dir: Path, value: bool) -> None:
-    data = _read_state(runtime_dir)
-    data["always_caffeinate"] = bool(value)
-    _write_state(runtime_dir, data)
+    with _locked_state(runtime_dir) as data:
+        data["always_caffeinate"] = bool(value)
 
 
 def load_server_params(runtime_dir: Path) -> dict[str, dict[str, str]]:
@@ -176,13 +206,29 @@ def load_server_params(runtime_dir: Path) -> dict[str, dict[str, str]]:
 
 
 def save_server_params(runtime_dir: Path, params: dict[str, dict[str, str]]) -> None:
-    data = _read_state(runtime_dir)
-    data["params"] = params
-    _write_state(runtime_dir, data)
+    with _locked_state(runtime_dir) as data:
+        data["params"] = params
 
 
 def server_param(runtime_dir: Path, server_name: str, param_name: str, default: str = "") -> str:
     return load_server_params(runtime_dir).get(server_name, {}).get(param_name, default)
+
+
+def param_secret_name(server_name: str, param_name: str) -> str:
+    """`thv` secret name for a param marked `"secret": true` (e.g. gitlab_api_url).
+
+    Params normally live in servers-state.json, disposable runtime state. A param
+    that's a pain to re-enter (a URL you'd otherwise have to look up again) can opt
+    into living in the `thv` secrets provider instead -- the same durable store
+    already used for API keys, so it survives a wiped/corrupted runtime dir.
+    """
+    return f"{server_name}_{param_name}"
+
+
+def read_secret_value(secret_name: str) -> str:
+    """Fetch a secret's plaintext value via `thv secret get`; "" if unset/unavailable."""
+    result = thv("secret", "get", secret_name)
+    return result.stdout.strip() if result.returncode == 0 else ""
 
 
 def is_server_enabled(server: dict[str, Any], state: dict[str, bool]) -> bool:
@@ -371,10 +417,14 @@ def build_thv_run_argv(
     # configured params only ADD to them.
     server_args = list(server.get("server_args", []))
 
-    # Apply configured params (values from `configure`, stored in runtime state).
+    # Apply configured params (values from `configure`, stored in runtime state --
+    # or, for a param marked "secret": true, in the `thv` secrets provider instead).
     for param in server.get("params", []):
         pname = param["name"]
-        value = server_param(runtime_dir, name, pname, param.get("default", ""))
+        if param.get("secret"):
+            value = read_secret_value(param_secret_name(name, pname))
+        else:
+            value = server_param(runtime_dir, name, pname, param.get("default", ""))
         apply = param.get("apply")
         if apply == "server_arg":
             if value:
@@ -494,11 +544,10 @@ def load_server_fingerprints(runtime_dir: Path) -> dict[str, str]:
 
 
 def save_server_fingerprint(runtime_dir: Path, name: str, fingerprint: str) -> None:
-    data = _read_state(runtime_dir)
-    fingerprints = data.get("fingerprints") or {}
-    fingerprints[name] = fingerprint
-    data["fingerprints"] = fingerprints
-    _write_state(runtime_dir, data)
+    with _locked_state(runtime_dir) as data:
+        fingerprints = data.get("fingerprints") or {}
+        fingerprints[name] = fingerprint
+        data["fingerprints"] = fingerprints
 
 
 def server_spec_changed(server: dict[str, Any], runtime_dir: Path) -> bool:
@@ -1352,7 +1401,9 @@ def doctor(
         ok = False
 
     print("required thv secrets:")
-    needed = sorted({sec["name"] for s in config.get("servers", []) for sec in s.get("secrets", [])})
+    needed = sorted({sec["name"] for s in config.get("servers", []) for sec in s.get("secrets", [])}
+                     | {param_secret_name(s["name"], p["name"])
+                        for s in config.get("servers", []) for p in s.get("params", []) if p.get("secret")})
     for name in needed:
         present = thv("secret", "get", name).returncode == 0
         print(f"  {name}: {'present' if present else 'MISSING (thv secret set ' + name + ')'}")
@@ -1467,17 +1518,40 @@ def configure(
             print(f"   {name}: disabled.")
             continue
 
-        # Non-secret parameters (GitLab URL, kubeconfig path, …).
+        # Parameters (GitLab URL, kubeconfig path, …). Most live in runtime state;
+        # one marked "secret": true lives in the `thv` secrets provider instead
+        # (param_secret_name) so it survives a wiped/corrupted runtime dir. Either
+        # way the value is typed and shown here in the clear -- these aren't
+        # sensitive, `thv secret` is just durable storage, so we do our own visible
+        # prompt and pipe it into `thv secret set` rather than let it hide the input.
         for param in server.get("params", []):
             pname = param["name"]
-            current = params_all.get(name, {}).get(pname) or str(param.get("default") or "")
+            prompt = param.get("prompt", pname)
+            use_secret = bool(param.get("secret"))
+            if use_secret and not have_provider:
+                print(f"   ! {prompt} needs a secrets provider — set it after `thv secret setup`.")
+                continue
+            sname = param_secret_name(name, pname) if use_secret else None
+            current = (
+                read_secret_value(sname) if sname
+                else params_all.get(name, {}).get(pname) or str(param.get("default") or "")
+            )
             shown = current if current else "(none)"
             try:
-                entered = input(f"   {param.get('prompt', pname)} [{shown}]: ").strip()
+                entered = input(f"   {prompt} [{shown}]: ").strip()
             except EOFError:
                 entered = ""
             value = entered if entered else current
-            params_all.setdefault(name, {})[pname] = value
+            if sname:
+                if value != current:
+                    rc = subprocess.run(
+                        [_thv_path(), "secret", "set", sname],
+                        input=value, text=True, capture_output=True,
+                    ).returncode
+                    if rc != 0:
+                        print(f"   warning: saving {pname} failed (rc={rc}); {name} may not work.")
+            else:
+                params_all.setdefault(name, {})[pname] = value
             if param.get("required") and not value:
                 print(f"   ! {pname} is required — {name} won't work until it's set.")
 

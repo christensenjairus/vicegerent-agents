@@ -70,20 +70,38 @@ const (
 	linearTeamResource    = "linear_team"
 )
 
-// pagerdutyManageIncidentsTool/pagerdutyAddNoteTool/pagerdutyIncidentResource
-// identify the PagerDuty write calls the service-resolution gate
-// applies to. Unlike the Linear gates above, neither tool's own args carry
-// ANYTHING that identifies the incident's owning service directly -- only
-// an opaque incident_id/incident_ids. The gate resolves each targeted
+// pagerdutyManageIncidentsTools/pagerdutyAddNoteTools/pagerdutyIncidentResource
+// identify the PagerDuty write calls the service-resolution gate applies to,
+// one entry per backend this shim fronts (toolhive-servers.json: pagerduty,
+// pagerduty_gov). Unlike the Linear gates above, neither tool's own args
+// carry ANYTHING that identifies the incident's owning service directly --
+// only an opaque incident_id/incident_ids. The gate resolves each targeted
 // incident to its service via a live get_incident lookup and hands the
 // resolved id(s) to Cerbos's existing service allowlist rule
 // (resource_pagerduty.yaml), the same handoff pattern as the Linear
 // issue/project team gates.
-const (
-	pagerdutyManageIncidentsTool = "pagerduty_manage_incidents"
-	pagerdutyAddNoteTool         = "pagerduty_add_note_to_incident"
-	pagerdutyIncidentResource    = "pagerduty_incident"
+//
+// Each map's value is that SAME backend's own get_incident tool name -- the
+// live lookup must query the backend the incident actually lives in, not
+// always the first-registered one, or every gov call fails closed with a
+// "not found" from looking the incident up in the wrong PagerDuty account
+// (get_incident itself stays unmapped in Cerbos for both backends, for the
+// same recursion-safety reason notion_notion-fetch/linear_get_issue are
+// documented elsewhere in this shim: a deny rule on it would make every
+// manage_incidents/add_note_to_incident lookup fail closed unconditionally
+// instead of the intended per-call, service-scoping-tied check).
+var (
+	pagerdutyManageIncidentsTools = map[string]string{
+		"pagerduty_manage_incidents":     "pagerduty_get_incident",
+		"pagerduty_gov_manage_incidents": "pagerduty_gov_get_incident",
+	}
+	pagerdutyAddNoteTools = map[string]string{
+		"pagerduty_add_note_to_incident":     "pagerduty_get_incident",
+		"pagerduty_gov_add_note_to_incident": "pagerduty_gov_get_incident",
+	}
 )
+
+const pagerdutyIncidentResource = "pagerduty_incident"
 
 // upstreamLookupTimeout bounds a single live shim->vMCP lookup call (Notion
 // ancestry, Linear issue-team resolution) so one gated tools/call can't hang
@@ -408,11 +426,14 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 	// single incident_id. Both are handled the same way: resolve every
 	// non-empty id, fail closed on ANY lookup error (a partially-resolved
 	// batch is not a safe signal to check against an allowlist).
-	if res.ResourceType == pagerdutyIncidentResource &&
-		(cp.Name == pagerdutyManageIncidentsTool || cp.Name == pagerdutyAddNoteTool) {
+	getIncidentTool, pagerdutyGated := pagerdutyManageIncidentsTools[cp.Name]
+	if !pagerdutyGated {
+		getIncidentTool, pagerdutyGated = pagerdutyAddNoteTools[cp.Name]
+	}
+	if res.ResourceType == pagerdutyIncidentResource && pagerdutyGated {
 		incidentIDs := pagerdutyIncidentIDsFromArgs(cp.Name, cp.Arguments)
 		if len(incidentIDs) > 0 {
-			serviceIDs, derr := s.checkPagerdutyIncidentServices(ctx, incidentIDs)
+			serviceIDs, derr := s.checkPagerdutyIncidentServices(ctx, getIncidentTool, incidentIDs)
 			if derr != nil {
 				log.Printf("deny: pagerduty %s service lookup (incidents=%v backend=%s): %v", cp.Name, incidentIDs, backend, derr)
 				return deny(derr.Error()), nil
@@ -547,8 +568,7 @@ func (s *Server) checkLinearProjectTeam(ctx context.Context, projectID string) (
 // malformed entry, same posture as lookupCIStringSlice elsewhere in this
 // shim).
 func pagerdutyIncidentIDsFromArgs(toolName string, args map[string]any) []string {
-	switch toolName {
-	case pagerdutyManageIncidentsTool:
+	if _, ok := pagerdutyManageIncidentsTools[toolName]; ok {
 		req, _ := args["manage_request"].(map[string]any)
 		ids, _ := req["incident_ids"].([]any)
 		out := make([]string, 0, len(ids))
@@ -558,7 +578,8 @@ func pagerdutyIncidentIDsFromArgs(toolName string, args map[string]any) []string
 			}
 		}
 		return out
-	case pagerdutyAddNoteTool:
+	}
+	if _, ok := pagerdutyAddNoteTools[toolName]; ok {
 		if id, ok := args["incident_id"].(string); ok && id != "" {
 			return []string{id}
 		}
@@ -575,14 +596,14 @@ func pagerdutyIncidentIDsFromArgs(toolName string, args map[string]any) []string
 // partially-resolved batch is not a safe signal to check against an
 // allowlist -- see resource_pagerduty.yaml's own no-bulk-cap rationale for
 // why a batch call must be treated as a single unit here, not per-incident).
-func (s *Server) checkPagerdutyIncidentServices(ctx context.Context, incidentIDs []string) ([]string, error) {
+func (s *Server) checkPagerdutyIncidentServices(ctx context.Context, getIncidentTool string, incidentIDs []string) ([]string, error) {
 	if s.pagerdutyIncidentService == nil {
 		return nil, fmt.Errorf("pagerduty incident-service gate not configured; denying write for incidents %v", incidentIDs)
 	}
 	serviceIDs := make([]string, 0, len(incidentIDs))
 	for _, id := range incidentIDs {
 		lookupCtx, cancel := context.WithTimeout(ctx, upstreamLookupTimeout)
-		serviceID, err := upstream.IncidentServiceID(lookupCtx, s.pagerdutyIncidentService, id)
+		serviceID, err := upstream.IncidentServiceID(lookupCtx, getIncidentTool, s.pagerdutyIncidentService, id)
 		cancel()
 		if err != nil {
 			return nil, fmt.Errorf("could not verify PagerDuty incident %q's owning service (failing closed): %v", id, err)

@@ -15,7 +15,8 @@
         {
           "name": "kubeconfig",
           "prompt": "Kubeconfig path for the target cluster (blank = auto-generate from the kind 'vicegerent' cluster)",
-          "apply": "kubeconfig"
+          "apply": "kubeconfig",
+          "secret": true
         }
       ],
       "tools": [
@@ -38,7 +39,8 @@
           "prompt": "GitLab API URL (e.g. https://gitlab.example.com/api/v4)",
           "apply": "server_arg",
           "template": "--api-url={value}",
-          "required": true
+          "required": true,
+          "secret": true
         }
       ],
       "tools": [
@@ -180,6 +182,26 @@
       ]
     },
     {
+      "name": "grafana_gov",
+      "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "grafana",
+      "server_args": ["--disable-write"],
+      "tools": [
+        "search_dashboards", "search_folders", "list_datasources", "get_datasource",
+        "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",
+        "get_dashboard_property", "get_dashboard_summary", "query_prometheus", "query_prometheus_histogram",
+        "list_prometheus_metric_names", "list_prometheus_metric_metadata", "list_prometheus_label_names",
+        "list_prometheus_label_values", "get_assertions", "get_annotations", "get_annotation_tags",
+        "get_panel_image"
+      ],
+      "secrets": [
+        {"name": "grafana_gov_url", "target": "GRAFANA_URL"},
+        {"name": "grafana_gov_service_account_token", "target": "GRAFANA_SERVICE_ACCOUNT_TOKEN"}
+      ]
+    },
+    {
       "name": "alertmanager",
       "description": "Prometheus Alertmanager (alerts, silences, alert groups, status). Full read+write, including createSilence/deleteSilence — the tools list below is the full live 12-tool set pinned explicitly rather than a restriction.",
       "enabled": false,
@@ -191,7 +213,31 @@
           "prompt": "Alertmanager API URL (e.g. https://alertmanager.example.com)",
           "apply": "server_arg",
           "template": "--url={value}",
-          "required": true
+          "required": true,
+          "secret": true
+        }
+      ],
+      "tools": [
+        "getAlerts", "getAlertGroups", "getCriticalAlerts", "getAlertingSummary",
+        "getSilences", "createSilence", "deleteSilence",
+        "getAlertmanagerStatus", "getReceivers",
+        "investigateAlert", "getAlertHistory", "correlateAlerts"
+      ]
+    },
+    {
+      "name": "alertmanager_gov",
+      "description": "Prometheus Alertmanager (gov-cloud instance) -- otherwise identical to 'alertmanager' (see that entry for the tool-set rationale). The url param is secret-backed and auto-namespaced (alertmanager_gov_url), so it can't collide with alertmanager's.",
+      "enabled": false,
+      "type": "npx",
+      "package": "mcp-alertmanager@2.1.1",
+      "params": [
+        {
+          "name": "url",
+          "prompt": "Alertmanager (gov) API URL (e.g. https://alertmanager-gov.example.com)",
+          "apply": "server_arg",
+          "template": "--url={value}",
+          "required": true,
+          "secret": true
         }
       ],
       "tools": [
@@ -217,6 +263,23 @@
         "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
       ],
       "secrets": [{"name": "pagerduty_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
+    },
+    {
+      "name": "pagerduty_gov",
+      "description": "PagerDuty (gov-cloud instance) -- otherwise identical to 'pagerduty' (see that entry for the tool/scoping rationale). Separate secret (pagerduty_gov_user_api_key) so it authenticates against its own account.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "io.github.stacklok/pagerduty",
+      "server_args": ["--enable-write-tools"],
+      "tools": [
+        "get_incident", "list_incidents", "get_past_incidents", "get_related_incidents",
+        "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
+        "manage_incidents", "add_note_to_incident",
+        "get_schedule", "list_schedules", "list_schedule_users", "list_oncalls",
+        "get_service", "list_services", "get_team", "list_teams", "list_team_members",
+        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
+      ],
+      "secrets": [{"name": "pagerduty_gov_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
     }
   ]
 }
