@@ -91,6 +91,40 @@ resources:
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: ''}
+  review_resolve_thread:
+    # HAH-75: method=resolve_thread carries only threadId per the tool's own
+    # schema, but the shim still fills owner/repo/branch/event from whatever
+    # (possibly spoofed) values the caller supplied — denied unconditionally
+    # regardless of what those attrs say, since they can't be trusted for
+    # this method.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', method: resolve_thread}
+  review_unresolve_thread:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', method: unresolve_thread}
+  review_create_method_untouched:
+    # method=create (a real review submission) must stay unaffected by the
+    # new resolve-thread deny.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', method: create,
+      event: COMMENT}
+  create_pr_with_reviewers:
+    # HAH-84: create_pull_request setting reviewers is denied outright.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', hasReviewers: 'true'}
+  update_pr_with_reviewers:
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', hasReviewers: 'true'}
+  create_pr_no_reviewers:
+    # No reviewers set at all -- must stay allowed.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', hasReviewers: 'false'}
 tests:
   - name: calls confined to an allowed repo are allowed
     input:
@@ -189,4 +223,42 @@ tests:
         actions: {access: EFFECT_ALLOW}
       - principal: hermes
         resource: review_pending_no_event
+        actions: {access: EFFECT_ALLOW}
+  - name: resolving or unresolving a review thread is denied unconditionally, regardless
+      of what owner/repo the shim was told (unverifiable for this method), but a real
+      review submission is unaffected
+    input:
+      principals: [hermes]
+      resources:
+        - review_resolve_thread
+        - review_unresolve_thread
+        - review_create_method_untouched
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: review_resolve_thread
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: review_unresolve_thread
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: review_create_method_untouched
+        actions: {access: EFFECT_ALLOW}
+  - name: setting reviewers on a pull request is denied; no reviewers set is allowed
+    input:
+      principals: [hermes]
+      resources:
+        - create_pr_with_reviewers
+        - update_pr_with_reviewers
+        - create_pr_no_reviewers
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_pr_with_reviewers
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: update_pr_with_reviewers
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_pr_no_reviewers
         actions: {access: EFFECT_ALLOW}
