@@ -46,7 +46,28 @@ data:
     import re
     import urllib.request
     from mitmproxy import http
+
+    class _JSONFormatter(logging.Formatter):
+        # record.getMessage() resolves %s-style args, so every existing log.info/
+        # log.warning call site below needs zero changes for this format switch.
+        def format(self, record: logging.LogRecord) -> str:
+            return json.dumps({
+                "time": self.formatTime(record, "%Y-%m-%dT%H:%M:%S%z"),
+                "level": record.levelname,
+                "logger": record.name,
+                "message": record.getMessage(),
+            })
+
     log = logging.getLogger("egress-proxy")
+    # propagate=False + a dedicated handler: mitmproxy's own root-logger handler
+    # would otherwise also emit these records in its own (non-JSON) format,
+    # doubling every line. This handler is the only place "egress-proxy" records go.
+    log.propagate = False
+    log.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(_JSONFormatter())
+    log.addHandler(_handler)
+
     def _client(flow) -> str:
         # Same client peername mitmproxy's own connect/CONNECT log lines show,
         # so scrub.py's structured lines can be visually/grep-correlated with

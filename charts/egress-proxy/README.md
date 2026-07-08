@@ -59,16 +59,14 @@ Requests to RFC1918, link-local (169.254/16), loopback, and CGNAT (100.64/10) ra
 → 403. Defence-in-depth alongside Cilium's `egressDeny` rules.
 
 ### Audit log
-Every request emits a structured log line:
+Every request emits a JSON log line (one object per line, `message` carries the same
+content the pre-JSON format used):
 ```
-ALLOW internal=False method=GET url=https://pypi.org/simple/requests/
-RESPONSE method=GET status=200 url=https://pypi.org/simple/requests/
-BLOCKED method=POST url=https://api.github.com/repos/...
-REDACTED count=1 method=GET url=https://example.com/          # request header/body
-REDACTED-URL count=1 method=GET url=https://example.com/      # request path/query
-RESPONSE-REDACTED count=1 method=GET status=200 url=https://example.com/  # response body
+{"time": "2026-07-08T22:14:03+0000", "level": "INFO", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 ALLOW internal=False method=GET url=https://pypi.org/simple/requests/"}
+{"time": "2026-07-08T22:14:03+0000", "level": "WARNING", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 BLOCKED method=POST url=https://api.github.com/repos/..."}
 ```
-View with: `kubectl logs -n egress-proxy deploy/egress-proxy`
+View with: `kubectl logs -n egress-proxy deploy/egress-proxy` — pipe through `jq` for
+readability, e.g. `... | jq -r .message`.
 
 ---
 
