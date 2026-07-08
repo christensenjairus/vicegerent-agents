@@ -4,16 +4,13 @@ Where credential-shaped strings and PII get scrubbed on this platform, in code a
 the network flow. This is the definitive reference for "does X leg redact, and against
 what patterns."
 
-> This doc describes the state once MR !426 (`feat/ai-backend-regex-scrubbing`,
-> agentgateway AIPromptGuard) and MR !428 (`feat/pii-regex-egress-shim`, PII patterns on
-> the egress-proxy and shim) both land. Neither is merged as this is written; file paths
-> and pattern counts below match those two branches, not current `main`.
-
-## Why three enforcement points
+## Why four enforcement points
 
 There is no single central scrubber because there is no single pipe to tap. Three
 genuinely different processes make outbound calls that carry agent-controlled content,
-and each call leaves from a different place:
+and each call leaves from a different place; a fourth point covers log ingestion, which
+carries agent-controlled content by a completely different mechanism (stdout, not a
+network call) and would otherwise bypass all three of the others entirely:
 
 - **The Hermes sandbox** makes its own HTTP(S) calls (curl, git-over-HTTP, MCP and model
   calls to agentgateway, searxng). Every one is forced through the egress-proxy by the
@@ -25,6 +22,12 @@ and each call leaves from a different place:
   egress-proxy.
 - **agentgateway** makes its own HTTPS call to the model provider (Anthropic/OpenAI).
   Also from agentgateway, also never through the egress-proxy.
+- **Every pod** writes stdout/stderr, which Vector (the `victoria-logs` chart's log
+  agent, a cluster-wide DaemonSet) scrapes unconditionally via a `kubernetes_logs`
+  source with no namespace/pod filter. This is the one leg that isn't a network call at
+  all — Tetragon's `PROCESS_EXEC`/`PROCESS_KPROBE` events (full command-line arguments
+  for every process executed in `agent-sandbox`) land here via Tetragon's own stdout,
+  and any component that logs a secret-shaped string at any log level lands here too.
 
 The two agentgateway legs are provably disjoint from the sandbox's egress path: the
 gateway's egress policy (`apps/base/gateway/egress-networkpolicy.yaml`) allows it to reach
@@ -35,7 +38,7 @@ namespace, 4445), with no hop through the egress-proxy; and its ingress policy
 structurally cannot see either agentgateway-originated call, no matter how it is
 configured — so each leg carries its own enforcement point.
 
-## The three enforcement points
+## The four enforcement points
 
 ### 1. egress-proxy (mitmproxy, Python)
 
@@ -114,6 +117,34 @@ configured — so each leg carries its own enforcement point.
   content can be matched, so treat the response-side `Reject` as best-effort detection, not
   a hard guarantee. The request-side `Reject` is a real block.
 
+### 4. victoria-logs Vector agent (VRL remap, cluster-wide DaemonSet)
+
+- **Covers:** every pod's stdout/stderr cluster-wide, ingested by Vector's
+  `kubernetes_logs` source with no namespace/pod filter
+  (`infrastructure/controllers/victoria-logs/chart/values.yaml`). This is not a network
+  call the other three legs could ever see — it's log scraping, a structurally different
+  mechanism. Notably this is what carries Tetragon's `PROCESS_EXEC`/`PROCESS_KPROBE`
+  events (full command-line arguments for every process executed in `agent-sandbox`) into
+  VictoriaLogs, since Tetragon's own stdout is one of the pods Vector scrapes.
+- **Catches:** the same 20 secret + PII regexes as the other legs (`redactor` transform in
+  `values.yaml`), ported to VRL/Rust-regex-crate syntax. Runs after the `parser` transform
+  that flattens Tetragon's JSON event shape into `.message`, so exec arguments are
+  redacted before the sink ships them. **No gitleaks layer** — there is no sidecar in this
+  pod, same gap as the AI-provider leg above.
+- **Where the patterns live:** the `redactor` transform's `source:` block in
+  `infrastructure/controllers/victoria-logs/chart/values.yaml`, hand-mirrored from
+  `REDACT_PATTERNS`.
+- **Action:** redact-and-forward, like egress-proxy and the shim — a match replaces the
+  substring with `<masked>` in `.message` and the (now-redacted) log line still ships to
+  VictoriaLogs. There is no reject/drop path for logs; the point is to scrub before
+  retention, not to block observability.
+- **Known limits:** regex-only, no gitleaks, no encoded-form detection — same caveats as
+  the other regex legs. Only `.message` is redacted; other structured fields Vector
+  attaches (`kubernetes.*` labels, `log.*` sub-fields left over from the JSON parse) are
+  not scanned, so a secret that lands in a *label* rather than the message body would
+  still slip through. VictoriaLogs retains 7 days (`server.retentionPeriod`) — anything
+  this leg misses persists in queryable form for that window.
+
 ## Flow
 
 ```mermaid
@@ -127,6 +158,10 @@ flowchart LR
     NET["internet (FQDN allowlist)"]
     SX[searxng]
     DIRECT["git-over-SSH :22 / Slack"]
+    TETRA[Tetragon]
+    ALLPODS["every pod's stdout/stderr<br/>(agent-sandbox, agentgateway,<br/>shim, egress-proxy, Tetragon, ...)"]
+    VECTOR["Vector<br/>(victoria-logs DaemonSet)"]
+    VLOGS[VictoriaLogs]
 
     H -->|"http_proxy: all sandbox outbound<br/>①regex + gitleaks, REDACT"| EP
     EP -->|"MCP + model routes (internal: body scrubbed)"| AGW
@@ -136,52 +171,63 @@ flowchart LR
     SHIM --> VMCP
     AGW -->|"HTTPS model call — NOT via egress-proxy<br/>③regex + PII builtins, REJECT — NO gitleaks"| LLM
     H -.->|"bypass — NOT scrubbed (accepted risk)"| DIRECT
+    TETRA -->|"PROCESS_EXEC/KPROBE args, agent-sandbox exec events"| ALLPODS
+    ALLPODS -->|"kubernetes_logs, no namespace filter<br/>④regex, REDACT — NO gitleaks"| VECTOR
+    VECTOR --> VLOGS
 ```
 
 Every arrow that carries agent content is labelled with its enforcement point. The two
 agentgateway-originated arrows (② and ③) are explicitly marked "NOT via egress-proxy" —
-they are the disjoint legs egress-proxy cannot see. The ③ leg is the one gap to keep in
-mind: regex-only, with **no gitleaks equivalent**. The dotted arrow (git-over-SSH, Slack)
-bypasses all HTTP scrubbing by design.
+they are the disjoint legs egress-proxy cannot see. The ③ leg is one gap to keep in mind:
+regex-only, with **no gitleaks equivalent** — the ④ leg shares that same gap. The dotted
+arrow (git-over-SSH, Slack) bypasses all HTTP scrubbing by design; note this bypass is
+scoped to the HTTP legs only — a secret in a git-over-SSH or Slack-bound command's
+arguments is still exec'd inside the sandbox and so still passes through Tetragon → ④,
+even though the network call itself never touches egress-proxy.
 
 ## Pattern parity
 
-All three legs carry the same 16 secret regexes and the same three PII categories. Only
-the two gitleaks-backed legs carry the ~180-rule ruleset — the AI-provider leg does not.
+All four legs carry the same 16 secret regexes and the same three PII categories. Only
+the two gitleaks-backed legs carry the ~180-rule ruleset — the AI-provider leg and the
+Vector log leg do not.
 
-| Pattern | egress-proxy | mcp-cerbos-shim | agentgateway promptGuard |
-| --- | :---: | :---: | :---: |
-| SSH private key | ✅ | ✅ | ✅ |
-| Slack `xox*` token | ✅ | ✅ | ✅ |
-| Slack `xapp-*` token | ✅ | ✅ | ✅ |
-| `Bearer` value | ✅ | ✅ | ✅ |
-| `Basic` value | ✅ | ✅ | ✅ |
-| AWS access key ID | ✅ | ✅ | ✅ |
-| GitHub token | ✅ | ✅ | ✅ |
-| GitLab token | ✅ | ✅ | ✅ |
-| Google API key | ✅ | ✅ | ✅ |
-| OpenAI key | ✅ | ✅ | ✅ |
-| Anthropic key | ✅ | ✅ | ✅ |
-| Stripe key | ✅ | ✅ | ✅ |
-| Notion token | ✅ | ✅ | ✅ |
-| Twilio SID | ✅ | ✅ | ✅ |
-| npm token | ✅ | ✅ | ✅ |
-| Generic JWT | ✅ | ✅ | ✅ |
-| US SSN | ✅ regex | ✅ regex | ✅ `Ssn` builtin |
-| Credit card (Visa/MC/Amex/Discover) | ✅ 4 regexes | ✅ 4 regexes | ✅ `CreditCard` builtin |
-| US phone | ✅ regex | ✅ regex | ✅ `PhoneNumber` builtin |
-| Email | ❌ excluded | ❌ excluded | ❌ excluded |
-| **gitleaks ~180-rule ruleset** | ✅ | ✅ | ❌ **none** |
-| Action on match | redact | redact | **reject** |
+| Pattern | egress-proxy | mcp-cerbos-shim | agentgateway promptGuard | victoria-logs Vector |
+| --- | :---: | :---: | :---: | :---: |
+| SSH private key | ✅ | ✅ | ✅ | ✅ |
+| Slack `xox*` token | ✅ | ✅ | ✅ | ✅ |
+| Slack `xapp-*` token | ✅ | ✅ | ✅ | ✅ |
+| `Bearer` value | ✅ | ✅ | ✅ | ✅ |
+| `Basic` value | ✅ | ✅ | ✅ | ✅ |
+| AWS access key ID | ✅ | ✅ | ✅ | ✅ |
+| GitHub token | ✅ | ✅ | ✅ | ✅ |
+| GitLab token | ✅ | ✅ | ✅ | ✅ |
+| Google API key | ✅ | ✅ | ✅ | ✅ |
+| OpenAI key | ✅ | ✅ | ✅ | ✅ |
+| Anthropic key | ✅ | ✅ | ✅ | ✅ |
+| Stripe key | ✅ | ✅ | ✅ | ✅ |
+| Notion token | ✅ | ✅ | ✅ | ✅ |
+| Twilio SID | ✅ | ✅ | ✅ | ✅ |
+| npm token | ✅ | ✅ | ✅ | ✅ |
+| Generic JWT | ✅ | ✅ | ✅ | ✅ |
+| US SSN | ✅ regex | ✅ regex | ✅ `Ssn` builtin | ✅ regex |
+| Credit card (Visa/MC/Amex/Discover) | ✅ 4 regexes | ✅ 4 regexes | ✅ `CreditCard` builtin | ✅ 4 regexes |
+| US phone | ✅ regex | ✅ regex | ✅ `PhoneNumber` builtin | ✅ regex |
+| Email | ❌ excluded | ❌ excluded | ❌ excluded | ❌ excluded |
+| **gitleaks ~180-rule ruleset** | ✅ | ✅ | ❌ **none** | ❌ **none** |
+| Action on match | redact | redact | **reject** | redact |
 
-The one asymmetry that matters: the bottom `gitleaks` row. On the AI-provider leg,
-coverage is exactly the 16 secret regexes + 3 PII builtins in the table above and nothing
-more — a provider token shaped only like one of gitleaks' other ~180 rules (and not like
-one of the 16 regexes) reaches the model on that leg unscrubbed.
+Two asymmetries matter: the bottom `gitleaks` row, and the Vector leg's structurally
+narrower field coverage. On the AI-provider leg, coverage is exactly the 16 secret
+regexes + 3 PII builtins in the table above and nothing more — a provider token shaped
+only like one of gitleaks' other ~180 rules (and not like one of the 16 regexes) reaches
+the model on that leg unscrubbed. On the Vector leg, only the `.message` field is
+scrubbed — a secret landing in a structured field Vector attaches separately
+(`kubernetes.*` labels, etc.) would not be caught even though the same 16+3 patterns run
+against the log body.
 
-## The three-way hand-mirror
+## The four-way hand-mirror
 
-The 16-pattern secret set now lives in **three** hand-maintained copies with **no shared
+The 16-pattern secret set now lives in **four** hand-maintained copies with **no shared
 source**:
 
 1. `images/mcp-cerbos-shim/internal/server/secrets_redact.go` — `secretPatternRegistry`
@@ -189,18 +235,24 @@ source**:
 2. `charts/egress-proxy/templates/addon-configmap.yaml` — `REDACT_PATTERNS` (Python, `re`).
 3. `apps/base/models/{anthropic,openai,haiku-oai}/backend.yaml` — `promptGuard` `matches`
    (agentgateway, Rust regex crate).
+4. `infrastructure/controllers/victoria-logs/chart/values.yaml` — the `redactor`
+   transform's `source:` block (VRL, Rust regex crate under the hood — same dialect as
+   #3, but a separate literal copy since VRL and agentgateway's CRD field have no shared
+   config surface).
 
-They run in three different runtimes (Go, Python, Rust) with no natural place to share a
-literal, so **adding or changing a secret pattern means editing all three by hand.** Miss
-one and that leg silently loses coverage for that pattern. This is the biggest operational
-risk in the whole redaction story — the patterns are kept RE2-compatible (no lookaround,
-no backreferences) precisely so the same literal ports across all three dialects. The PII
-row is only two-way (the Go/Python regexes vs. agentgateway's builtins), so PII changes
-touch layers 1 and 2 by regex and layer 3 by builtin name.
+They run in three different regex dialects across four separately-maintained files with
+no natural place to share a literal, so **adding or changing a secret pattern means
+editing all four by hand.** Miss one and that leg silently loses coverage for that
+pattern. This is the biggest operational risk in the whole redaction story — the patterns
+are kept RE2-compatible (no lookaround, no backreferences) precisely so the same literal
+ports across all three regex dialects (Go RE2, Python `re`, Rust regex crate used by both
+#3 and #4). The PII row is only two-way in terms of *representation* (the
+Go/Python/VRL regexes vs. agentgateway's native builtins), so PII changes touch layers 1,
+2, and 4 by regex and layer 3 by builtin name.
 
 ## Why Email is excluded everywhere
 
-None of the three legs match email addresses, deliberately. Email addresses are
+None of the four legs match email addresses, deliberately. Email addresses are
 load-bearing in legitimate agent traffic — most concretely, Jira ticket assignment is done
 *by email address*, so scrubbing or rejecting on an email match would break a normal,
 authorized workflow. agentgateway's PII builtins support an `Email` option and it was
