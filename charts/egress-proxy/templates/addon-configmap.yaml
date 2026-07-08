@@ -95,43 +95,43 @@ data:
     # same strings via the localhost sidecar (see _redact_gitleaks below).
     REDACT_PATTERNS = [
         # SSH private keys — all PEM formats including PKCS#8 encrypted variant.
-        re.compile(
+        ("private_key", re.compile(
             r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |ED25519 |ENCRYPTED )?PRIVATE KEY-----"
             r"[\s\S]+?"
             r"-----END (?:RSA |EC |OPENSSH |DSA |ED25519 |ENCRYPTED )?PRIVATE KEY-----",
             re.MULTILINE,
-        ),
+        )),
         # Slack tokens — xox* family (bot, app-level, user, refresh, socket, client)
         # and xapp-* (app-configuration tokens). Underscore is valid in token values.
-        re.compile(r"xox[bpraescd]-[A-Za-z0-9\-_]+", re.ASCII),
-        re.compile(r"xapp-[A-Za-z0-9\-_]+", re.ASCII),
+        ("slack_bot", re.compile(r"xox[bpraescd]-[A-Za-z0-9\-_]+", re.ASCII)),
+        ("slack_app", re.compile(r"xapp-[A-Za-z0-9\-_]+", re.ASCII)),
         # Bearer/Basic auth VALUES appearing inside a URL/body (the Authorization
         # header itself is scrubbed separately below).
-        re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE | re.ASCII),
-        re.compile(r"\bBasic\s+[A-Za-z0-9+/]+=*", re.IGNORECASE | re.ASCII),
+        ("bearer", re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE | re.ASCII)),
+        ("basic", re.compile(r"\bBasic\s+[A-Za-z0-9+/]+=*", re.IGNORECASE | re.ASCII)),
         # AWS access key IDs (IAM/STS/role/instance-profile share the 20-char shape).
-        re.compile(r"\b(?:AKIA|ASIA|AROA|AIDA)[A-Z0-9]{16}\b", re.ASCII),
+        ("aws", re.compile(r"\b(?:AKIA|ASIA|AROA|AIDA)[A-Z0-9]{16}\b", re.ASCII)),
         # GitHub tokens — PAT (classic + fine-grained), OAuth, app tokens (gh?_ ).
-        re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,255}\b", re.ASCII),
+        ("github", re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,255}\b", re.ASCII)),
         # GitLab personal/project/group access + CI job tokens.
-        re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        ("gitlab", re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}\b", re.ASCII)),
         # Google API keys (Maps etc. — not OAuth client secrets).
-        re.compile(r"\bAIza[A-Za-z0-9_\-]{35}\b", re.ASCII),
+        ("google", re.compile(r"\bAIza[A-Za-z0-9_\-]{35}\b", re.ASCII)),
         # OpenAI API keys (legacy sk-… and project-scoped sk-proj-…).
-        re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        ("openai", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b", re.ASCII)),
         # Anthropic API keys.
-        re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        ("anthropic", re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}\b", re.ASCII)),
         # Stripe live/test secret + restricted keys.
-        re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b", re.ASCII),
+        ("stripe", re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b", re.ASCII)),
         # Notion integration tokens (internal + OAuth-issued).
-        re.compile(r"\bntn_[A-Za-z0-9]{20,}\b", re.ASCII),
+        ("notion", re.compile(r"\bntn_[A-Za-z0-9]{20,}\b", re.ASCII)),
         # Twilio auth token / API key SIDs.
-        re.compile(r"\bSK[a-f0-9]{32}\b", re.ASCII),
+        ("twilio", re.compile(r"\bSK[a-f0-9]{32}\b", re.ASCII)),
         # npm automation/publish tokens.
-        re.compile(r"\bnpm_[A-Za-z0-9]{36}\b", re.ASCII),
+        ("npm", re.compile(r"\bnpm_[A-Za-z0-9]{36}\b", re.ASCII)),
         # Generic JWT (header.payload.signature, each segment base64url) — loose by
         # design; a non-secret JWT would also match, acceptable since we only redact.
-        re.compile(r"\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b", re.ASCII),
+        ("jwt", re.compile(r"\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b", re.ASCII)),
         # PII — mirrors the SSN/CreditCard/PhoneNumber promptGuard builtins the
         # agentgateway AI backends carry (see MR !426, feat/ai-backend-regex-scrubbing).
         # Email is deliberately NOT matched anywhere (it breaks Jira ticket
@@ -140,38 +140,38 @@ data:
         # US SSN NNN-NN-NNNN, excluding the well-known invalid ranges (area
         # 000/666/900-999, group 00, serial 0000) expressed as alternation since
         # RE2 has no lookahead.
-        re.compile(
+        ("ssn", re.compile(
             r"\b(?:0(?:0[1-9]|[1-9][0-9])|[1-5][0-9]{2}|6(?:[0-5][0-9]|6[0-57-9]|[7-9][0-9])|[78][0-9]{2})"
             r"-(?:0[1-9]|[1-9][0-9])"
             r"-(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})\b",
             re.ASCII,
-        ),
+        )),
         # Credit cards by IIN prefix + length (digits only — matches the contiguous
         # runs every other entry here matches; space/dash-grouped cards are a known
         # gap, see the MR follow-ups). One entry per issuer, mirroring the
         # slack_bot/slack_app split.
         # Visa — starts 4, 13/16/19 digits.
-        re.compile(r"\b4(?:[0-9]{12}|[0-9]{15}|[0-9]{18})\b", re.ASCII),
+        ("cc_visa", re.compile(r"\b4(?:[0-9]{12}|[0-9]{15}|[0-9]{18})\b", re.ASCII)),
         # Mastercard — 51-55 or 2221-2720, 16 digits.
-        re.compile(
+        ("cc_mastercard", re.compile(
             r"\b(?:5[1-5][0-9]{14}|(?:222[1-9]|22[3-9][0-9]|2[3-6][0-9]{2}|27[01][0-9]|2720)[0-9]{12})\b",
             re.ASCII,
-        ),
+        )),
         # American Express — starts 34/37, 15 digits.
-        re.compile(r"\b3[47][0-9]{13}\b", re.ASCII),
+        ("cc_amex", re.compile(r"\b3[47][0-9]{13}\b", re.ASCII)),
         # Discover — 6011, 65, 644-649, or 622126-622925, 16 digits.
-        re.compile(
+        ("cc_discover", re.compile(
             r"\b(?:6011[0-9]{12}|65[0-9]{14}|64[4-9][0-9]{13}"
             r"|622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9]{2}|9(?:[01][0-9]|2[0-5]))[0-9]{10})\b",
             re.ASCII,
-        ),
+        )),
         # US/NANP phone — (NNN) NNN-NNNN, NNN-NNN-NNNN, NNN.NNN.NNNN, +1 NNN NNN NNNN.
         # Requires separators (a bare 10-digit run does not match) to hold down
         # false positives; no international coverage (single-user US homelab).
-        re.compile(
+        ("phone", re.compile(
             r"(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)[-.\s]?|[0-9]{3}[-.\s])[0-9]{3}[-.\s][0-9]{4}\b",
             re.ASCII,
-        ),
+        )),
     ]
 
     # gitleaks second-layer redaction, served by the in-Pod sidecar container over
@@ -258,19 +258,31 @@ data:
         except Exception as e:
             log.warning("gitleaks sidecar unavailable; regex-only redaction: %s", e)
             return text, 0
-    def _redact(text: str) -> tuple[str, int]:
+    def _redact(text: str) -> tuple[str, int, dict[str, int]]:
         # Two layers, same order as the shim's redactString: hand-rolled regex
         # registry first, then gitleaks. Each layer replaces matches with the
         # <masked> placeholder before the next sees the string, so a secret both
         # layers recognize is counted once (the later layer finds only the
         # placeholder, which neither the registry nor gitleaks re-matches).
+        # breakdown maps pattern NAME -> hit count (never the matched value) so
+        # REDACTED log lines can say *which* detector fired without ever logging
+        # the secret/PII content itself.
         total = 0
-        for pat in REDACT_PATTERNS:
+        breakdown: dict[str, int] = {}
+        for name, pat in REDACT_PATTERNS:
             text, n = pat.subn("<masked>", text)
-            total += n
+            if n:
+                total += n
+                breakdown[name] = breakdown.get(name, 0) + n
         text, gn = _redact_gitleaks(text)
-        total += gn
-        return text, total
+        if gn:
+            total += gn
+            breakdown["gitleaks"] = breakdown.get("gitleaks", 0) + gn
+        return text, total, breakdown
+
+    def _fmt_breakdown(breakdown: dict[str, int]) -> str:
+        # Sorted by count desc for readability; e.g. "jwt:15,phone:57".
+        return ",".join(f"{k}:{v}" for k, v in sorted(breakdown.items(), key=lambda kv: -kv[1]))
     def request(flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         method = flow.request.method
@@ -315,10 +327,13 @@ data:
         # allowlist is the primary external control, not this scrub.
         if not internal:
             raw_path = flow.request.path
-            new_path, n = _redact(raw_path)
+            new_path, n, bd = _redact(raw_path)
             if n:
                 flow.request.path = new_path
-                log.warning("client=%s REDACTED-URL count=%d method=%s url=%s", _client(flow), n, method, url)
+                log.warning(
+                    "client=%s REDACTED-URL count=%d patterns=%s method=%s url=%s",
+                    _client(flow), n, _fmt_breakdown(bd), method, url,
+                )
 
         # Block GET/HEAD request bodies on external requests — no legitimate use,
         # potential exfiltration channel. Checked before scrubbing so we avoid
@@ -336,6 +351,7 @@ data:
         # Scrub Bearer tokens from Authorization header on external requests.
         # Internal services (agentgateway) legitimately use Bearer auth — skip them.
         redacted = 0
+        redact_breakdown: dict[str, int] = {}
         if not internal:
             auth = flow.request.headers.get("authorization", "")
             m = BEARER_PATTERN.match(auth) if auth else None
@@ -359,10 +375,12 @@ data:
         for name, value in list(flow.request.headers.items()):
             if name.lower() == "authorization":
                 continue  # already handled above
-            new_value, n = _redact(value)
+            new_value, n, bd = _redact(value)
             if n:
                 flow.request.headers[name] = new_value
                 redacted += n
+                for k, v in bd.items():
+                    redact_breakdown[k] = redact_breakdown.get(k, 0) + v
 
         # Scrub secrets from request body (text content only; skip binary).
         if flow.request.content:
@@ -370,14 +388,19 @@ data:
             if not ct or _is_text(ct):
                 try:
                     body = flow.request.get_text(strict=False)
-                    new_body, n = _redact(body)
+                    new_body, n, bd = _redact(body)
                     if n:
                         flow.request.set_text(new_body)
                         redacted += n
+                        for k, v in bd.items():
+                            redact_breakdown[k] = redact_breakdown.get(k, 0) + v
                 except Exception:
                     pass
         if redacted:
-            log.warning("client=%s REDACTED count=%d method=%s url=%s", _client(flow), redacted, method, url)
+            log.warning(
+                "client=%s REDACTED count=%d patterns=%s method=%s url=%s",
+                _client(flow), redacted, _fmt_breakdown(redact_breakdown), method, url,
+            )
 
         # Method enforcement — external destinations only. Exception: git-upload-pack
         # (smart-HTTP clone/fetch, read-only) — needed for pre-commit hook installs.
@@ -413,6 +436,7 @@ data:
         # Scrub secrets from response body — guards against echo attacks.
         # Skip streaming responses (SSE / chunked transfer) to avoid buffering issues.
         scrubbed = 0
+        scrub_breakdown: dict[str, int] = {}
         if flow.response and flow.response.content:
             te = flow.response.headers.get("transfer-encoding", "").lower()
             ct = flow.response.headers.get("content-type", "")
@@ -421,17 +445,20 @@ data:
             if not is_sse and not is_chunked and _is_text(ct):
                 try:
                     body = flow.response.get_text(strict=False)
-                    new_body, n = _redact(body)
+                    new_body, n, bd = _redact(body)
                     if n:
                         flow.response.set_text(new_body)
                         scrubbed += n
+                        for k, v in bd.items():
+                            scrub_breakdown[k] = scrub_breakdown.get(k, 0) + v
                 except Exception:
                     pass
         if scrubbed:
             log.warning(
-                "client=%s RESPONSE-REDACTED count=%d method=%s status=%s url=%s",
+                "client=%s RESPONSE-REDACTED count=%d patterns=%s method=%s status=%s url=%s",
                 _client(flow),
                 scrubbed,
+                _fmt_breakdown(scrub_breakdown),
                 flow.request.method,
                 status,
                 flow.request.pretty_url,

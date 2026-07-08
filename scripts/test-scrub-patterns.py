@@ -121,8 +121,9 @@ def fixtures():
 
 
 def apply_regex(patterns, text):
+    # patterns is REDACT_PATTERNS: a list of (name, compiled_pattern) tuples.
     total = 0
-    for pat in patterns:
+    for _name, pat in patterns:
         text, n = pat.subn(R, text)
         total += n
     return text, total
@@ -180,7 +181,7 @@ def main():
     #    >= 1, no exception) rather than raising or blocking.
     secret = "AKIA" + "Q" * 16  # pragma: allowlist secret
     try:
-        out, n = ns["_redact"]("key=" + secret)
+        out, n, _bd = ns["_redact"]("key=" + secret)
     except Exception as e:  # pragma: no cover
         print(f"  FAIL _redact raised instead of failing open: {e}")
         failures += 1
