@@ -29,6 +29,8 @@ spec:
     registry: harbor.hahomelabs.com/vicegerent
     repository: agentgateway
     tag: v1.3.1
+  logging:
+    format: json
   deployment:
     spec:
       replicas: 1
