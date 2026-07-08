@@ -10,7 +10,7 @@ on.
 ## Why a derived image
 
 The stock image ships the Hermes runtime but **not** the pieces this platform
-relies on. Verified against the upstream arm64 image (`v2026.7.1`):
+relies on. Verified against the upstream arm64 image (`v2026.7.7`):
 
 | Needed | In stock image? |
 | --- | --- |
@@ -31,7 +31,7 @@ egress-locked cluster only ever pulls.
 docker login harbor.hahomelabs.com
 make image PLATFORM=linux/arm64      # Kind on Apple Silicon
 make push
-# or: make release PLATFORM=linux/arm64 TAG=v2026.7.1
+# or: make release PLATFORM=linux/arm64 TAG=v2026.7.7
 ```
 
 `make help` lists targets. `TAG` defaults to the upstream version; bump it when
