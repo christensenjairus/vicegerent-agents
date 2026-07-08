@@ -46,6 +46,15 @@ data:
     import urllib.request
     from mitmproxy import http
     log = logging.getLogger("egress-proxy")
+    def _client(flow) -> str:
+        # Same client peername mitmproxy's own connect/CONNECT log lines show,
+        # so scrub.py's structured lines can be visually/grep-correlated with
+        # mitmproxy's native flow-summary output for the same connection.
+        try:
+            ip, port = flow.client_conn.peername[:2]
+            return f"{ip}:{port}"
+        except Exception:
+            return "-"
     ALLOWED_METHODS = {"GET", "HEAD"}
     # URL length limit — blocks naive base64/hex query-string exfiltration.
     # 2048 chars is generous for all legitimate API/search use cases.
@@ -229,7 +238,7 @@ data:
 
         # SSRF protection — external destinations only.
         if not internal and _is_private(host):
-            log.warning("BLOCKED private-dest method=%s url=%s", method, url)
+            log.warning("client=%s BLOCKED private-dest method=%s url=%s", _client(flow), method, url)
             flow.response = http.Response.make(
                 403,
                 f"[egress-proxy] {host} is a private address — blocked",
@@ -239,7 +248,7 @@ data:
 
         # Block WebSocket upgrades everywhere.
         if flow.request.headers.get("upgrade", "").lower() == "websocket":
-            log.warning("BLOCKED websocket-upgrade method=%s url=%s", method, url)
+            log.warning("client=%s BLOCKED websocket-upgrade method=%s url=%s", _client(flow), method, url)
             flow.response = http.Response.make(
                 403,
                 "[egress-proxy] WebSocket upgrade blocked — add host to no_proxy",
@@ -250,7 +259,7 @@ data:
         # URL length limit on external requests — caps naive query-string exfiltration.
         # Legitimate API/search URLs are well under 2048 chars.
         if not internal and len(url) > MAX_URL_LENGTH:
-            log.warning("BLOCKED url-too-long len=%d method=%s url=%.120s…", len(url), method, url)
+            log.warning("client=%s BLOCKED url-too-long len=%d method=%s url=%.120s…", _client(flow), len(url), method, url)
             flow.response = http.Response.make(
                 403,
                 f"[egress-proxy] URL too long ({len(url)} > {MAX_URL_LENGTH})",
@@ -268,14 +277,14 @@ data:
             new_path, n = _redact(raw_path)
             if n:
                 flow.request.path = new_path
-                log.warning("REDACTED-URL count=%d method=%s url=%s", n, method, url)
+                log.warning("client=%s REDACTED-URL count=%d method=%s url=%s", _client(flow), n, method, url)
 
         # Block GET/HEAD request bodies on external requests — no legitimate use,
         # potential exfiltration channel. Checked before scrubbing so we avoid
         # unnecessary work and the log ordering stays semantically correct
         # (BLOCKED fires before any REDACTED line for the same flow).
         if not internal and method in ALLOWED_METHODS and flow.request.content:
-            log.warning("BLOCKED get-body method=%s url=%s", method, url)
+            log.warning("client=%s BLOCKED get-body method=%s url=%s", _client(flow), method, url)
             flow.response = http.Response.make(
                 403,
                 "[egress-proxy] GET/HEAD request bodies are not permitted",
@@ -327,12 +336,12 @@ data:
                 except Exception:
                     pass
         if redacted:
-            log.warning("REDACTED count=%d method=%s url=%s", redacted, method, url)
+            log.warning("client=%s REDACTED count=%d method=%s url=%s", _client(flow), redacted, method, url)
 
         # Method enforcement — external destinations only. Exception: git-upload-pack
         # (smart-HTTP clone/fetch, read-only) — needed for pre-commit hook installs.
         if not internal and method not in ALLOWED_METHODS and not _is_git_upload_pack(flow):
-            log.warning("BLOCKED method=%s url=%s", method, url)
+            log.warning("client=%s BLOCKED method=%s url=%s", _client(flow), method, url)
             flow.response = http.Response.make(
                 403,
                 f"[egress-proxy] {method} blocked — GET/HEAD only for external destinations",
@@ -345,7 +354,7 @@ data:
                 or any(host.endswith(s) for s in EXTERNAL_FQDN_WILDCARD_SUFFIXES)
             )
             if not allowed:
-                log.warning("BLOCKED fqdn-not-allowlisted method=%s url=%s", method, url)
+                log.warning("client=%s BLOCKED fqdn-not-allowlisted method=%s url=%s", _client(flow), method, url)
                 flow.response = http.Response.make(
                     403,
                     (
@@ -356,7 +365,7 @@ data:
                     {"Content-Type": "text/plain"},
                 )
                 return
-        log.info("ALLOW internal=%s method=%s url=%s", internal, method, url)
+        log.info("client=%s ALLOW internal=%s method=%s url=%s", _client(flow), internal, method, url)
     def response(flow: http.HTTPFlow) -> None:
         status = flow.response.status_code if flow.response else "-"
 
@@ -379,7 +388,8 @@ data:
                     pass
         if scrubbed:
             log.warning(
-                "RESPONSE-REDACTED count=%d method=%s status=%s url=%s",
+                "client=%s RESPONSE-REDACTED count=%d method=%s status=%s url=%s",
+                _client(flow),
                 scrubbed,
                 flow.request.method,
                 status,
@@ -387,7 +397,8 @@ data:
             )
         else:
             log.info(
-                "RESPONSE method=%s status=%s url=%s",
+                "client=%s RESPONSE method=%s status=%s url=%s",
+                _client(flow),
                 flow.request.method,
                 status,
                 flow.request.pretty_url,
@@ -399,7 +410,7 @@ data:
             or any(host.endswith(s) for s in EXTERNAL_FQDN_WILDCARD_SUFFIXES)
         )
         if not allowed:
-            log.warning("BLOCKED connect-fqdn-not-allowlisted host=%s", host)
+            log.warning("client=%s BLOCKED connect-fqdn-not-allowlisted host=%s", _client(flow), host)
             flow.response = http.Response.make(
                 403,
                 f"[egress-proxy] {host} is not on the FQDN allowlist",
@@ -407,5 +418,5 @@ data:
             )
     def websocket_start(flow: http.HTTPFlow) -> None:
         # Belt-and-suspenders: kill any WS that slipped past the request hook.
-        log.warning("BLOCKED websocket-start host=%s", flow.request.pretty_host)
+        log.warning("client=%s BLOCKED websocket-start host=%s", _client(flow), flow.request.pretty_host)
         flow.kill()
