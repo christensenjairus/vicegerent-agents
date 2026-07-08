@@ -829,6 +829,10 @@ func TestRedactString(t *testing.T) {
 	// Fixtures are built via string concatenation (strings.Repeat / manual
 	// joins) rather than literal secret-shaped constants, so no
 	// credential-pattern-matching string sits in this source file itself.
+	// Every entry in secretPatternRegistry gets one fixture here -- when
+	// adding a new pattern to the registry, add its fixture in the same
+	// shape (fragment any structural marker -- prefix, header/footer -- via
+	// concatenation, not just the random-looking body) and a case below.
 	sshKey := "-----BEGIN " + "RSA " + "PRIVATE" + " KEY-----\n" + // pragma: allowlist secret
 		strings.Repeat("QUJDRUZHSElKS0xNTk9QUVJTVFVWV1hZWg==\n", 3) +
 		"-----END " + "RSA " + "PRIVATE" + " KEY-----"
@@ -836,6 +840,18 @@ func TestRedactString(t *testing.T) {
 	slackApp := "xapp-" + "1-" + strings.Repeat("A", 10) + "-" + strings.Repeat("9", 20)                                  // pragma: allowlist secret
 	bearerVal := "Bear" + "er " + strings.Repeat("z", 20) + "." + strings.Repeat("y", 20) + "." + strings.Repeat("x", 10) // pragma: allowlist secret
 	basicVal := "Bas" + "ic " + strings.Repeat("b", 24) + "=="                                                            // pragma: allowlist secret
+	awsKey := "AKIA" + strings.Repeat("Q", 16)                                                                            // pragma: allowlist secret
+	githubToken := "gh" + "p_" + strings.Repeat("g", 36)                                                                  // pragma: allowlist secret
+	gitlabToken := "glp" + "at-" + strings.Repeat("l", 20)                                                                // pragma: allowlist secret
+	googleKey := "AIza" + strings.Repeat("G", 35)                                                                         // pragma: allowlist secret
+	openaiKey := "sk-" + strings.Repeat("o", 20)                                                                          // pragma: allowlist secret
+	openaiProjKey := "sk-" + "proj-" + strings.Repeat("p", 20)                                                            // pragma: allowlist secret
+	anthropicKey := "sk-" + "ant-" + strings.Repeat("n", 20)                                                              // pragma: allowlist secret
+	stripeKey := "sk" + "_live_" + strings.Repeat("s", 16)                                                                // pragma: allowlist secret
+	notionTok := "ntn" + "_" + strings.Repeat("t", 20)                                                                    // pragma: allowlist secret
+	twilioKey := "SK" + strings.Repeat("f", 32)                                                                           // pragma: allowlist secret
+	npmTok := "npm" + "_" + strings.Repeat("m", 36)                                                                       // pragma: allowlist secret
+	jwtVal := "eyJ" + strings.Repeat("h", 10) + "." + "eyJ" + strings.Repeat("p", 10) + "." + strings.Repeat("s", 10)     // pragma: allowlist secret
 
 	cases := []struct {
 		name       string
@@ -872,6 +888,78 @@ func TestRedactString(t *testing.T) {
 			in:         "Authorization: " + basicVal,
 			wantRedact: true,
 			wantAbsent: basicVal,
+		},
+		{
+			name:       "aws access key id",
+			in:         "export AWS_ACCESS_KEY_ID=" + awsKey,
+			wantRedact: true,
+			wantAbsent: awsKey,
+		},
+		{
+			name:       "github token",
+			in:         "GITHUB_TOKEN=" + githubToken,
+			wantRedact: true,
+			wantAbsent: githubToken,
+		},
+		{
+			name:       "gitlab token",
+			in:         "private_token: " + gitlabToken,
+			wantRedact: true,
+			wantAbsent: gitlabToken,
+		},
+		{
+			name:       "google api key",
+			in:         "key=" + googleKey,
+			wantRedact: true,
+			wantAbsent: googleKey,
+		},
+		{
+			name:       "openai api key",
+			in:         "OPENAI_API_KEY=" + openaiKey,
+			wantRedact: true,
+			wantAbsent: openaiKey,
+		},
+		{
+			name:       "openai project-scoped api key",
+			in:         "OPENAI_API_KEY=" + openaiProjKey,
+			wantRedact: true,
+			wantAbsent: openaiProjKey,
+		},
+		{
+			name:       "anthropic api key",
+			in:         "ANTHROPIC_API_KEY=" + anthropicKey,
+			wantRedact: true,
+			wantAbsent: anthropicKey,
+		},
+		{
+			name:       "stripe api key",
+			in:         "stripe key: " + stripeKey,
+			wantRedact: true,
+			wantAbsent: stripeKey,
+		},
+		{
+			name:       "notion integration token",
+			in:         "NOTION_TOKEN=" + notionTok,
+			wantRedact: true,
+			wantAbsent: notionTok,
+		},
+		{
+			name:       "twilio api key sid",
+			in:         "twilio key: " + twilioKey,
+			wantRedact: true,
+			wantAbsent: twilioKey,
+		},
+		{
+			name:       "npm token",
+			in:         "//registry.npmjs.org/:_authToken=" + npmTok,
+			wantRedact: true,
+			wantAbsent: npmTok,
+		},
+		{
+			name:       "generic jwt",
+			in:         "Authorization header value (no Bearer prefix): " + jwtVal,
+			wantRedact: true,
+			wantAbsent: jwtVal,
 		},
 		{
 			name:       "ordinary text is untouched",
@@ -985,5 +1073,119 @@ func TestRedactRawJSON_InvalidJSONPassesThroughUnchanged(t *testing.T) {
 	}
 	if string(out) != string(raw) {
 		t.Errorf("unparseable input should pass through byte-for-byte unchanged, got %q", out)
+	}
+}
+
+// TestRedactString_GitleaksCatchesBeyondRegistry proves the gitleaks pass adds
+// coverage the hand-rolled secretPatternRegistry does NOT have. SendGrid API
+// tokens (gitleaks rule "sendgrid-api-token", shape "SG." + 66 chars) are the
+// exemplar: there is no SendGrid entry in secretPatternRegistry, so if this
+// redacts, it can only be gitleaks doing it. Fixtures are fragmented via
+// concatenation for the same reason the registry table is -- keep any
+// structural marker out of a single literal so the repo's own detect-secrets
+// hook stays quiet.
+func TestRedactString_GitleaksCatchesBeyondRegistry(t *testing.T) {
+	// SG. + 66 chars from [a-z0-9=_\-.], split across concatenated fragments.
+	sendgridKey := "S" + "G." + strings.Repeat("a", 22) + "." + strings.Repeat("b", 43) // pragma: allowlist secret
+	if got := len("SG.") + 66; got != len(sendgridKey) {
+		t.Fatalf("sendgrid fixture is malformed: want %d chars, got %d", got, len(sendgridKey))
+	}
+
+	// Confirm the registry alone would miss it -- this is the whole point of
+	// the gitleaks layer, so assert the negative explicitly rather than trust
+	// it. redactPattern over every registry entry must find nothing.
+	registryHits := 0
+	for _, p := range secretPatternRegistry {
+		if _, n := redactPattern(p.re, sendgridKey); n > 0 {
+			registryHits += n
+		}
+	}
+	if registryHits != 0 {
+		t.Fatalf("sendgrid fixture unexpectedly matched the local registry (%d hits) -- "+
+			"pick a shape genuinely outside secretPatternRegistry", registryHits)
+	}
+
+	out, n := redactString("sendgrid credential: " + sendgridKey + " (do not leak)")
+	if n == 0 {
+		t.Fatalf("expected gitleaks to redact the SendGrid token, got zero redactions")
+	}
+	if strings.Contains(out, sendgridKey) {
+		t.Errorf("SendGrid token survived redaction: %q", out)
+	}
+	if !strings.Contains(out, redactedPlaceholder) {
+		t.Errorf("expected redaction placeholder in output: %q", out)
+	}
+}
+
+// TestRedactString_CustomRegistryStillCoversGaps proves the custom registry is
+// still load-bearing after the gitleaks integration: it catches shapes that
+// gitleaks' default ruleset does NOT flag on their own. Notion (ntn_) and
+// Twilio (SK...) tokens are the exemplars here -- empirically gitleaks'
+// default 180 rules do not match these fixture shapes, so redaction of them is
+// attributable to the local registry. This is exactly the "keep the custom
+// escape hatch" guarantee: even where gitleaks is silent, the registry fires.
+func TestRedactString_CustomRegistryStillCoversGaps(t *testing.T) {
+	notionTok := "ntn" + "_" + strings.Repeat("t", 20) // pragma: allowlist secret
+	twilioKey := "SK" + strings.Repeat("f", 32)        // pragma: allowlist secret
+
+	for _, tc := range []struct {
+		name, secret string
+	}{
+		{"notion", notionTok},
+		{"twilio", twilioKey},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// gitleaks alone is expected to be silent on these shapes; if a
+			// future gitleaks bump starts covering one, this log documents the
+			// overlap without failing (the user explicitly wants the registry
+			// kept regardless of upstream coverage).
+			if _, gn := redactStringGitleaks("value=" + tc.secret); gn > 0 {
+				t.Logf("note: gitleaks now also covers the %s shape (overlap, not a problem)", tc.name)
+			}
+			out, n := redactString("credential=" + tc.secret)
+			if n == 0 {
+				t.Fatalf("expected the %s token to be redacted by the custom registry", tc.name)
+			}
+			if strings.Contains(out, tc.secret) {
+				t.Errorf("%s token survived redaction: %q", tc.name, out)
+			}
+		})
+	}
+}
+
+// TestRedactString_Idempotent proves running redaction repeatedly is safe: a
+// second pass over already-redacted text finds nothing new, the placeholder
+// itself is never mistaken for a secret by either layer, and no garbage is
+// produced. This guards the double-redaction edge the two-layer design could
+// otherwise introduce (gitleaks + registry both sweeping the same string, and
+// the shim redacting both a tool-call argument and, later, a response that
+// echoes it).
+func TestRedactString_Idempotent(t *testing.T) {
+	// A payload mixing a gitleaks-caught shape (AWS key) and a registry-caught
+	// shape (Notion) so both layers fire on the first pass.
+	awsKey := "AKIA" + strings.Repeat("Q", 16)         // pragma: allowlist secret
+	notionTok := "ntn" + "_" + strings.Repeat("t", 20) // pragma: allowlist secret
+	in := "aws=" + awsKey + " notion=" + notionTok
+
+	first, n1 := redactString(in)
+	if n1 < 2 {
+		t.Fatalf("expected at least 2 redactions on first pass (aws + notion), got %d", n1)
+	}
+	if strings.Contains(first, awsKey) || strings.Contains(first, notionTok) {
+		t.Fatalf("a secret survived the first pass: %q", first)
+	}
+
+	second, n2 := redactString(first)
+	if n2 != 0 {
+		t.Errorf("second pass over already-redacted text should redact nothing, got %d", n2)
+	}
+	if second != first {
+		t.Errorf("second pass mutated already-redacted text:\n first=%q\nsecond=%q", first, second)
+	}
+
+	// The placeholder must not itself read as a secret to either layer, or the
+	// scrub would never converge.
+	if _, np := redactString(strings.Repeat(redactedPlaceholder+" ", 8)); np != 0 {
+		t.Errorf("the redaction placeholder was matched as a secret (%d hits) -- scrub cannot converge", np)
 	}
 }
