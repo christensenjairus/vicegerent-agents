@@ -19,6 +19,10 @@ resources:
     id: moveworks-emu/k8s-manifests
     kind: github_repo
     attr: {owner: moveworks-emu, repo: k8s-manifests}
+  moveworks_emu_sec:
+    id: moveworks-emu/sec
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: sec}
   jchristensen_movester_moveworks:
     id: jchristensen_movester/moveworks
     kind: github_repo
@@ -92,6 +96,7 @@ tests:
       resources:
         - moveworks_emu_moveworks
         - moveworks_emu_k8s_manifests
+        - moveworks_emu_sec
         - jchristensen_movester_moveworks
         - jchristensen_movester_k8s_manifests
         - vicegerent_agents
@@ -102,6 +107,9 @@ tests:
         actions: {access: EFFECT_ALLOW}
       - principal: hermes
         resource: moveworks_emu_k8s_manifests
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: moveworks_emu_sec
         actions: {access: EFFECT_ALLOW}
       - principal: hermes
         resource: jchristensen_movester_moveworks
