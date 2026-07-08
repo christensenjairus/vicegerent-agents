@@ -43,7 +43,7 @@ vector:
         inputs: [k8s]
         source: |
           .log = parse_json(.message) ?? .message
-          del(.message)
+          # Keep .message so VL-Msg-Field (which checks it first) still renders in the VictoriaLogs UI.
     sinks:
       vlogs:
         type: elasticsearch
