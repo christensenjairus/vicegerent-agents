@@ -54,7 +54,20 @@ vector:
               binary = to_string(p.binary) ?? "?"
               args = to_string(p.arguments) ?? ""
               policy = to_string(.log.process_kprobe.policy_name) ?? "?"
-              .message = "process_kprobe (policy " + policy + "): " + binary + " " + args
+              net = "?"
+              if is_array(.log.process_kprobe.args) {
+                first_arg = get(.log.process_kprobe.args, [0]) ?? {}
+                if is_object(first_arg.sock_arg) {
+                  daddr = to_string(first_arg.sock_arg.daddr) ?? "?"
+                  dport = to_string(first_arg.sock_arg.dport) ?? "?"
+                  net = " -> " + daddr + ":" + dport
+                } else {
+                  net = ""
+                }
+              } else {
+                net = ""
+              }
+              .message = "process_kprobe (policy " + policy + "): " + binary + " " + args + net
             }
           }
     sinks:
