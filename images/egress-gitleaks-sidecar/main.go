@@ -42,7 +42,7 @@ import (
 	"github.com/zricethezav/gitleaks/v8/detect"
 )
 
-const redactedPlaceholder = "[REDACTED]"
+const redactedPlaceholder = "<masked>"
 
 // gitleaksDetector is the single, process-wide gitleaks Detector shared across
 // every /redact call. It MUST be built exactly once: NewDetectorDefaultConfig

@@ -31,7 +31,7 @@ CHART = os.path.join(REPO, "charts", "egress-proxy")
 VALUES = os.environ.get("EGRESS_VALUES", os.path.join(REPO, "apps", "work", "egress-proxy", "values.yaml"))
 VARS = os.environ.get("CLUSTER_VARS", os.path.join(REPO, "clusters", "work", "cluster-vars.yaml"))
 
-R = "[REDACTED]"
+R = "<masked>"
 
 
 def _need(tool):
@@ -110,6 +110,13 @@ def fixtures():
         ("twilio", "SK" + "f" * 32),                                                      # pragma: allowlist secret
         ("npm", "npm" + "_" + "m" * 36),                                                  # pragma: allowlist secret
         ("jwt", "eyJ" + "h" * 10 + "." + "eyJ" + "p" * 10 + "." + "s" * 10),              # pragma: allowlist secret
+        # PII (fake) — SSN, two card issuer shapes, and a US phone number.
+        ("ssn", "123" + "-" + "45" + "-" + "6789"),
+        ("cc_visa", "4" + "1" * 15),                       # 16-digit Visa (starts 4)
+        ("cc_mastercard", "5" + "1" + "0" * 14),           # 16-digit Mastercard (starts 51)
+        ("cc_amex", "3" + "4" + "0" * 13),                 # 15-digit Amex (starts 34)
+        ("cc_discover", "6011" + "0" * 12),                # 16-digit Discover (starts 6011)
+        ("phone", "(" + "555" + ") " + "123" + "-" + "4567"),
     ]
 
 
@@ -147,6 +154,24 @@ def main():
             print(f"  FAIL clean text over-redacted ({n}): {clean!r}")
             failures += 1
     print("  ok   clean text untouched" if failures == 0 else "")
+
+    # 2b. PII prefix/range scoping must NARROW matches — these must NOT be caught,
+    #     proving the card patterns are issuer-prefix-scoped (not a naive 13-19
+    #     digit catch-all) and the SSN pattern excludes the invalid ranges.
+    pii_negatives = [
+        ("16-digit number, no known issuer prefix", "9" * 16),
+        ("16-digit number starting 1 (unassigned IIN)", "1234567890123456"),
+        ("SSN with invalid area 000", "000" + "-" + "12" + "-" + "3456"),
+        ("SSN with invalid serial 0000", "123" + "-" + "45" + "-" + "0000"),
+        ("bare 10-digit run (no phone separators)", "5551234567"),
+    ]
+    for label, text in pii_negatives:
+        _, n = apply_regex(patterns, "value " + text + " end")
+        if n != 0:
+            print(f"  FAIL PII over-match ({n}): {label}: {text!r}")
+            failures += 1
+        else:
+            print(f"  ok   PII scoped-out: {label}")
 
     # 3. Two-layer _redact must FAIL OPEN when the gitleaks sidecar is absent.
     #    No sidecar is running in this test, so calling the shipped _redact hits a

@@ -95,7 +95,7 @@ echo -e "  ${YELLOW}probing Slack bot token in custom header ...${NC}"
 run "https://httpbin.io/headers" -H "X-Test-Secret: ${SLACK_BOT_TOKEN}"
 if [[ "$BODY" == *"$SLACK_BOT_TOKEN"* ]]; then
   fail "Slack bot token reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "Slack bot token (xoxb-...) redacted in custom header"
 else
   fail "Slack bot token neither present nor visibly redacted — unexpected response"
@@ -107,7 +107,7 @@ echo -e "  ${YELLOW}probing Slack app-level token in custom header ...${NC}"
 run "https://httpbin.io/headers" -H "X-Test-Secret: ${SLACK_APP_TOKEN}"
 if [[ "$BODY" == *"$SLACK_APP_TOKEN"* ]]; then
   fail "Slack app-level token reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "Slack app-level token (xapp-...) redacted in custom header"
 else
   fail "Slack app-level token neither present nor visibly redacted — unexpected response"
@@ -119,7 +119,7 @@ echo -e "  ${YELLOW}probing Authorization: Bearer header ...${NC}"
 run "https://httpbin.io/headers" -H "Authorization: Bearer ${BEARER_SECRET}"
 if [[ "$BODY" == *"$BEARER_SECRET"* ]]; then
   fail "Bearer token reached httpbin unredacted"
-elif [[ "$BODY" == *'Bearer [REDACTED]'* ]]; then
+elif [[ "$BODY" == *'Bearer <masked>'* ]]; then
   pass "Authorization: Bearer token redacted"
 else
   fail "Bearer token neither present nor visibly redacted — unexpected response"
@@ -131,7 +131,7 @@ echo -e "  ${YELLOW}probing Authorization: Basic header ...${NC}"
 run "https://httpbin.io/headers" -H "Authorization: Basic ${BASIC_CREDS}"
 if [[ "$BODY" == *"$BASIC_CREDS"* ]]; then
   fail "Basic auth credentials reached httpbin unredacted"
-elif [[ "$BODY" == *'Basic [REDACTED]'* ]]; then
+elif [[ "$BODY" == *'Basic <masked>'* ]]; then
   pass "Authorization: Basic credentials redacted"
 else
   fail "Basic auth credentials neither present nor visibly redacted — unexpected response"
@@ -143,7 +143,7 @@ echo -e "  ${YELLOW}probing x-api-key header ...${NC}"
 run "https://httpbin.io/headers" -H "x-api-key: ${API_KEY_SECRET}"
 if [[ "$BODY" == *"$API_KEY_SECRET"* ]]; then
   fail "x-api-key header reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "x-api-key header redacted"
 else
   fail "x-api-key header neither present nor visibly redacted — unexpected response"
@@ -159,7 +159,7 @@ echo -e "  ${YELLOW}probing AWS access key id in custom header ...${NC}"
 run "https://httpbin.io/headers" -H "X-Test-Secret: ${AWS_KEY}"
 if [[ "$BODY" == *"$AWS_KEY"* ]]; then
   fail "AWS access key id reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "AWS access key id (AKIA…) redacted in custom header"
 else
   fail "AWS access key id neither present nor visibly redacted — unexpected response"
@@ -171,7 +171,7 @@ echo -e "  ${YELLOW}probing GitHub token in custom header ...${NC}"
 run "https://httpbin.io/headers" -H "X-Test-Secret: ${GITHUB_TOKEN}"
 if [[ "$BODY" == *"$GITHUB_TOKEN"* ]]; then
   fail "GitHub token reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "GitHub token (ghp_…) redacted in custom header"
 else
   fail "GitHub token neither present nor visibly redacted — unexpected response"
@@ -187,10 +187,48 @@ echo -e "  ${YELLOW}probing SendGrid token (gitleaks-only, not in regex registry
 run "https://httpbin.io/headers" -H "X-Test-Secret: ${SENDGRID_KEY}"
 if [[ "$BODY" == *"$SENDGRID_KEY"* ]]; then
   fail "SendGrid token reached httpbin unredacted — gitleaks sidecar not scrubbing?"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "SendGrid token (SG.…) redacted by the gitleaks sidecar layer"
 else
   fail "SendGrid token neither present nor visibly redacted — is the gitleaks sidecar up?"
+  echo "    body: ${BODY:0:300}"
+fi
+
+# PII patterns (SSN / credit card / US phone) added for parity with the
+# agentgateway promptGuard PII builtins. Fake fixtures assembled at runtime.
+SSN_FAKE="123-45-6789"  # pragma: allowlist secret (fake SSN)
+echo -e "  ${YELLOW}probing US SSN in custom header ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${SSN_FAKE}"
+if [[ "$BODY" == *"$SSN_FAKE"* ]]; then
+  fail "SSN reached httpbin unredacted"
+elif [[ "$BODY" == *'<masked>'* ]]; then
+  pass "US SSN (NNN-NN-NNNN) redacted in custom header"
+else
+  fail "SSN neither present nor visibly redacted — unexpected response"
+  echo "    body: ${BODY:0:300}"
+fi
+
+VISA_FAKE="4$(printf '1%.0s' $(seq 15))"  # pragma: allowlist secret (fake Visa card)
+echo -e "  ${YELLOW}probing Visa card number in custom header ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${VISA_FAKE}"
+if [[ "$BODY" == *"$VISA_FAKE"* ]]; then
+  fail "Visa card number reached httpbin unredacted"
+elif [[ "$BODY" == *'<masked>'* ]]; then
+  pass "Visa card number (starts 4, 16 digits) redacted in custom header"
+else
+  fail "Visa card number neither present nor visibly redacted — unexpected response"
+  echo "    body: ${BODY:0:300}"
+fi
+
+PHONE_FAKE="(555) 123-4567"  # pragma: allowlist secret (fake US phone)
+echo -e "  ${YELLOW}probing US phone number in custom header ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${PHONE_FAKE}"
+if [[ "$BODY" == *"$PHONE_FAKE"* ]]; then
+  fail "US phone number reached httpbin unredacted"
+elif [[ "$BODY" == *'<masked>'* ]]; then
+  pass "US phone number ((NNN) NNN-NNNN) redacted in custom header"
+else
+  fail "US phone number neither present nor visibly redacted — unexpected response"
   echo "    body: ${BODY:0:300}"
 fi
 
@@ -205,7 +243,7 @@ echo -e "  ${YELLOW}probing Slack token in query string ...${NC}"
 run "https://httpbin.io/get?token=${QUERY_TOKEN}"
 if [[ "$BODY" == *"$QUERY_TOKEN"* ]]; then
   fail "Slack token in query string reached httpbin unredacted"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "Slack token in query string redacted before forwarding"
 else
   fail "Query-string token neither present nor visibly redacted — unexpected response"
@@ -289,10 +327,10 @@ run "https://httpbin.io/base64/${NOTION_B64}"
 if [[ "$BODY" == *"$NOTION_TOKEN"* ]]; then
   fail "Notion token survived in the response body — response-side scrubbing not applied (or /base64 served a non-text Content-Type)"
   echo "    body: ${BODY:0:300}"
-elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+elif [[ "$BODY" == *'<masked>'* ]]; then
   pass "Notion token in the decoded response body redacted before reaching the sandbox"
 else
-  fail "Response body neither carried the token nor a [REDACTED] marker — unexpected /base64 response"
+  fail "Response body neither carried the token nor a <masked> marker — unexpected /base64 response"
   echo "    status: ${STATUS} body: ${BODY:0:300}"
 fi
 
