@@ -38,9 +38,19 @@ vector:
           # Disable "pod_ips" as "pod_ip" already includes required info
           pod_ips: ''
     transforms:
+      scope:
+        type: filter
+        inputs: [k8s]
+        condition:
+          type: vrl
+          source: |
+            (.kubernetes.pod_namespace == "kube-system" && .kubernetes.pod_labels."app.kubernetes.io/name" == "tetragon" && .kubernetes.container_name == "export-stdout") ||
+            (.kubernetes.pod_namespace == "agentgateway-system" && starts_with(.kubernetes.pod_name, "agentgateway-proxy-") && .kubernetes.container_name == "agentgateway") ||
+            (.kubernetes.pod_namespace == "agent-sandbox" && .kubernetes.container_name == "hermes") ||
+            (.kubernetes.pod_namespace == "egress-proxy" && .kubernetes.container_name == "mitmproxy")
       parser:
         type: remap
-        inputs: [k8s]
+        inputs: [scope]
         source: |
           .log = parse_json(.message) ?? .message
           if is_object(.log) {
