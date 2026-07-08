@@ -18,7 +18,7 @@ data:
   # replace, not YAML-aware — it is spliced into a CEL `in [...]` list, so keep the
   # quotes and commas and do not reformat it into a YAML list.
   githubAllowedRepos: >-
-    "moveworks-emu/moveworks", "moveworks-emu/k8s-manifests",
+    "moveworks-emu/moveworks", "moveworks-emu/k8s-manifests", "moveworks-emu/sec",
     "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
     "christensenjairus/vicegerent-agents"
 
