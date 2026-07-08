@@ -238,6 +238,11 @@ egress_chart_dir="charts/egress-proxy"
 if [[ -f "$egress_values_file" && -f "$cluster_vars_file" ]]; then
   echo "INFO - Rendering egress-proxy chart with cluster-vars and validating scrub.py"
   validate_egress_scrub_py "$cluster_vars_file" "$egress_values_file" "$egress_chart_dir"
+  # Exercise the rendered REDACT_PATTERNS against fake secret fixtures (skips
+  # itself if helm/yq are unavailable, same as the render check above).
+  echo "INFO - Testing egress-proxy scrub.py secret-redaction patterns"
+  EGRESS_VALUES="$egress_values_file" CLUSTER_VARS="$cluster_vars_file" \
+    python3 scripts/test-scrub-patterns.py
 fi
 
 # Assert the vMCP overlay's AgentgatewayPolicy either attaches a well-formed

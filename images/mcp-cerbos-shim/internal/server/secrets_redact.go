@@ -90,15 +90,13 @@ type secretPattern struct {
 // not a general-purpose secret scanner. Add an entry whenever a new leak
 // vector shows up in practice; don't hold out for a "complete" list first.
 //
-// The SSH-private-key and Slack (xox*/xapp-) entries mirror
-// charts/egress-proxy/templates/addon-configmap.yaml's REDACT_PATTERNS list.
-// Keep both lists in sync by hand when either changes -- there is no shared
-// source between the Python (mitmproxy addon) and Go (this shim) copies,
-// since they run in genuinely different runtimes with no natural place to
-// share a literal. Patterns added ONLY here (AWS/GitHub/GitLab/Google/etc.)
-// don't need a Python-side mirror unless the egress-proxy itself should also
-// catch them in outbound HTTP to external destinations -- that's a separate,
-// optional follow-up, not a requirement of this list.
+// This whole registry is mirrored, pattern-for-pattern, in
+// charts/egress-proxy/templates/addon-configmap.yaml's REDACT_PATTERNS list
+// (the egress-proxy scrubs the same shapes from outbound HTTP, and pairs them
+// with the same gitleaks second layer via its localhost sidecar). Keep both
+// lists in sync by hand when either changes -- there is no shared source
+// between the Python (mitmproxy addon) and Go (this shim) copies, since they
+// run in genuinely different runtimes with no natural place to share a literal.
 var secretPatternRegistry = []secretPattern{
 	{
 		name: "ssh_private_key",

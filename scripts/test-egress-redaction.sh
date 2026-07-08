@@ -150,6 +150,50 @@ else
   echo "    body: ${BODY:0:300}"
 fi
 
+# Expanded REDACT_PATTERNS registry — probe a couple of the shapes added when the
+# proxy's regex list was brought to parity with mcp-cerbos-shim's. Fixtures are
+# fake and assembled at runtime (no full literal token in the source) plus a
+# pragma allowlist, matching the fake-fixture convention above.
+AWS_KEY="AKIA$(printf 'Q%.0s' $(seq 16))"  # pragma: allowlist secret (fake AWS access key id)
+echo -e "  ${YELLOW}probing AWS access key id in custom header ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${AWS_KEY}"
+if [[ "$BODY" == *"$AWS_KEY"* ]]; then
+  fail "AWS access key id reached httpbin unredacted"
+elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+  pass "AWS access key id (AKIA…) redacted in custom header"
+else
+  fail "AWS access key id neither present nor visibly redacted — unexpected response"
+  echo "    body: ${BODY:0:300}"
+fi
+
+GITHUB_TOKEN="ghp_$(printf 'g%.0s' $(seq 36))"  # pragma: allowlist secret (fake GitHub PAT)
+echo -e "  ${YELLOW}probing GitHub token in custom header ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${GITHUB_TOKEN}"
+if [[ "$BODY" == *"$GITHUB_TOKEN"* ]]; then
+  fail "GitHub token reached httpbin unredacted"
+elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+  pass "GitHub token (ghp_…) redacted in custom header"
+else
+  fail "GitHub token neither present nor visibly redacted — unexpected response"
+  echo "    body: ${BODY:0:300}"
+fi
+
+# gitleaks-ONLY catch: SendGrid API tokens (gitleaks rule "sendgrid-api-token")
+# are NOT in the regex registry, so redacting one proves the gitleaks sidecar
+# path works end-to-end — not just that regex redaction still works. Same shape
+# the shim's own gitleaks test uses: "SG." + 22 + "." + 43.
+SENDGRID_KEY="SG.$(printf 'a%.0s' $(seq 22)).$(printf 'b%.0s' $(seq 43))"  # pragma: allowlist secret (fake SendGrid key)
+echo -e "  ${YELLOW}probing SendGrid token (gitleaks-only, not in regex registry) ...${NC}"
+run "https://httpbin.io/headers" -H "X-Test-Secret: ${SENDGRID_KEY}"
+if [[ "$BODY" == *"$SENDGRID_KEY"* ]]; then
+  fail "SendGrid token reached httpbin unredacted — gitleaks sidecar not scrubbing?"
+elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+  pass "SendGrid token (SG.…) redacted by the gitleaks sidecar layer"
+else
+  fail "SendGrid token neither present nor visibly redacted — is the gitleaks sidecar up?"
+  echo "    body: ${BODY:0:300}"
+fi
+
 # ── Section 3: URL path/query redaction ─────────────────────────────────────
 # The proxy scrubs flow.request.path (path + query string) before forwarding,
 # so httpbin.io/get's echoed "url"/"args" fields reflect the redacted value.
@@ -213,6 +257,43 @@ if [[ "$STATUS" == "403" ]]; then
 else
   fail "POST https://github.com/ -> ${STATUS} (expected 403 — git-upload-pack exception may be too broad)"
   echo "    body: ${BODY:0:200}"
+fi
+
+# ── Section 6: response-body redaction ──────────────────────────────────────
+# Every other test above proves REQUEST-side scrubbing (the secret is in a header
+# or URL we send, and the request hook redacts it before httpbin echoes it back).
+# To isolate RESPONSE-side scrubbing we need a secret that originates server-side,
+# NOT one we send in the clear — anything we send is request-scrubbed first.
+#
+# Mechanism: send the secret base64-encoded in the URL path to httpbin.io/base64,
+# which DECODES it server-side and returns the raw secret in the RESPONSE body.
+# The base64 blob matches no request-side pattern, so it passes through untouched;
+# the decoded secret then only ever exists in the response, where the response()
+# hook must scrub it. We use a Notion token (ntn_…) on purpose: it's caught by the
+# regex registry but NOT by gitleaks' default ruleset, so even if gitleaks were to
+# base64-decode-and-scan the request URL, it wouldn't pre-empt this — the redaction
+# we observe is unambiguously the RESPONSE-side regex layer.
+#
+# Caveat (confirm on first live run): this depends on httpbin.io/base64 returning a
+# text/* (or application/json) Content-Type — the response scrubber deliberately
+# skips binary bodies. If httpbin serves this as application/octet-stream the
+# secret will pass through and this test will fail on content-type grounds, not a
+# real redaction regression.
+
+section "6. secrets in the RESPONSE body are redacted (echo-attack guard)"
+
+NOTION_TOKEN="ntn_$(printf 't%.0s' $(seq 24))"  # pragma: allowlist secret (fake Notion token)
+NOTION_B64="$(printf '%s' "$NOTION_TOKEN" | base64 | tr '+/' '-_' | tr -d '=')"
+echo -e "  ${YELLOW}probing server-originated secret via httpbin.io/base64 decode ...${NC}"
+run "https://httpbin.io/base64/${NOTION_B64}"
+if [[ "$BODY" == *"$NOTION_TOKEN"* ]]; then
+  fail "Notion token survived in the response body — response-side scrubbing not applied (or /base64 served a non-text Content-Type)"
+  echo "    body: ${BODY:0:300}"
+elif [[ "$BODY" == *'[REDACTED]'* ]]; then
+  pass "Notion token in the decoded response body redacted before reaching the sandbox"
+else
+  fail "Response body neither carried the token nor a [REDACTED] marker — unexpected /base64 response"
+  echo "    status: ${STATUS} body: ${BODY:0:300}"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────────────

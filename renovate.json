@@ -123,6 +123,15 @@
         "\"package\":\\s*\"(?<depName>.+)@(?<currentValue>[^\"@]+)\""
       ],
       "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^charts/egress-proxy/templates/deployment\\.ya?ml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+image:\\s*\\S+?:(?<currentValue>[^\\s@]+)"
+      ]
     }
   ]
 }
