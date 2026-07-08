@@ -49,11 +49,12 @@ package server
 // or doesn't cover, and the escape hatch for adding an arbitrary custom
 // pattern the moment a new leak vector shows up (no dependency bump or
 // upstream PR required). Both passes run and their counts sum; because each
-// pass replaces a matched secret with the [REDACTED] placeholder before the
+// pass replaces a matched secret with the <masked> placeholder before the
 // next pass sees the string, a token both layers recognize is only counted
 // once (the second pass finds the placeholder, not the secret).
 
 import (
+	"bytes"
 	"encoding/json"
 	"log"
 	"regexp"
@@ -198,9 +199,62 @@ var secretPatternRegistry = []secretPattern{
 		name: "generic_jwt",
 		re:   regexp.MustCompile(`\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b`),
 	},
+	// PII entries below mirror the SSN/CreditCard/PhoneNumber promptGuard
+	// builtins the agentgateway AI backends carry (MR !426,
+	// feat/ai-backend-regex-scrubbing). Email is deliberately NOT matched
+	// anywhere -- it breaks Jira ticket assignment-by-email. All prefix/range
+	// based, no Luhn checksum (that needs digit arithmetic, not a regex, and
+	// nothing else in this registry does post-match validation), no lookaround
+	// (RE2 has none, and the egress-proxy Python mirror stays identical).
+	{
+		// US SSN NNN-NN-NNNN, excluding the well-known invalid ranges (area
+		// 000/666/900-999, group 00, serial 0000) expressed as alternation
+		// since RE2 has no lookahead.
+		name: "us_ssn",
+		re: regexp.MustCompile(
+			`\b(?:0(?:0[1-9]|[1-9][0-9])|[1-5][0-9]{2}|6(?:[0-5][0-9]|6[0-57-9]|[7-9][0-9])|[78][0-9]{2})` +
+				`-(?:0[1-9]|[1-9][0-9])` +
+				`-(?:000[1-9]|00[1-9][0-9]|0[1-9][0-9]{2}|[1-9][0-9]{3})\b`,
+		),
+	},
+	{
+		// Visa -- starts 4, 13/16/19 digits. Digits only (contiguous runs, like
+		// every other entry); space/dash-grouped cards are a known gap.
+		name: "credit_card_visa",
+		re:   regexp.MustCompile(`\b4(?:[0-9]{12}|[0-9]{15}|[0-9]{18})\b`),
+	},
+	{
+		// Mastercard -- 51-55 or 2221-2720, 16 digits.
+		name: "credit_card_mastercard",
+		re: regexp.MustCompile(
+			`\b(?:5[1-5][0-9]{14}|(?:222[1-9]|22[3-9][0-9]|2[3-6][0-9]{2}|27[01][0-9]|2720)[0-9]{12})\b`,
+		),
+	},
+	{
+		// American Express -- starts 34/37, 15 digits.
+		name: "credit_card_amex",
+		re:   regexp.MustCompile(`\b3[47][0-9]{13}\b`),
+	},
+	{
+		// Discover -- 6011, 65, 644-649, or 622126-622925, 16 digits.
+		name: "credit_card_discover",
+		re: regexp.MustCompile(
+			`\b(?:6011[0-9]{12}|65[0-9]{14}|64[4-9][0-9]{13}` +
+				`|622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9]{2}|9(?:[01][0-9]|2[0-5]))[0-9]{10})\b`,
+		),
+	},
+	{
+		// US/NANP phone -- (NNN) NNN-NNNN, NNN-NNN-NNNN, NNN.NNN.NNNN,
+		// +1 NNN NNN NNNN. Requires separators (a bare 10-digit run does not
+		// match) to hold down false positives; no international coverage.
+		name: "us_phone_number",
+		re: regexp.MustCompile(
+			`(?:\+?1[-.\s]?)?(?:\([0-9]{3}\)[-.\s]?|[0-9]{3}[-.\s])[0-9]{3}[-.\s][0-9]{4}\b`,
+		),
+	},
 }
 
-const redactedPlaceholder = "[REDACTED]"
+const redactedPlaceholder = "<masked>"
 
 // gitleaksDetector is the single, process-wide gitleaks Detector shared across
 // every redaction call. It MUST be built exactly once: NewDetectorDefaultConfig
@@ -297,6 +351,24 @@ func redactPattern(pat *regexp.Regexp, s string) (string, int) {
 	return pat.ReplaceAllString(s, redactedPlaceholder), len(matches)
 }
 
+// marshalNoHTMLEscape is json.Marshal without Go's default HTML escaping of
+// <, >, and &. The redaction placeholder is "<masked>"; encoding/json's
+// default escaper would emit it on the wire as "\u003cmasked\u003e", which
+// decodes back to "<masked>" but no longer matches the literal placeholder the
+// egress-proxy scrub.py and agentgateway both emit -- defeating the point of
+// the shared format. MCP JSON-RPC payloads are never embedded in HTML, so the
+// escaping buys nothing here. Encoder.Encode appends a trailing newline that
+// Marshal does not; trim it so this is a drop-in replacement.
+func marshalNoHTMLEscape(v any) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false)
+	if err := enc.Encode(v); err != nil {
+		return nil, err
+	}
+	return bytes.TrimRight(buf.Bytes(), "\n"), nil
+}
+
 // redactValue walks an arbitrary JSON-decoded value (the shape
 // encoding/json produces from an `any`: map[string]any, []any, string,
 // float64, bool, nil) and redacts every string it finds, including strings
@@ -350,7 +422,7 @@ func redactStringValue(s string) (string, int) {
 			if _, isMap := nested.(map[string]any); isMap {
 				redacted, n := redactValue(nested)
 				if n > 0 {
-					if reEncoded, err := json.Marshal(redacted); err == nil {
+					if reEncoded, err := marshalNoHTMLEscape(redacted); err == nil {
 						return string(reEncoded), n
 					}
 				}
@@ -359,7 +431,7 @@ func redactStringValue(s string) (string, int) {
 			if _, isSlice := nested.([]any); isSlice {
 				redacted, n := redactValue(nested)
 				if n > 0 {
-					if reEncoded, err := json.Marshal(redacted); err == nil {
+					if reEncoded, err := marshalNoHTMLEscape(redacted); err == nil {
 						return string(reEncoded), n
 					}
 				}
@@ -398,7 +470,7 @@ func redactRawJSON(raw []byte) ([]byte, int) {
 	if n == 0 {
 		return raw, 0
 	}
-	reEncoded, err := json.Marshal(redacted)
+	reEncoded, err := marshalNoHTMLEscape(redacted)
 	if err != nil {
 		return raw, 0
 	}

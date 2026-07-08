@@ -40,7 +40,7 @@ deployment relies on the loopback bind for its no-external-reachability property
 | `POST /redact` | `{"text": "..."}` | `{"text": "<redacted>", "count": <int>}` |
 | `GET /healthz` | — | `200 ok` (kubelet liveness/readiness) |
 
-`count` is the number of substrings replaced with `[REDACTED]` (the same placeholder
+`count` is the number of substrings replaced with `<masked>` (the same placeholder
 `scrub.py` uses, so the two layers never re-redact each other's output).
 
 ## Reachability
