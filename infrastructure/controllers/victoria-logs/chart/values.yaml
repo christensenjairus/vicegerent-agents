@@ -43,7 +43,26 @@ vector:
         inputs: [k8s]
         source: |
           .log = parse_json(.message) ?? .message
-          # Keep .message so VL-Msg-Field (which checks it first) still renders in the VictoriaLogs UI.
+          if is_object(.log) {
+            if is_object(.log.process_exec) {
+              p = .log.process_exec.process
+              binary = to_string(p.binary) ?? "?"
+              args = to_string(p.arguments) ?? ""
+              .message = "process_start: " + binary + " " + args
+            } else if is_object(.log.process_exit) {
+              p = .log.process_exit.process
+              binary = to_string(p.binary) ?? "?"
+              args = to_string(p.arguments) ?? ""
+              code = to_string(.log.process_exit.status) ?? "?"
+              .message = "process_end: " + binary + " " + args + " (code " + code + ")"
+            } else if is_object(.log.process_kprobe) {
+              p = .log.process_kprobe.process
+              binary = to_string(p.binary) ?? "?"
+              args = to_string(p.arguments) ?? ""
+              policy = to_string(.log.process_kprobe.policy_name) ?? "?"
+              .message = "process_kprobe: " + binary + " " + args + " (policy " + policy + ")"
+            }
+          }
     sinks:
       vlogs:
         type: elasticsearch
