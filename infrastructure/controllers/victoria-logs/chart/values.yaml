@@ -44,10 +44,14 @@ vector:
         condition:
           type: vrl
           source: |
-            (.kubernetes.pod_namespace == "kube-system" && .kubernetes.pod_labels."app.kubernetes.io/name" == "tetragon" && .kubernetes.container_name == "export-stdout") ||
-            (.kubernetes.pod_namespace == "agentgateway-system" && starts_with(.kubernetes.pod_name, "agentgateway-proxy-") && .kubernetes.container_name == "agentgateway") ||
-            (.kubernetes.pod_namespace == "agent-sandbox" && .kubernetes.container_name == "hermes") ||
-            (.kubernetes.pod_namespace == "egress-proxy" && .kubernetes.container_name == "mitmproxy")
+            ns = to_string(.kubernetes.pod_namespace) ?? ""
+            pod = to_string(.kubernetes.pod_name) ?? ""
+            container = to_string(.kubernetes.container_name) ?? ""
+            pod_app_label = to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ?? ""
+            (ns == "kube-system" && pod_app_label == "tetragon" && container == "export-stdout") ||
+            (ns == "agentgateway-system" && starts_with(pod, "agentgateway-proxy-") && container == "agentgateway") ||
+            (ns == "agent-sandbox" && container == "hermes") ||
+            (ns == "egress-proxy" && container == "mitmproxy")
       parser:
         type: remap
         inputs: [scope]
