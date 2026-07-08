@@ -1,0 +1,4 @@
+---
+# Upstream default values:
+# https://github.com/cilium/tetragon/blob/v1.7.0/install/kubernetes/tetragon/values.yaml
+{}
