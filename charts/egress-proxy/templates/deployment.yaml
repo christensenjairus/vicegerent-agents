@@ -100,6 +100,40 @@ spec:
               readOnly: true
             - name: tmp
               mountPath: /tmp
+        # gitleaks second-layer redaction, reached by scrub.py over loopback only.
+        # Same Pod (shared netns) so 127.0.0.1:8081 is intra-pod; no Service and no
+        # CiliumNetworkPolicy rule (intra-pod loopback isn't CNI-enforced).
+        - name: gitleaks-sidecar
+          # renovate: datasource=docker depName=harbor.hahomelabs.com/vicegerent/egress-gitleaks-sidecar
+          image: harbor.hahomelabs.com/vicegerent/egress-gitleaks-sidecar:v0.1.0
+          ports:
+            - containerPort: 8081
+              name: gitleaks
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: [ALL]
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+          # exec, not httpGet: the server binds 127.0.0.1 only, so a kubelet
+          # networked probe (which dials the pod IP) can't reach it. -healthcheck
+          # runs in-container against loopback; distroless has no shell for a
+          # curl-based exec probe, so the binary self-probes.
+          livenessProbe:
+            exec:
+              command: [/usr/local/bin/egress-gitleaks-sidecar, -healthcheck]
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          readinessProbe:
+            exec:
+              command: [/usr/local/bin/egress-gitleaks-sidecar, -healthcheck]
+            initialDelaySeconds: 3
+            periodSeconds: 10
       volumes:
         - name: ca-secret
           secret:

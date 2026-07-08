@@ -6,13 +6,16 @@
 # forwarding. Pattern-based scrubbing does NOT cover encoded forms (base64, hex) —
 # the FQDN allowlist is the primary external control.
 #
-# Scrubbing (applied to every request, headers + body):
-#   - SSH private keys  — PEM PRIVATE KEY blocks (any algorithm, including ENCRYPTED)
-#   - Slack tokens      — xox[bpraescd]-... (bot, app-level, user, refresh, socket, client)
-#                         xapp-...          (app-configuration tokens)
-#   - Bearer tokens     — Authorization: Bearer <value> stripped from external requests;
-#                         internal services (agentgateway) legitimately use Bearer auth
-#                         and are not scrubbed (they are in-cluster and trusted)
+# Scrubbing runs two layers on every scrubbed string (URL, headers, body):
+#   1. A hand-rolled regex registry (REDACT_PATTERNS) — the Python mirror of the Go
+#      shim's secretPatternRegistry: SSH private keys, Slack xox*/xapp-*, Bearer/Basic
+#      auth values, AWS, GitHub, GitLab, Google, OpenAI, Anthropic, Stripe, Notion,
+#      Twilio, npm, and generic JWTs.
+#   2. gitleaks' ~180-rule default ruleset, via the in-Pod localhost sidecar
+#      (images/egress-gitleaks-sidecar) — catches shapes the registry doesn't.
+# The Authorization header itself (Bearer/Basic/x-api-key) is scrubbed on external
+# requests only; internal services (agentgateway) legitimately use Bearer auth and
+# are in-cluster/trusted, so their auth headers are not scrubbed.
 #
 # Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
 # Internal cluster services (*.svc.cluster.local) need POST and are passed through
@@ -37,8 +40,10 @@ metadata:
 data:
   scrub.py: |-
     import ipaddress
+    import json
     import logging
     import re
+    import urllib.request
     from mitmproxy import http
     log = logging.getLogger("egress-proxy")
     ALLOWED_METHODS = {"GET", "HEAD"}
@@ -69,7 +74,15 @@ data:
         {{- end }}
     )
 
-    # Secrets patterns — redacted from request headers and body before forwarding.
+    # Secrets patterns — the hand-rolled registry, applied to URL path/query,
+    # request headers + body, and response bodies before forwarding. This is the
+    # Python mirror of mcp-cerbos-shim's secretPatternRegistry
+    # (images/mcp-cerbos-shim/internal/server/secrets_redact.go); keep the two in
+    # sync by hand when either changes — there is no shared source between the
+    # Python (mitmproxy) and Go (shim) runtimes. Pattern-based scrubbing does NOT
+    # cover encoded forms (base64, hex); the FQDN allowlist is the primary external
+    # control. gitleaks' ~180-rule default ruleset runs as a SECOND layer on the
+    # same strings via the localhost sidecar (see _redact_gitleaks below).
     REDACT_PATTERNS = [
         # SSH private keys — all PEM formats including PKCS#8 encrypted variant.
         re.compile(
@@ -82,7 +95,49 @@ data:
         # and xapp-* (app-configuration tokens). Underscore is valid in token values.
         re.compile(r"xox[bpraescd]-[A-Za-z0-9\-_]+", re.ASCII),
         re.compile(r"xapp-[A-Za-z0-9\-_]+", re.ASCII),
+        # Bearer/Basic auth VALUES appearing inside a URL/body (the Authorization
+        # header itself is scrubbed separately below).
+        re.compile(r"\bBearer\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE | re.ASCII),
+        re.compile(r"\bBasic\s+[A-Za-z0-9+/]+=*", re.IGNORECASE | re.ASCII),
+        # AWS access key IDs (IAM/STS/role/instance-profile share the 20-char shape).
+        re.compile(r"\b(?:AKIA|ASIA|AROA|AIDA)[A-Z0-9]{16}\b", re.ASCII),
+        # GitHub tokens — PAT (classic + fine-grained), OAuth, app tokens (gh?_ ).
+        re.compile(r"\bgh[pousr]_[A-Za-z0-9]{36,255}\b", re.ASCII),
+        # GitLab personal/project/group access + CI job tokens.
+        re.compile(r"\bglpat-[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        # Google API keys (Maps etc. — not OAuth client secrets).
+        re.compile(r"\bAIza[A-Za-z0-9_\-]{35}\b", re.ASCII),
+        # OpenAI API keys (legacy sk-… and project-scoped sk-proj-…).
+        re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        # Anthropic API keys.
+        re.compile(r"\bsk-ant-[A-Za-z0-9_\-]{20,}\b", re.ASCII),
+        # Stripe live/test secret + restricted keys.
+        re.compile(r"\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9]{16,}\b", re.ASCII),
+        # Notion integration tokens (internal + OAuth-issued).
+        re.compile(r"\bntn_[A-Za-z0-9]{20,}\b", re.ASCII),
+        # Twilio auth token / API key SIDs.
+        re.compile(r"\bSK[a-f0-9]{32}\b", re.ASCII),
+        # npm automation/publish tokens.
+        re.compile(r"\bnpm_[A-Za-z0-9]{36}\b", re.ASCII),
+        # Generic JWT (header.payload.signature, each segment base64url) — loose by
+        # design; a non-secret JWT would also match, acceptable since we only redact.
+        re.compile(r"\beyJ[A-Za-z0-9_\-]+\.eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b", re.ASCII),
     ]
+
+    # gitleaks second-layer redaction, served by the in-Pod sidecar container over
+    # loopback (see charts/egress-proxy/templates/deployment.yaml and
+    # images/egress-gitleaks-sidecar). This is the SAME detect.Detector the shim
+    # runs in-process; scrub.py POSTs each string and gets back gitleaks-redacted
+    # text + a count. urllib (stdlib) — mitmproxy's image carries no `requests`,
+    # and no new dep is worth adding for one localhost POST.
+    GITLEAKS_URL = "http://127.0.0.1:8081/redact"
+    # SHORT timeout: this is the hot path for every external request. An
+    # unresponsive sidecar must never hang or break the proxy — on timeout/error we
+    # fail OPEN (regex-only redaction) rather than block or crash the addon.
+    GITLEAKS_TIMEOUT = 1.0
+    # Bypass any *_proxy env so this localhost call never routes through a proxy
+    # (this process IS the proxy).
+    _gitleaks_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
     # Authorization Bearer scrubbing — external destinations only.
     # Internal services (agentgateway) use Bearer auth legitimately; do not scrub them.
@@ -132,11 +187,39 @@ data:
             return False
         ct = flow.request.headers.get("content-type", "").split(";")[0].strip().lower()
         return ct == GIT_UPLOAD_PACK_CONTENT_TYPE
+    def _redact_gitleaks(text: str) -> tuple[str, int]:
+        # POST text to the localhost gitleaks sidecar and return its redacted
+        # text + count. Fail OPEN on any error/timeout: log once and return the
+        # input unchanged so the regex layer's result still stands and the request
+        # is never blocked by a sidecar hiccup.
+        if not text:
+            return text, 0
+        try:
+            payload = json.dumps({"text": text}).encode("utf-8")
+            req = urllib.request.Request(
+                GITLEAKS_URL,
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            with _gitleaks_opener.open(req, timeout=GITLEAKS_TIMEOUT) as resp:
+                data = json.loads(resp.read())
+            return data.get("text", text), int(data.get("count", 0))
+        except Exception as e:
+            log.warning("gitleaks sidecar unavailable; regex-only redaction: %s", e)
+            return text, 0
     def _redact(text: str) -> tuple[str, int]:
+        # Two layers, same order as the shim's redactString: hand-rolled regex
+        # registry first, then gitleaks. Each layer replaces matches with the
+        # [REDACTED] placeholder before the next sees the string, so a secret both
+        # layers recognize is counted once (the later layer finds only the
+        # placeholder, which neither the registry nor gitleaks re-matches).
         total = 0
         for pat in REDACT_PATTERNS:
             text, n = pat.subn("[REDACTED]", text)
             total += n
+        text, gn = _redact_gitleaks(text)
+        total += gn
         return text, total
     def request(flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host

@@ -15,18 +15,26 @@ Cilium network policy and the Sandbox CRD's inherent isolation.
 
 ### Secrets scrubbing
 Applied to every request — headers and body — before forwarding to any destination,
-internal (agentgateway, searxng) or external (internet).
+internal (agentgateway, searxng) or external (internet). **Two layers** run on each
+scrubbed string: a hand-rolled regex registry (`REDACT_PATTERNS`) then gitleaks'
+~180-rule default ruleset via the in-Pod `gitleaks-sidecar` container over loopback
+(`images/egress-gitleaks-sidecar`). The registry mirrors `mcp-cerbos-shim`'s
+`secretPatternRegistry` — keep the two in sync by hand.
 
 | Pattern | What it catches |
 |---|---|
 | `-----BEGIN ... PRIVATE KEY-----` | SSH private keys — RSA, EC, Ed25519, OpenSSH, PKCS#8 encrypted |
-| `xox[bpraescd]-[A-Za-z0-9\-_]+` | Slack tokens — bot, app-level, user, refresh, socket, client |
-| `xapp-[A-Za-z0-9\-_]+` | Slack app-configuration tokens |
-| `Authorization: Bearer <token>` | Bearer tokens stripped from headers on external requests |
-| `Authorization: Basic <creds>` | Basic-auth credentials stripped from headers on external requests |
+| `xox[bpraescd]-...` / `xapp-...` | Slack tokens — bot, app-level, user, refresh, socket, client, app-config |
+| `Bearer <token>` / `Basic <creds>` | auth values in URL/body; the `Authorization` header itself is stripped on external requests |
 | `x-api-key` / `api-key` headers | API-key headers redacted on external requests |
+| AWS / GitHub / GitLab / Google | `AKIA…`, `gh?_…`, `glpat-…`, `AIza…` |
+| OpenAI / Anthropic / Stripe | `sk-…` / `sk-proj-…`, `sk-ant-…`, `sk_live_…` / `rk_test_…` |
+| Notion / Twilio / npm / JWT | `ntn_…`, `SK<32 hex>`, `npm_…`, `eyJ….eyJ….…` |
+| gitleaks default ruleset | ~180 provider tokens/keys/connection strings the registry doesn't name (SendGrid, etc.) |
 
-The request **URL path and query** are also scrubbed against the body patterns on external requests, and response bodies are scrubbed (non-streaming only) to guard against echo attacks.
+The request **URL path and query** are also scrubbed on external requests, and
+response bodies are scrubbed (non-streaming only) to guard against echo attacks —
+both through the same two-layer `_redact()`.
 
 ### Method enforcement
 GET and HEAD only for external destinations. POST, PUT, PATCH, DELETE → 403.
@@ -85,15 +93,17 @@ This is a fundamental limitation of HTTP-layer inspection.
 Exfiltration requires a reachable destination that accepts and stores GET parameters
 — an attacker needs prior access to configure such an endpoint.
 
-### Secrets not in REDACT_PATTERNS
-The body/URL regex patterns scrub only SSH private keys and Slack tokens (header
-scrubbing additionally covers Bearer, Basic, and `x-api-key`/`api-key` schemes).
-Anthropic/OpenAI API keys and other credentials carried in a request body or query
-string are NOT currently scrubbed and pass through.
+### Secrets not caught by either layer
+The regex registry covers the named provider shapes in the table above; gitleaks adds
+its ~180-rule default set on top. A credential in neither — a bespoke internal token
+format, or any secret carried **encoded** (base64, hex, split-chunked) — still passes
+through. Pattern/rule matching is raw-value only.
 
-**To add a pattern**: edit `REDACT_PATTERNS` in
-`charts/egress-proxy/templates/addon-configmap.yaml`. Regex patterns only. For verbatim
-secret values, see below.
+**To add a regex pattern**: edit `REDACT_PATTERNS` in
+`charts/egress-proxy/templates/addon-configmap.yaml` (and mirror it into
+`mcp-cerbos-shim`'s `secretPatternRegistry` if MCP tool calls should also catch it).
+gitleaks rules are upstream — bump the sidecar's pinned gitleaks version to pick up
+new ones. For verbatim secret values, see below.
 
 **To scrub a literal secret value**: there is currently no mechanism to inject runtime
 secret values into the proxy for scrubbing. Adding this requires mounting the secret
@@ -188,13 +198,15 @@ For a service the sandbox reaches **direct** (bypassing the proxy, e.g. Slack):
 
 ## Adding a new secret pattern
 
-Edit `REDACT_PATTERNS` in `charts/egress-proxy/templates/addon-configmap.yaml`:
+Append a compiled regex to `REDACT_PATTERNS` in
+`charts/egress-proxy/templates/addon-configmap.yaml`, e.g.:
 
 ```python
-# Example: Anthropic API keys
-re.compile(r"sk-ant-[A-Za-z0-9\-_]{40,}", re.ASCII),
-# Example: OpenAI API keys
-re.compile(r"sk-[A-Za-z0-9]{48}", re.ASCII),
+re.compile(r"mycorp_tok_[A-Za-z0-9]{32}", re.ASCII),
 ```
 
-Reloader will restart the proxy pod automatically when the ConfigMap changes.
+Add a matching fixture to `scripts/test-scrub-patterns.py`, and mirror the pattern
+into `mcp-cerbos-shim`'s `secretPatternRegistry` if MCP tool-call payloads should
+catch it too. Reloader restarts the proxy pod automatically when the ConfigMap
+changes. (Provider tokens already in gitleaks' default ruleset need no registry
+entry — they are caught by the sidecar layer.)
