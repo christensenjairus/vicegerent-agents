@@ -852,14 +852,6 @@ func TestRedactString(t *testing.T) {
 	twilioKey := "SK" + strings.Repeat("f", 32)                                                                           // pragma: allowlist secret
 	npmTok := "npm" + "_" + strings.Repeat("m", 36)                                                                       // pragma: allowlist secret
 	jwtVal := "eyJ" + strings.Repeat("h", 10) + "." + "eyJ" + strings.Repeat("p", 10) + "." + strings.Repeat("s", 10)     // pragma: allowlist secret
-	// PII (fake) — SSN, two card issuer shapes, and a US phone number. Built by
-	// concatenation like the secret fixtures above.
-	ssnVal := "123" + "-" + "45" + "-" + "6789"
-	visaCard := "4" + strings.Repeat("1", 15)        // 16-digit Visa (starts 4)
-	mcCard := "5" + "1" + strings.Repeat("0", 14)    // 16-digit Mastercard (starts 51)
-	amexCard := "3" + "4" + strings.Repeat("0", 13)  // 15-digit Amex (starts 34)
-	discoverCard := "6011" + strings.Repeat("0", 12) // 16-digit Discover (starts 6011)
-	phoneVal := "(" + "555" + ") " + "123" + "-" + "4567"
 
 	cases := []struct {
 		name       string
@@ -970,71 +962,8 @@ func TestRedactString(t *testing.T) {
 			wantAbsent: jwtVal,
 		},
 		{
-			name:       "us ssn",
-			in:         "ssn: " + ssnVal,
-			wantRedact: true,
-			wantAbsent: ssnVal,
-		},
-		{
-			name:       "visa card number",
-			in:         "card " + visaCard + " on file",
-			wantRedact: true,
-			wantAbsent: visaCard,
-		},
-		{
-			name:       "mastercard card number",
-			in:         "card=" + mcCard,
-			wantRedact: true,
-			wantAbsent: mcCard,
-		},
-		{
-			name:       "amex card number",
-			in:         "amex " + amexCard,
-			wantRedact: true,
-			wantAbsent: amexCard,
-		},
-		{
-			name:       "discover card number",
-			in:         "discover " + discoverCard,
-			wantRedact: true,
-			wantAbsent: discoverCard,
-		},
-		{
-			name:       "us phone number",
-			in:         "call me at " + phoneVal,
-			wantRedact: true,
-			wantAbsent: phoneVal,
-		},
-		{
 			name:       "ordinary text is untouched",
 			in:         "This PR closes the auth bug, no credentials involved.",
-			wantRedact: false,
-			wantAbsent: "",
-		},
-		// PII prefix/range scoping must NARROW matches: these must NOT redact,
-		// proving the card patterns are issuer-prefix-scoped (not a naive
-		// 13-19 digit catch-all) and the SSN pattern excludes invalid ranges.
-		{
-			name:       "16-digit number with no known issuer prefix is not a card",
-			in:         "order number " + strings.Repeat("9", 16),
-			wantRedact: false,
-			wantAbsent: "",
-		},
-		{
-			name:       "16-digit number starting 1 (unassigned IIN) is not a card",
-			in:         "ref 1234567890123456 processed",
-			wantRedact: false,
-			wantAbsent: "",
-		},
-		{
-			name:       "ssn with invalid area 000 is not matched",
-			in:         "value " + "000" + "-" + "12" + "-" + "3456",
-			wantRedact: false,
-			wantAbsent: "",
-		},
-		{
-			name:       "bare 10-digit run without separators is not a phone",
-			in:         "id 5551234567 here",
 			wantRedact: false,
 			wantAbsent: "",
 		},

@@ -48,14 +48,6 @@ it. Don't silently fail, fabricate a result, or burn turns retrying
 something the environment structurally prevents. Surfacing the gap is the
 correct, expected move — the human is your path to expanding what you can do.
 
-## Masked content
-Tool results and context sometimes contain `<masked>`, where a redaction layer
-(egress-proxy, mcp-cerbos-shim, or agentgateway's own prompt guard) scrubbed a secret or
-PII before it reached you. If a `<masked>` value is what's actually blocking the task,
-say so and tell the user — don't guess the hidden value, retry to route around the
-redaction, or quietly give up. The user decides whether it was a false positive or gets
-you what you need another way.
-
 # Coding agents
 Use `claude-code` or `codex` for medium/large tasks and all code reviews — don't inline large coding work.
 Pick the model that fits the task: heavier reasoning for complex/design work, lighter/faster for quick fixes and alternatives.

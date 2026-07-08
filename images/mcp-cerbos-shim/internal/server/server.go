@@ -496,12 +496,12 @@ func buildMutatedParams(cp callParams, wrapped bool, force map[string]any) ([]by
 		cp.Arguments[k] = v
 	}
 	if wrapped {
-		return marshalNoHTMLEscape(map[string]any{
+		return json.Marshal(map[string]any{
 			"name":      callToolMeta,
 			"arguments": map[string]any{"tool_name": cp.Name, "parameters": cp.Arguments},
 		})
 	}
-	return marshalNoHTMLEscape(map[string]any{"name": cp.Name, "arguments": cp.Arguments})
+	return json.Marshal(map[string]any{"name": cp.Name, "arguments": cp.Arguments})
 }
 
 // checkNotionAncestry returns nil to allow the existing-page-write call
