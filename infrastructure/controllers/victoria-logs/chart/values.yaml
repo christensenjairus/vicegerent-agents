@@ -49,18 +49,12 @@ vector:
               binary = to_string(p.binary) ?? "?"
               args = to_string(p.arguments) ?? ""
               .message = "process_start: " + binary + " " + args
-            } else if is_object(.log.process_exit) {
-              p = .log.process_exit.process
-              binary = to_string(p.binary) ?? "?"
-              args = to_string(p.arguments) ?? ""
-              code = to_string(.log.process_exit.status) ?? "?"
-              .message = "process_end: " + binary + " " + args + " (code " + code + ")"
             } else if is_object(.log.process_kprobe) {
               p = .log.process_kprobe.process
               binary = to_string(p.binary) ?? "?"
               args = to_string(p.arguments) ?? ""
               policy = to_string(.log.process_kprobe.policy_name) ?? "?"
-              .message = "process_kprobe: " + binary + " " + args + " (policy " + policy + ")"
+              .message = "process_kprobe (policy " + policy + "): " + binary + " " + args
             }
           }
     sinks:

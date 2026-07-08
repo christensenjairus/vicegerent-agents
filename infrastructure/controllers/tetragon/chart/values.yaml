@@ -5,4 +5,4 @@ crds:
   installMethod: helm
 tetragon:
   exportAllowList: |-
-    {"namespace":["agent-sandbox"],"event_set":["PROCESS_EXEC","PROCESS_EXIT","PROCESS_KPROBE"]}
+    {"namespace":["agent-sandbox"],"event_set":["PROCESS_EXEC","PROCESS_KPROBE"]}
