@@ -23,7 +23,7 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2026.7.7@sha256:b6c019227889e6675424a2b6223b2cafdd36bf7d1048d1ddd8e043b880d6cc0f
+FROM nousresearch/hermes-agent:v2026.7.7@sha256:ce3b39adf33fffae8cb19dcae74f971975b972efe91207f7d7539f80a0aae66a
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
