@@ -5,7 +5,7 @@ FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
-# Offline Mnemosyne seed for the egress-locked sandbox; preserve HF cache layout.
+# Offline Mnemosyne + STT model seed for the egress-locked sandbox; preserve HF cache layout.
 FROM python:3.14-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
 ARG HUGGINGFACE_HUB_VERSION=1.22.0
@@ -16,11 +16,17 @@ hf_hub_download("openbmb/MiniCPM5-1B-GGUF", "MiniCPM5-1B-Q4_K_M.gguf",
                 local_dir="/seed/mnemosyne/models")
 snapshot_download("qdrant/bge-small-en-v1.5-onnx-q",
                   cache_dir="/seed/cache/fastembed")
+# faster-whisper's default stt.local.model ("base") maps to this HF repo
+# (see faster_whisper/utils.py _MODELS); baked here since HF_HUB_OFFLINE=1
+# blocks the runtime download faster-whisper does on first transcription.
+snapshot_download("Systran/faster-whisper-base",
+                  cache_dir="/seed/cache/faster-whisper")
 PY
-# Drop GGUF download metadata, keep fastembed's HF cache layout, and fail build if the seed is empty.
+# Drop GGUF download metadata, keep HF cache layout, and fail build if the seed is empty.
 RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -f /seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
-    && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q
+    && test -d /seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q \
+    && test -d /seed/cache/faster-whisper/models--Systran--faster-whisper-base
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
 FROM nousresearch/hermes-agent:v2026.7.7@sha256:ce3b39adf33fffae8cb19dcae74f971975b972efe91207f7d7539f80a0aae66a
@@ -55,10 +61,11 @@ RUN printf 'enable -n "[" echo false kill printf pwd test true\n' > /etc/bash-sh
     && chmod 644 /etc/bash-shadow-builtins.sh \
     && printf '[ -r /etc/bash-shadow-builtins.sh ] \&\& . /etc/bash-shadow-builtins.sh\n' >> /etc/bash.bashrc
 
-# Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
+# Bake the Mnemosyne + STT model seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
     && test -d /opt/hermes/mnemosyne-seed/cache/fastembed/models--qdrant--bge-small-en-v1.5-onnx-q \
+    && test -d /opt/hermes/mnemosyne-seed/cache/faster-whisper/models--Systran--faster-whisper-base \
     && chmod -R a+rX /opt/hermes/mnemosyne-seed
 # Stable seed digest for init-container reseed-on-change.
 RUN find /opt/hermes/mnemosyne-seed -type f -exec sha256sum {} + \
