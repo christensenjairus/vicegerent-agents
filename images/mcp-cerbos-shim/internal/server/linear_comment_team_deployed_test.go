@@ -35,7 +35,7 @@ func newLinearServer(t *testing.T, d *stubDecider, up upstream.ToolCaller) *Serv
 // directly at the top level, no extra nesting (unlike Notion's
 // double-JSON-wrapped notion-fetch result -- see ancestry.go's
 // notionFetchEnvelope doc).
-const linearIssueResultDevops = `{"id":"HAH-69","title":"some issue","team":"HAHomelabs"}`
+const linearIssueResultDevops = `{"id":"PROJ-1","title":"some issue","team":"HAHomelabs"}`
 const linearIssueResultOther = `{"id":"OTHER-1","title":"some issue","team":"Finance"}`
 const linearIssueResultNoTeam = `{"id":"OTHER-2","title":"some issue"}`
 
@@ -45,7 +45,7 @@ func TestDeployedLinearMapping_SaveCommentOnAllowedTeamIssueReachesCerbos(t *tes
 	s := newLinearServer(t, d, up)
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("linear_save_comment",
-			map[string]any{"issueId": "HAH-69", "body": "hello"})))
+			map[string]any{"issueId": "PROJ-1", "body": "hello"})))
 	if err != nil {
 		t.Fatalf("CheckRequest: %v", err)
 	}
@@ -100,7 +100,7 @@ func TestDeployedLinearMapping_SaveCommentLookupErrorFailsClosed(t *testing.T) {
 	s := newLinearServer(t, d, up)
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("linear_save_comment",
-			map[string]any{"issueId": "HAH-69", "body": "hello"})))
+			map[string]any{"issueId": "PROJ-1", "body": "hello"})))
 	if err != nil {
 		t.Fatalf("CheckRequest: %v", err)
 	}
