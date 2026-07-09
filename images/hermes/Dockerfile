@@ -37,6 +37,14 @@ ENV PATH="/opt/hermes/.venv/bin:${PATH}"
 RUN printf 'export PATH="/opt/hermes/.venv/bin:$PATH"\n' > /etc/profile.d/00-hermes-venv-path.sh \
     && chmod 644 /etc/profile.d/00-hermes-venv-path.sh
 
+# Shadow bash builtins that have a real coreutils/util-linux equivalent so
+# invoking them triggers a genuine execve() -- Tetragon's process_exec hook
+# only sees real syscalls, so builtins (echo, printf, etc.) run in-process
+# and are otherwise invisible in VictoriaLogs. Covers 8 shadowable builtins;
+# state-mutating ones (cd, export, eval, set, ...) have no binary equivalent
+# and can't be covered this way.
+RUN printf 'enable -n "[" echo false kill printf pwd test true\n' >> /etc/bash.bashrc
+
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
 RUN test -f /opt/hermes/mnemosyne-seed/mnemosyne/models/MiniCPM5-1B-Q4_K_M.gguf \
