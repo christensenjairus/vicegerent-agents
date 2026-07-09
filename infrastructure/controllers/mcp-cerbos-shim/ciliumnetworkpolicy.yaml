@@ -46,4 +46,5 @@ spec:
               protocol: TCP
           rules:
             dns:
-              - matchPattern: '*'
+              - matchPattern: '*.svc.cluster.local'
+              - matchPattern: '*.cluster.local'
