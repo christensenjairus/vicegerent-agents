@@ -1,8 +1,8 @@
-# available-tools.yaml — catalog of every tool exposed by the running
-# vicegerent MCP backends, with each tool's arguments (type, required,
-# description, enum). Reference for spotting missing tools and for writing
-# cerbos argument-level policies. GENERATED — do not edit by hand.
-# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py linear --format yaml -o <this-file>
 group: vicegerent
 tool_count: 47
 servers:
@@ -63,7 +63,7 @@ servers:
             required: false
             description: "Optional attachment subtitle"
       create_attachment:
-        description: "Deprecated fallback for tiny files only. Accepts base64 file content and uploads it through the MCP worker, which can consume large amounts of agent context. Prefer `prepare_attachment_upload` plus direct PUT plus `create_attachment_from_upload`."
+        description: "Deprecated fallback for tiny files only. Accepts base64 file content, verifies SHA-256 checksum, and uploads it through the MCP worker. Prefer `prepare_attachment_upload` plus direct PUT plus `create_attachment_from_upload`. CRITICAL: Do not print base64Content and then copy it into this tool call. Opaque base64 copied through model-visible text is easy to corrupt. Generate base64Content mechanically from the source bytes and pass it through a programmatic argument construction path whenever available. Before calling this tool, verify the values are consistent: Unix-like shells: file=\"/path/to/file\" base64Content=$(base64 < \"$file\" | tr -d '\\n\\r') sha256=$(shasum -a 256 \"$file\" | awk '{print $1}') decodedSha256=$(printf '%s' \"$base64Content\" | base64 -d | shasum -a 256 | awk '{print $1}') size=$(wc -c < \"$file\" | tr -d ' ') # optional; stat can also get file byte size decodedSize=$(printf '%s' \"$base64Content\" | base64 -d | wc -c | tr -d ' ') PowerShell: $file = 'C:\\path\\to\\file' $bytes = [IO.File]::ReadAllBytes($file) $base64Content = [Convert]::ToBase64String($bytes) $sha256 = (Get-FileHash -Algorithm SHA256 -Path $file).Hash.ToLower() $size = $bytes.Length # optional $decoded = [Convert]::FromBase64String($base64Content) $decodedStream = [IO.MemoryStream]::new($decoded) $decodedSha256 = (Get-FileHash -Algorithm SHA256 -InputStream $decodedStream).Hash.ToLower() $decodedSize = $decoded.Length decodedSha256 must equal sha256. If you pass size, decodedSize must equal size. Pass `sha256`. Passing `size` is optional, but recommended for clearer mismatch errors."
         arguments:
           issue:
             type: "string"
@@ -81,6 +81,14 @@ servers:
             type: "string"
             required: true
             description: "MIME type for the upload (e.g., 'image/png', 'application/pdf')"
+          size:
+            type: "integer"
+            required: false
+            description: "Optional expected decoded file size in bytes. Rejects the upload if it does not match."
+          sha256:
+            type: "string"
+            required: true
+            description: "Expected SHA-256 hex digest of the decoded file bytes."
           title:
             type: "string"
             required: false
@@ -120,7 +128,7 @@ servers:
             required: true
             description: "Agent skill ID"
       list_comments:
-        description: "List comments on a Linear issue, project, initiative, document, or project milestone. Provide exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, or `milestoneId`. For issues, projects, and initiatives this returns both top-level discussion threads and inline description comments. Inline (anchored) comments carry a non-null `quotedText` set to the snippet of description text they reference."
+        description: "List comments on a Linear issue, project, initiative, document, project milestone, or project/initiative status update. Provide exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, `milestoneId`, or `statusUpdateId`. For issues, projects, and initiatives this returns both top-level discussion threads and inline description comments. Inline (anchored) comments carry a non-null `quotedText` set to the snippet of description text they reference."
         arguments:
           limit:
             type: "number"
@@ -155,8 +163,17 @@ servers:
             type: "string"
             required: false
             description: "Milestone UUID (provide exactly one parent). Resolve milestone names via `list_milestones` first."
+          statusUpdateId:
+            type: "string"
+            required: false
+            description: "Status update UUID (provide exactly one parent). Resolve status updates via `get_status_updates` first."
+          statusUpdateType:
+            type: "string"
+            required: false
+            description: "Type of status update named by `statusUpdateId`, as returned by `get_status_updates`. Only valid together with `statusUpdateId`; omit to check both project and initiative status updates."
+            enum: ["project", "initiative"]
       save_comment:
-        description: "Create or update a comment on a Linear issue, project, initiative, document, or project milestone. If `id` is provided, updates the existing comment; otherwise creates a new one. To start a new thread, pass `body` and exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, or `milestoneId` \u2014 comments on issues/projects/initiatives become top-level discussion threads; comments on documents/milestones become description comments. To reply to an existing thread, pass `parentId` and `body`; the reply inherits the parent's thread type, so no entity reference is needed."
+        description: "Create or update a comment on a Linear issue, project, initiative, document, project milestone, or project/initiative status update. If `id` is provided, updates the existing comment; otherwise creates a new one. To start a new thread, pass `body` and exactly one of `issueId`, `projectId`, `initiativeId`, `documentId`, `milestoneId`, or `statusUpdateId` \u2014 comments on issues/projects/initiatives become top-level discussion threads; comments on documents/milestones become description comments. A status update holds a single thread, so a comment on an update that already has one is added to it as a reply. To reply to an existing thread, pass `parentId` and `body`; the reply inherits the parent's thread type, so no entity reference is needed. Parent reference fields are ignored when `id` or `parentId` is provided (`statusUpdateType` is rejected instead)."
         arguments:
           id:
             type: "string"
@@ -182,6 +199,15 @@ servers:
             type: "string"
             required: false
             description: "Milestone UUID (provide exactly one parent). Resolve milestone names via `list_milestones` first."
+          statusUpdateId:
+            type: "string"
+            required: false
+            description: "Status update UUID (provide exactly one parent). Resolve status updates via `get_status_updates` first."
+          statusUpdateType:
+            type: "string"
+            required: false
+            description: "Type of status update named by `statusUpdateId`, as returned by `get_status_updates`. Only valid together with `statusUpdateId`; omit to check both project and initiative status updates."
+            enum: ["project", "initiative"]
           parentId:
             type: "string"
             required: false
@@ -455,7 +481,7 @@ servers:
           labels:
             type: "array"
             required: false
-            description: "Label names or IDs"
+            description: "Label names or IDs as a JSON array of strings (e.g. [\"Bug\", \"Urgent\"]). Replaces the full label set; existing labels not included are removed. Omit to leave labels unchanged"
           dueDate:
             type: "string"
             required: false
@@ -732,7 +758,7 @@ servers:
           labels:
             type: "array"
             required: false
-            description: "Label names or IDs"
+            description: "Label names or IDs as a JSON array of strings (e.g. [\"Bug\", \"Urgent\"]). Replaces the full label set; existing labels not included are removed. Omit to leave labels unchanged"
           lead:
             type: "string|null"
             required: false
