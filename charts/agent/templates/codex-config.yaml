@@ -20,7 +20,6 @@ data:
     args = ["mcp"]
     [mcp_servers.vmcp]
     url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp"
-    bearer_token_env_var = "AGENTGATEWAY_API_KEY"
     # Pre-trust PVC-seeded workdirs so codex never blocks on directory trust.
     [projects."/workspace"]
     trust_level = "trusted"

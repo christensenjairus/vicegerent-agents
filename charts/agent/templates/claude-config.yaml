@@ -28,10 +28,7 @@ data:
         },
         "vmcp": {
           "type": "http",
-          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp",
-          "headers": {
-            "Authorization": "Bearer ${AGENTGATEWAY_API_KEY}"
-          }
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp"
         }
       },
       "projects": {

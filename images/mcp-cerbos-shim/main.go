@@ -56,7 +56,7 @@ func main() {
 	// closed (deny), never silently open.
 	var opts []server.Option
 	if ids := splitNonEmpty(cfg.notionAllowedParentPageIDs, ","); len(ids) > 0 {
-		opts = append(opts, server.WithNotionAncestry(upstream.New(upstream.DefaultVMCPURL, cfg.agentgatewayAPIKey, nil), ids))
+		opts = append(opts, server.WithNotionAncestry(upstream.New(upstream.DefaultVMCPURL, nil), ids))
 		log.Printf("notion existing-page-write ancestry gate enabled (%d allowed parent(s))", len(ids))
 	} else {
 		log.Printf("WARNING: NOTION_ALLOWED_PARENT_PAGE_IDS unset/empty; notion update-page/create-comment will fail closed")
@@ -70,7 +70,7 @@ func main() {
 	// to gate on; a lookup failure at call time fails closed on its own
 	// (checkLinearIssueTeam), same posture as the Notion gate's per-call
 	// failure path.
-	opts = append(opts, server.WithLinearIssueTeam(upstream.New(upstream.DefaultVMCPURL, cfg.agentgatewayAPIKey, nil)))
+	opts = append(opts, server.WithLinearIssueTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
 	log.Printf("linear issue team-resolution gate enabled (save_comment always; save_issue updates without an explicit team arg)")
 
 	// Linear save_project UPDATE team-resolution gate: same
@@ -78,7 +78,7 @@ func main() {
 	// of its own, hands off to the same ${linearAllowedTeams} Cerbos rule
 	// via the teams attr save_project already populates via linearProjectAttr
 	// when the call sets addTeams/setTeams itself.
-	opts = append(opts, server.WithLinearProjectTeam(upstream.New(upstream.DefaultVMCPURL, cfg.agentgatewayAPIKey, nil)))
+	opts = append(opts, server.WithLinearProjectTeam(upstream.New(upstream.DefaultVMCPURL, nil)))
 	log.Printf("linear project team-resolution gate enabled (save_project updates without addTeams/setTeams)")
 
 	// PagerDuty incident service-resolution gate: same
@@ -86,7 +86,7 @@ func main() {
 	// of its own, hands off to the ${pagerdutyAllowedServiceIds} Cerbos rule
 	// (resource_pagerduty.yaml) via the serviceIds attr this gate resolves
 	// for every manage_incidents/add_note_to_incident call.
-	opts = append(opts, server.WithPagerdutyIncidentService(upstream.New(upstream.DefaultVMCPURL, cfg.agentgatewayAPIKey, nil)))
+	opts = append(opts, server.WithPagerdutyIncidentService(upstream.New(upstream.DefaultVMCPURL, nil)))
 	log.Printf("pagerduty incident service-resolution gate enabled (manage_incidents, add_note_to_incident)")
 
 	srv := server.New(mapping, engine, decider, server.Principal{
@@ -113,7 +113,6 @@ type envConfig struct {
 	cerbosAddr                 string
 	cerbosPlaintext            bool
 	notionAllowedParentPageIDs string
-	agentgatewayAPIKey         string
 }
 
 func loadEnv() envConfig {
@@ -123,9 +122,6 @@ func loadEnv() envConfig {
 		cerbosAddr:                 envOr("CERBOS_ADDR", "cerbos.cerbos.svc.cluster.local:3593"),
 		cerbosPlaintext:            envOr("CERBOS_PLAINTEXT", "true") == "true",
 		notionAllowedParentPageIDs: envOr("NOTION_ALLOWED_PARENT_PAGE_IDS", ""),
-		// This shim's own credential for calling back into agentgateway.
-		// Empty is valid (no header sent) if the policy isn't deployed yet.
-		agentgatewayAPIKey: envOr("AGENTGATEWAY_API_KEY", ""),
 	}
 }
 

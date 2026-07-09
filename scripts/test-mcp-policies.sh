@@ -18,10 +18,8 @@
 #   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
 #   bash scripts/test-mcp-policies.sh
 #
-# agentgateway enforces apiKeyAuthentication (apps/base/gateway/apikey-policy.yaml).
-# API_KEY auto-pulls the mcp-cerbos-shim entry from agentgateway-api-keys via
-# kubectl if not set explicitly -- override with API_KEY=<key> to test as a
-# specific agent instead.
+# Override gateway URL or API key:
+#   GATEWAY_URL=http://localhost:8080 MY_KEY=hermes bash scripts/test-mcp-policies.sh
 set -uo pipefail
 
 KUBE_CONTEXT="${KUBE_CONTEXT:-kind-vicegerent}"
@@ -34,14 +32,7 @@ if command -v kubectl >/dev/null 2>&1; then
 fi
 
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
-if [[ -z "${API_KEY:-}" ]]; then
-  API_KEY="$(kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.mcp-cerbos-shim}' 2>/dev/null | base64 -d 2>/dev/null || true)"
-  if [[ -z "$API_KEY" ]]; then
-    echo "ERROR: could not auto-fetch API_KEY (agentgateway-api-keys/mcp-cerbos-shim missing)." >&2
-    echo "  Set it explicitly: API_KEY=\$(kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.hermes}' | base64 -d) bash scripts/test-mcp-policies.sh" >&2
-    exit 1
-  fi
-fi
+API_KEY="${MY_KEY:-hermes}"
 # Random secret name so the test is self-describing in k8s audit logs
 SECRET_NAME="policy-test-$(LC_ALL=C tr -dc 'a-z0-9' </dev/urandom 2>/dev/null | head -c8 || echo 'xxxxxxxx')"
 
@@ -92,13 +83,7 @@ open_session() {
   SESSION_ID=""
   mcp_post "$url" "$init" >/dev/null
   if [[ -z "$SESSION_ID" ]]; then
-    local code; code=$(mcp_http_code "$url" "$init")
-    if [[ "$code" == "401" || "$code" == "403" ]]; then
-      echo -e "  ${RED}FATAL: ${code} from ${url} — apiKeyAuthentication rejected API_KEY (mcp-cerbos-shim entry may be stale or missing)${NC}" >&2
-      echo "  Check it: kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.mcp-cerbos-shim}' | base64 -d" >&2
-    else
-      echo -e "  ${RED}FATAL: could not open MCP session to ${url} (HTTP ${code})${NC}" >&2
-    fi
+    echo -e "  ${RED}FATAL: could not open MCP session to ${url}${NC}" >&2
     exit 1
   fi
 }
