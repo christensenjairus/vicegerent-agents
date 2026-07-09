@@ -80,6 +80,16 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   `caCertificateRefs` resolves to a ConfigMap keyed `ca.crt`, not a Secret).
 - **Generated Flux manifests** (`clusters/*/flux-system/gotk-*.yaml`) are excluded from `yamlfix`;
   leave them as Flux generates them.
+- **CiliumNetworkPolicy DNS and connection rules are two separate layers that must both list a
+  destination.** A `toEndpoints`/`toFQDNs` rule permits the *connection*; a DNS `matchName` under
+  `rules.dns` permits *resolving* that hostname in the first place. Adding one without the other
+  either silently blocks a workload that already had connection access (DNS missing) or does
+  nothing (connection missing). Also: `matchPattern` does not cross `.` label boundaries — a
+  single `*` substitutes exactly one DNS label, so `*.svc.cluster.local` does not match
+  two-label service names like `egress-proxy.egress-proxy.svc.cluster.local` (cilium#22081).
+  Prefer exact `matchName` per real hostname over wildcards for in-cluster service DNS. When
+  editing egress policy for a workload, check both its `toEndpoints`/`toFQDNs` rules and its DNS
+  `matchName` list for every hostname it actually needs.
 - **MCP authorization layering** — agentgateway is the single ingress gate for MCP traffic (routing,
   auth, mTLS to the host vMCP). Two separate concerns sit on top: *tool selection* (which tools an
   agent can see/call) and *argument-level authorization*. Tool selection is done upstream in ToolHive's
