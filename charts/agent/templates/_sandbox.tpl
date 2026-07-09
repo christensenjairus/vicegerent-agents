@@ -61,11 +61,13 @@ spec:
               set -euo pipefail
               # /etc/passwd gives uid 10000 a home of /opt/data, but the main container's HOME is /opt/data/home -- match it so git config --global lands where it's actually read.
               export HOME=/opt/data/home
-              # fastembed reads HERMES_HOME/cache; the local LLM reads ~/.hermes — different dirs.
+              # fastembed reads HERMES_HOME/cache; the local LLM reads ~/.hermes; faster-whisper
+              # reads the default HF_HUB_CACHE (~/.cache/huggingface/hub) — three different dirs.
               fastembed_dest="/opt/data/cache/fastembed"
               llm_dest="/opt/data/home/.hermes/mnemosyne/models"
+              whisper_dest="/opt/data/home/.cache/huggingface/hub"
               marker_dir="/opt/data/.hermes"
-              mkdir -p "${fastembed_dest}" "${llm_dest}" "${marker_dir}" /opt/data/plugins /opt/data/.ssh
+              mkdir -p "${fastembed_dest}" "${llm_dest}" "${whisper_dest}" "${marker_dir}" /opt/data/plugins /opt/data/.ssh
 {{- if and .Values.git.userName .Values.git.userEmail }}
               git config --global user.name {{ .Values.git.userName | quote }}
               git config --global user.email {{ .Values.git.userEmail | quote }}
@@ -118,12 +120,13 @@ spec:
               marker="${marker_dir}/.mnemosyne-seed.sha256"
               want="$(cat "${seed}.sha256"):layout=v2"
               if [ "$(cat "${marker}" 2>/dev/null || true)" != "${want}" ] || [ -z "$(ls -A "${llm_dest}" 2>/dev/null)" ]; then
-                rm -rf "${fastembed_dest}"
+                rm -rf "${fastembed_dest}" "${whisper_dest}"
                 # llm_dest is a mountpoint; rm -rf on it errors EBUSY under set -e.
                 find "${llm_dest}" -mindepth 1 -delete 2>/dev/null || true
-                mkdir -p "${fastembed_dest}" "${llm_dest}"
+                mkdir -p "${fastembed_dest}" "${llm_dest}" "${whisper_dest}"
                 cp -dR "${seed}/mnemosyne/models/." "${llm_dest}/"
                 cp -dR "${seed}/cache/fastembed/." "${fastembed_dest}/"
+                cp -dR "${seed}/cache/faster-whisper/." "${whisper_dest}/"
                 printf '%s\n' "${want}" > "${marker}"
               fi
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
