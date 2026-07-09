@@ -42,8 +42,18 @@ RUN printf 'export PATH="/opt/hermes/.venv/bin:$PATH"\n' > /etc/profile.d/00-her
 # only sees real syscalls, so builtins (echo, printf, etc.) run in-process
 # and are otherwise invisible in VictoriaLogs. Covers 8 shadowable builtins;
 # state-mutating ones (cd, export, eval, set, ...) have no binary equivalent
-# and can't be covered this way.
-RUN printf 'enable -n "[" echo false kill printf pwd test true\n' >> /etc/bash.bashrc
+# and can't be covered this way. BASH_ENV (not just bash.bashrc) is required
+# because Hermes' terminal() tool runs plain non-interactive, non-login
+# `bash -c` -- the one shell-invocation mode that sources neither
+# /etc/profile nor /etc/bash.bashrc, only $BASH_ENV. Accepted tradeoff:
+# external pwd resolves symlinks (physical path) where the builtin preserves
+# the logical $PWD, and external kill can't take job specs (%1) -- global
+# BASH_ENV shadowing means every bash -c in the sandbox gets this, not just
+# interactive sessions.
+ENV BASH_ENV=/etc/bash-shadow-builtins.sh
+RUN printf 'enable -n "[" echo false kill printf pwd test true\n' > /etc/bash-shadow-builtins.sh \
+    && chmod 644 /etc/bash-shadow-builtins.sh \
+    && printf '[ -r /etc/bash-shadow-builtins.sh ] \&\& . /etc/bash-shadow-builtins.sh\n' >> /etc/bash.bashrc
 
 # Bake the Mnemosyne seed outside /opt/data so the data PVC cannot shadow it.
 COPY --from=mnemosyne-models /seed /opt/hermes/mnemosyne-seed
