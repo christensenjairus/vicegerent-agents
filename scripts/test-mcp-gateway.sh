@@ -2,21 +2,29 @@
 # test-mcp-gateway.sh
 # Probe all MCP endpoints that agentgateway is supposed to expose.
 #
-# Usage (run from your mac):
-#   # Port-forward first in another terminal:
-#   #   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
-#   #   GATEWAY_URL=http://localhost:8080 bash scripts/test-mcp-gateway.sh [keyword]
+# Usage (run from your mac, port-forward first in another terminal):
+#   kubectl -n agentgateway-system port-forward svc/agentgateway-proxy 8080:80
+#   GATEWAY_URL=http://localhost:8080 bash scripts/test-mcp-gateway.sh [keyword]
+#
+# agentgateway enforces apiKeyAuthentication (apps/base/gateway/apikey-policy.yaml).
+# API_KEY auto-pulls the mcp-cerbos-shim entry from agentgateway-api-keys via
+# kubectl if not set explicitly -- override with API_KEY=<key> to test as a
+# specific agent instead.
 #
 # With no keyword, enumerate the reachable tools per backend. With a keyword,
 # search find_tool for matching tools (e.g. 'kubernetes', 'context', 'notion').
-#
-# Override API key (default is the kustomize-generated literal "hermes"):
-#   MYKEY=myval bash scripts/test-mcp-gateway.sh
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GATEWAY_URL="${GATEWAY_URL:-http://localhost:8080}"
-API_KEY="${API_KEY:-hermes}"
+if [[ -z "${API_KEY:-}" ]]; then
+  API_KEY="$(kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.mcp-cerbos-shim}' 2>/dev/null | base64 -d 2>/dev/null || true)"
+  if [[ -z "$API_KEY" ]]; then
+    echo "ERROR: could not auto-fetch API_KEY (kubectl unavailable, wrong context, or agentgateway-api-keys/mcp-cerbos-shim missing)." >&2
+    echo "  Set it explicitly: API_KEY=\$(kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.hermes}' | base64 -d) bash scripts/test-mcp-gateway.sh" >&2
+    exit 1
+  fi
+fi
 SERVERS_CONFIG="${SERVERS_CONFIG:-$SCRIPT_DIR/../host/mcp/toolhive-servers.json}"
 # Optional free-form keyword: search find_tool for matching tools instead of
 # enumerating every backend (e.g. 'kubernetes', 'context', 'notion').
@@ -172,6 +180,9 @@ for entry in "${MCPS[@]}"; do
          ((FAIL++)); continue ;;
     421) echo -e "  ${RED}x 421 Misdirected Request${NC} — Python MCP SDK host-allowlist lock"
          echo    "    kubectl -n <mcp-ns> logs <pod> | grep -i 'Invalid Host'"
+         ((FAIL++)); continue ;;
+    401|403) echo -e "  ${RED}x ${code}${NC} — apiKeyAuthentication rejected API_KEY (mcp-cerbos-shim entry may be stale or missing)"
+         echo    "    kubectl -n agentgateway-system get secret agentgateway-api-keys -o jsonpath='{.data.mcp-cerbos-shim}' | base64 -d"
          ((FAIL++)); continue ;;
     [45]*) raw=$(mcp_post "$url" "$INIT" || true)
            echo -e "  ${RED}x HTTP ${code}${NC}: ${raw:0:300}"

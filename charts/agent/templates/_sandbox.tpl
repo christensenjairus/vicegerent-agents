@@ -142,7 +142,13 @@ spec:
               sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
                 < /reload/claude-config/settings.json \
                 > /opt/data/.claude/settings.json
-              cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
+              # claude.json also carries the vmcp MCP server's Authorization header --
+              # Claude Code's own ${VAR} env-var expansion in MCP headers is unreliable
+              # (anthropics/claude-code#6204, #28293), so bake the literal key in here
+              # instead of relying on it, same as settings.json above.
+              sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
+                < /reload/claude-config/claude.json \
+                > /opt/data/.claude/.claude.json
               cp -f /reload/claude-config/CLAUDE.md /opt/data/.claude/CLAUDE.md
               # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
               mkdir -p /opt/data/tmp

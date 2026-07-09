@@ -11,6 +11,9 @@
 #   <name>-agentgateway-api-key    api-key         (random bearer token)
 #   <name>-ssh-key                 hermes_agent_ed25519  (ed25519 private key)
 #
+# ALSO mirrors <name>-agentgateway-api-key into agentgateway-system/agentgateway-api-keys
+# (keyed "<name>"), shared with setup-secrets-platform.sh's mcp-cerbos-shim entry via merge-patch.
+#
 # Generated material (dashboard auth, SSH key, bearer token) is generated once and
 # reused on re-run; Slack values are taken from the environment or prompted for.
 # Secrets are disposable/recreatable — keep your own copy of any Slack tokens.
@@ -82,6 +85,17 @@ secret_val() {
   [[ -n "$b64" ]] && printf '%s' "$b64" | base64 -d
   return 0
 }
+# ensure_secret_key <name> <ns> <key> <value> — merge-patch ONE key into a
+# Secret without touching any other key (shared with setup-secrets-platform.sh
+# against agentgateway-api-keys; both scripts must be safe to re-run independently).
+ensure_secret_key() {
+  local name="$1" ns="$2" key="$3" value="$4"
+  kc -n "$ns" get secret "$name" >/dev/null 2>&1 \
+    || kc -n "$ns" create secret generic "$name" >/dev/null
+  local b64; b64="$(printf '%s' "$value" | base64 | tr -d '\n')"
+  kc -n "$ns" patch secret "$name" --type=merge \
+    -p "{\"data\":{\"$key\":\"$b64\"}}" >/dev/null
+}
 
 # --- prerequisites ---------------------------------------------------------
 for cmd in kubectl openssl ssh-keygen jq; do
@@ -102,15 +116,25 @@ echo "${B}vicegerent agent secret setup${N}  (agent: $AGENT, context: $KUBE_CONT
 ensure_ns "$NS"
 
 # --- agentgateway virtual API key ------------------------------------------
+# Also mirrored into agentgateway-system/agentgateway-api-keys (keyed by
+# $AGENT): that copy is what the apiKeyAuthentication policy validates
+# against, this copy is what's mounted as AGENTGATEWAY_API_KEY. Merge-patched
+# so other agents'/mcp-cerbos-shim's entries in the shared Secret survive.
 step "$ITEM_API_KEY"
-if [[ -n "$(secret_val "$ITEM_API_KEY" api-key)" ]]; then
+existing_key="$(secret_val "$ITEM_API_KEY" api-key)"
+if [[ -n "$existing_key" ]]; then
   info "agentgateway API key already set; reusing."
+  api_key="$existing_key"
 else
+  api_key="$(openssl rand -hex 32)"
   kc -n "$NS" create secret generic "$ITEM_API_KEY" \
-    --from-literal="api-key=$(openssl rand -hex 32)" \
+    --from-literal="api-key=$api_key" \
     --dry-run=client -o yaml | kc apply -f - >/dev/null
   info "Generated agentgateway API key."
 fi
+# Always (re-)mirror -- an upgrading install won't have the agentgateway-system
+# copy yet; ensure_secret_key is idempotent.
+ensure_secret_key agentgateway-api-keys agentgateway-system "$AGENT" "$api_key"
 
 # --- SSH key ---------------------------------------------------------------
 # ed25519 keypair (generate-once). Private key → <name>-ssh-key; public key is
@@ -173,9 +197,16 @@ step "Verify"
 missing=0
 check() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$1 ($2)"; else echo "  ${R}MISS${N} $NS/$1 ($2)"; missing=1; fi; }
 check_optional() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$1 ($2)"; else echo "  ${Y}skip${N} $NS/$1 ($2)  (optional)"; fi; }
+# check_other_ns <name> <ns> <key> — like check, but for a Secret outside $NS
+# (agentgateway-api-keys lives in agentgateway-system, not agent-sandbox).
+check_other_ns() {
+  local val; val="$(kc -n "$2" get secret "$1" -o json 2>/dev/null | jq -r --arg k "$3" '.data[$k] // empty')"
+  if [[ -n "$val" ]]; then echo "  ${G}ok${N}   $2/$1 ($3)"; else echo "  ${R}MISS${N} $2/$1 ($3)"; missing=1; fi
+}
 check "$ITEM" password
 check "$ITEM" signing-secret
 check "$ITEM_API_KEY" api-key
+check_other_ns agentgateway-api-keys agentgateway-system "$AGENT"
 check_optional "$ITEM" public-key
 check_optional "$ITEM_SSH" "$SSH_KEY_FILE"
 check_optional "$ITEM" SLACK_BOT_TOKEN
