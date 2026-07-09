@@ -20,9 +20,11 @@
 #
 # Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
 # Internal cluster services (*.svc.cluster.local) need POST and are passed through
-# after scrubbing. One exception: git's smart-HTTP git-upload-pack (clone/fetch),
-# host-scoped to github.com/*.github.com (HAH-99) — path suffix + content-type
-# alone are fully client-controlled and do not bound the destination.
+# after scrubbing. External exceptions are declarative (METHOD_EXEMPTIONS): each
+# entry requires host + method + path suffix + content-type to ALL match — any
+# one alone is client-controlled and doesn't bound the destination. Multi-tenant
+# allowlisted hosts (object storage, CDNs) are further scoped to path prefixes
+# via EXTERNAL_PATH_SCOPES, since Cilium's toFQDNs allowlist is host-only.
 #
 # Response scrubbing: applied to text responses to guard against echo attacks
 # (a malicious service echoing back request content including secrets).
@@ -86,6 +88,32 @@ data:
 
     # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
+
+    # Restricts an already-FQDN-allowlisted host to specific path prefixes.
+    # Cilium's toFQDNs is host-only, so a multi-tenant host (object storage,
+    # CDNs) must be narrowed here or its allowlist entry grants access to
+    # every path any tenant could ever serve. Omit a host for no restriction.
+    EXTERNAL_PATH_SCOPES: dict[str, tuple[str, ...]] = {
+        # Only proxy.golang.org's zip-download redirect needs this host
+        # (golang/go#45248); otherwise it's a universal-tenancy bucket store.
+        "storage.googleapis.com": ("/proxy-golang-org-prod/",),
+    }
+
+    # Lets specific external destinations bypass the GET/HEAD-only restriction
+    # under narrow, fully-specified conditions. Host + method + path suffix +
+    # content-type must ALL match — any one alone is client-controlled and
+    # doesn't bound the destination.
+    METHOD_EXEMPTIONS: list[dict] = [
+        {
+            "name": "git_upload_pack",
+            "hosts": ("github.com",),
+            "host_suffixes": (".github.com",),
+            "methods": frozenset({"POST"}),
+            "path_suffix": "/git-upload-pack",
+            "content_type": "application/x-git-upload-pack-request",
+        },
+    ]
+
     EXTERNAL_FQDN_ALLOWLIST = {
         {{- range (splitList "," .Values.apexWildcardDomains) }}
         {{- if . }}
@@ -231,10 +259,6 @@ data:
         ipaddress.ip_network("fe80::/10"),
     ]
 
-    # git smart-HTTP clone/fetch content-type — read-only, push (git-receive-pack)
-    # goes over SSH instead and is not matched here.
-    GIT_UPLOAD_PACK_CONTENT_TYPE = "application/x-git-upload-pack-request"
-
     # Content types safe to scrub as text; skip binary (images, archives, protobuf, etc.).
     TEXT_CONTENT_TYPES = (
         "text/",
@@ -255,20 +279,33 @@ data:
     def _is_text(content_type: str) -> bool:
         ct = content_type.split(";")[0].strip().lower()
         return any(ct.startswith(t) for t in TEXT_CONTENT_TYPES)
-    def _is_git_upload_pack(flow: http.HTTPFlow) -> bool:
-        # HAH-99: path suffix + content-type are fully client-controlled, so an
-        # agent could otherwise POST an unscrubbed body to ANY allowlisted FQDN
-        # (e.g. storage.googleapis.com) by spoofing both. Restrict the exemption
-        # to git's actual host (github.com + its wildcard subdomains, already in
-        # apexWildcardDomains) so the widened surface is bounded to the one host
-        # this exception exists for.
+    def _matching_method_exemption(flow: http.HTTPFlow) -> dict | None:
+        # Every field on an exemption entry must match — host, method, path
+        # suffix, AND content-type — before it's granted. Any one alone is
+        # client-controlled and doesn't bound the destination.
         host = flow.request.pretty_host
-        if host != "github.com" and not host.endswith(".github.com"):
-            return False
-        if flow.request.method != "POST" or not flow.request.path.endswith("/git-upload-pack"):
-            return False
+        method = flow.request.method
+        path = flow.request.path
         ct = flow.request.headers.get("content-type", "").split(";")[0].strip().lower()
-        return ct == GIT_UPLOAD_PACK_CONTENT_TYPE
+        for rule in METHOD_EXEMPTIONS:
+            if host not in rule["hosts"] and not any(host.endswith(s) for s in rule["host_suffixes"]):
+                continue
+            if method not in rule["methods"]:
+                continue
+            if not path.endswith(rule["path_suffix"]):
+                continue
+            if ct != rule["content_type"]:
+                continue
+            return rule
+        return None
+    def _path_scope_violation(host: str, path: str) -> bool:
+        # True if host has a path-scope entry and path doesn't match any of its
+        # allowed prefixes. Hosts with no entry are unrestricted (existing
+        # host-only allowlist behavior).
+        prefixes = EXTERNAL_PATH_SCOPES.get(host)
+        if prefixes is None:
+            return False
+        return not path.startswith(prefixes)
     def _redact_gitleaks(text: str) -> tuple[str, int]:
         # POST text to the localhost gitleaks sidecar and return its redacted
         # text + count. Fail OPEN on any error/timeout: log once and return the
@@ -415,13 +452,13 @@ data:
                     redact_breakdown[k] = redact_breakdown.get(k, 0) + v
 
         # Scrub secrets from request body (text content only; skip binary).
-        # git-upload-pack bodies are also scrubbed despite their non-text
-        # content-type (HAH-99) — cheap defense-in-depth now that the exemption
-        # is host-scoped to github.com, in case a secret ever ends up in a
-        # ref/want line (e.g. a leaked token pasted into a local branch name).
+        # Method-exemption bodies (e.g. git-upload-pack) are scrubbed too despite
+        # non-text content-type — cheap defense-in-depth in case a secret ends up
+        # in one (e.g. a leaked token pasted into a branch name).
+        method_exemption = _matching_method_exemption(flow)
         if flow.request.content:
             ct = flow.request.headers.get("content-type", "")
-            if not ct or _is_text(ct) or _is_git_upload_pack(flow):
+            if not ct or _is_text(ct) or method_exemption:
                 try:
                     body = flow.request.get_text(strict=False)
                     new_body, n, bd = _redact(body)
@@ -438,9 +475,10 @@ data:
                 _client(flow), redacted, _fmt_breakdown(redact_breakdown), method, url,
             )
 
-        # Method enforcement — external destinations only. Exception: git-upload-pack
-        # (smart-HTTP clone/fetch, read-only) — needed for pre-commit hook installs.
-        if not internal and method not in ALLOWED_METHODS and not _is_git_upload_pack(flow):
+        # Method enforcement — external destinations only, unless a narrowly-scoped
+        # exemption in METHOD_EXEMPTIONS matches (e.g. git-upload-pack for
+        # smart-HTTP clone/fetch, needed for pre-commit hook installs).
+        if not internal and method not in ALLOWED_METHODS and not method_exemption:
             log.warning("client=%s BLOCKED method=%s url=%s", _client(flow), method, url)
             flow.response = http.Response.make(
                 403,
@@ -462,6 +500,14 @@ data:
                         " dropped by the network policy. Use an MCP tool instead"
                         " (web_search, firecrawl, tavily, gitlab, kubernetes, etc.)."
                     ),
+                    {"Content-Type": "text/plain"},
+                )
+                return
+            if _path_scope_violation(host, flow.request.path):
+                log.warning("client=%s BLOCKED path-not-in-scope method=%s url=%s", _client(flow), method, url)
+                flow.response = http.Response.make(
+                    403,
+                    f"[egress-proxy] {host} is scoped to {EXTERNAL_PATH_SCOPES.get(host)} only",
                     {"Content-Type": "text/plain"},
                 )
                 return
