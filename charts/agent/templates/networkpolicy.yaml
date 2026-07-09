@@ -19,22 +19,7 @@ spec:
               protocol: UDP
           rules:
             dns:
-              - matchPattern: '*.svc.cluster.local'
-              - matchPattern: '*.cluster.local'
-              {{- if .Values.networkAllowlist.slackFQDNs }}
-              {{- range .Values.networkAllowlist.slackFQDNs }}
-              - matchName: {{ . }}
-              {{- end }}
-              {{- end }}
-              {{- if .Values.networkAllowlist.cnameChainedFQDN }}
-              - matchName: {{ .Values.networkAllowlist.cnameChainedFQDN }}
-              {{- end }}
-              {{- range (splitList "," .Values.networkAllowlist.cnameChain) }}
-              {{- if . }}
-              - matchName: {{ . }}
-              {{- end }}
-              {{- end }}
-              - matchName: github.com
+              - matchPattern: '*'
     # All HTTP(S) traffic — to internet, agentgateway, and searxng — routes through
     # the scrubbing proxy. Secrets are redacted before reaching any destination.
     - toEndpoints:
