@@ -48,7 +48,7 @@ vector:
             pod = to_string(.kubernetes.pod_name) ?? ""
             container = to_string(.kubernetes.container_name) ?? ""
             pod_app_label = to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ?? ""
-            (ns == "kube-system" && pod_app_label == "tetragon" && (container == "export-stdout" || container == "tetragon")) ||
+            (ns == "kube-system" && pod_app_label == "tetragon" && container == "export-stdout") ||
             (ns == "agentgateway-system" && starts_with(pod, "agentgateway-proxy-") && container == "agentgateway") ||
             (ns == "agent-sandbox" && container == "hermes") ||
             (ns == "egress-proxy" && container == "mitmproxy")
@@ -63,12 +63,6 @@ vector:
               binary = to_string(p.binary) ?? "?"
               args = to_string(p.arguments) ?? ""
               .message = "process_start: " + binary + " " + args
-            } else if is_object(.log.process_kprobe) {
-              p = .log.process_kprobe.process
-              binary = to_string(p.binary) ?? "?"
-              args = to_string(p.arguments) ?? ""
-              policy = to_string(.log.process_kprobe.policy_name) ?? "?"
-              .message = "process_kprobe (policy " + policy + "): " + binary + " " + args
             }
           }
       # Mirrors REDACT_PATTERNS in charts/egress-proxy/templates/addon-configmap.yaml -- see docs/secrets-and-pii-redaction.md.
