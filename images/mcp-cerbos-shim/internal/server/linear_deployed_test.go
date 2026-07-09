@@ -68,7 +68,7 @@ func TestDeployedLinearMapping_OrdinaryUpdateResolvesCurrentTeam(t *testing.T) {
 	s := New(m, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithLinearIssueTeam(up))
 	res, err := s.CheckRequest(context.Background(),
 		mcpReq("vmcp", "tools/call", toolCall("linear_save_issue",
-			map[string]any{"id": "HAH-69", "title": "t"})))
+			map[string]any{"id": "PROJ-1", "title": "t"})))
 	if err != nil {
 		t.Fatalf("CheckRequest: %v", err)
 	}
