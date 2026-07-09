@@ -80,7 +80,7 @@ func TestCallTool_Success(t *testing.T) {
 	})
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	result, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "pageid"})
@@ -99,7 +99,7 @@ func TestCallTool_Timeout(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
 	_, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "x"})
@@ -115,7 +115,7 @@ func TestCallTool_NonOKStatus(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "x"})
@@ -131,7 +131,7 @@ func TestCallTool_MalformedJSONRPC(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "x"})
@@ -160,7 +160,7 @@ func TestCallTool_JSONRPCErrorResponse(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "x"})
@@ -192,7 +192,7 @@ func TestCallTool_ToolReportedError(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := New(srv.URL, nil)
+	c := New(srv.URL, "", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	_, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "x"})
@@ -211,4 +211,54 @@ func TestExtractJSONRPCBody_SSE(t *testing.T) {
 	if err := json.Unmarshal(got, &resp); err != nil {
 		t.Fatalf("extracted body not valid JSON: %v", err)
 	}
+}
+
+func TestNew_APIKeyAuthorizationHeader(t *testing.T) {
+	var gotAuth []string
+	srv := newTestServer(t, func(name string, args map[string]any) (int, string) {
+		return http.StatusOK, "ok"
+	})
+	defer srv.Close()
+	inner := srv.Config.Handler
+	srv.Config.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotAuth = append(gotAuth, r.Header.Get("Authorization"))
+		inner.ServeHTTP(w, r)
+	})
+
+	t.Run("empty apiKey sends no Authorization header", func(t *testing.T) {
+		gotAuth = nil
+		c := New(srv.URL, "", nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "pageid"}); err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
+		for _, h := range gotAuth {
+			if h != "" {
+				t.Errorf("expected no Authorization header with empty apiKey, got %q", h)
+			}
+		}
+		if len(gotAuth) == 0 {
+			t.Fatalf("expected at least one request to be captured")
+		}
+	})
+
+	t.Run("non-empty apiKey sends the expected header on every request", func(t *testing.T) {
+		gotAuth = nil
+		c := New(srv.URL, "test-shim-key", nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		if _, err := c.CallTool(ctx, "notion_notion-fetch", map[string]any{"id": "pageid"}); err != nil {
+			t.Fatalf("CallTool: %v", err)
+		}
+		if len(gotAuth) == 0 {
+			t.Fatalf("expected at least one request to be captured")
+		}
+		want := "Bearer " + "test-shim-key"
+		for _, h := range gotAuth {
+			if h != want {
+				t.Errorf("Authorization = %q, want %q", h, want)
+			}
+		}
+	})
 }

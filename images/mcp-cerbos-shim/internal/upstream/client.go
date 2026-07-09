@@ -50,18 +50,27 @@ const mcpProtocolVersion = "2025-06-18"
 // for one call site.
 type Client struct {
 	url        string
+	apiKey     string
 	httpClient *http.Client
 }
 
 // New constructs a Client. httpClient may be nil to use a default
-// *http.Client{} (plain HTTP, no TLS config -- see DefaultVMCPURL doc).
-// Per-call timeouts are enforced via context, not a client-wide Timeout, so
-// callers control the budget explicitly (see CallTool).
-func New(url string, httpClient *http.Client) *Client {
+// *http.Client{}. apiKey, when non-empty, is sent as an Authorization
+// header on every request (required once agentgateway's apiKeyAuthentication
+// policy is in effect); empty apiKey sends no header.
+func New(url, apiKey string, httpClient *http.Client) *Client {
 	if httpClient == nil {
 		httpClient = &http.Client{}
 	}
-	return &Client{url: url, httpClient: httpClient}
+	return &Client{url: url, apiKey: apiKey, httpClient: httpClient}
+}
+
+// setAuth attaches this Client's apiKey as an Authorization header; a
+// no-op when apiKey is empty.
+func (c *Client) setAuth(req *http.Request) {
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 }
 
 // jsonrpcRequest and jsonrpcResponse are the minimal JSON-RPC 2.0 envelope
@@ -240,6 +249,7 @@ func (c *Client) postJSONRPC(ctx context.Context, sessionID string, req jsonrpcR
 	if sessionID != "" {
 		httpReq.Header.Set("Mcp-Session-Id", sessionID)
 	}
+	c.setAuth(httpReq)
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {
@@ -284,6 +294,7 @@ func (c *Client) post(ctx context.Context, sessionID string, body []byte) error 
 	if sessionID != "" {
 		httpReq.Header.Set("Mcp-Session-Id", sessionID)
 	}
+	c.setAuth(httpReq)
 
 	httpResp, err := c.httpClient.Do(httpReq)
 	if err != nil {

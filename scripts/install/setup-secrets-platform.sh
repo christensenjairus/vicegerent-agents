@@ -12,6 +12,10 @@
 # Applies these Kubernetes Secrets (and one ConfigMap):
 #   agentgateway-system  vicegerent-secrets           Authorization        (Anthropic API key)
 #   agentgateway-system  vicegerent-openai-secrets    Authorization        (OpenAI API key, optional)
+#   agentgateway-system  agentgateway-api-keys        mcp-cerbos-shim      (generated; per-agent entries added
+#                                                                          by setup-secrets-agent.sh via merge-patch)
+#   cerbos               mcp-cerbos-shim-api-key      api-key              (same value, mirrored: shim Deployment
+#                                                                          is in ns cerbos, secretKeyRef is same-ns only)
 #   agentgateway-system  vicegerent-mcp-client        tls.crt, tls.key     (ghostunnel client cert)
 #   agentgateway-system  ghostunnel-ca (ConfigMap)    ca.crt               (ghostunnel CA cert)
 #   agentgateway-system  ghostunnel-server            server.crt/key,ca.crt (host recovery copy)
@@ -102,6 +106,20 @@ secret_has() { [[ -n "$(secret_b64 "$1" "$2" "$3")" ]]; }
 apply_secret() {
   local name="$1" ns="$2"; shift 2
   kc -n "$ns" create secret generic "$name" "$@" --dry-run=client -o yaml | kc apply -f - >/dev/null
+}
+
+# ensure_secret_key <name> <ns> <key> <value> — merge-patch ONE key into a
+# Secret without touching any other key (unlike apply_secret's create|apply,
+# which replaces the whole .data map). Needed for agentgateway-api-keys,
+# which this script and setup-secrets-agent.sh both write different entries
+# into. Creates the Secret first if missing (kubectl patch fails on that).
+ensure_secret_key() {
+  local name="$1" ns="$2" key="$3" value="$4"
+  kc -n "$ns" get secret "$name" >/dev/null 2>&1 \
+    || kc -n "$ns" create secret generic "$name" >/dev/null
+  local b64; b64="$(printf '%s' "$value" | base64 | tr -d '\n')"
+  kc -n "$ns" patch secret "$name" --type=merge \
+    -p "{\"data\":{\"$key\":\"$b64\"}}" >/dev/null
 }
 
 # ensure_literal_secret <name> <ns> <key> <envvar> <prompt> <required(0|1)>
@@ -265,6 +283,27 @@ step "OpenAI API key (optional)"
 ensure_literal_secret vicegerent-openai-secrets agentgateway-system Authorization \
   OPENAI_API_KEY "OpenAI API key (sk-...) — GPT models stay unavailable until set." 0
 
+# --- agentgateway API-key authentication -------------------------------------
+# agentgateway-api-keys (agentgateway-system) backs the Gateway-level
+# apiKeyAuthentication policy; every caller needs an entry or is rejected.
+# mcp-cerbos-shim needs TWO copies of the same value in two namespaces,
+# since Kubernetes has no cross-namespace secretKeyRef:
+# agentgateway-system/agentgateway-api-keys (what the policy validates
+# against) and cerbos/mcp-cerbos-shim-api-key (what the shim Deployment
+# mounts). Both writes below share one $shim_key -- regenerating either
+# independently breaks auth.
+step "agentgateway API-key authentication (mcp-cerbos-shim entry)"
+if [[ -n "$(secret_b64 agentgateway-api-keys agentgateway-system mcp-cerbos-shim)" ]]; then
+  info "agentgateway-system/agentgateway-api-keys (mcp-cerbos-shim) already set; reusing."
+  shim_key="$(secret_b64 agentgateway-api-keys agentgateway-system mcp-cerbos-shim | base64 -d)"
+else
+  shim_key="$(openssl rand -hex 32)"
+  ensure_secret_key agentgateway-api-keys agentgateway-system mcp-cerbos-shim "$shim_key"
+  info "Generated mcp-cerbos-shim's agentgateway API key."
+fi
+apply_secret mcp-cerbos-shim-api-key cerbos --from-literal="api-key=$shim_key"
+info "Applied cerbos/mcp-cerbos-shim-api-key (shim-mounted copy)."
+
 # --- SearXNG secret key ----------------------------------------------------
 # Signs SearXNG session/limiter tokens. Generated once and reused so the value
 # stays stable across restarts (a changed key breaks limiter tokens and cache).
@@ -324,6 +363,8 @@ check vicegerent-mcp-client agentgateway-system tls.key
 check ghostunnel-server agentgateway-system server.crt
 check ghostunnel-server agentgateway-system server.key
 check vicegerent-secrets agentgateway-system Authorization
+check agentgateway-api-keys agentgateway-system mcp-cerbos-shim
+check mcp-cerbos-shim-api-key cerbos api-key
 check searxng-secret searxng secret_key
 check egress-proxy-ca egress-proxy ca.crt
 check egress-proxy-ca egress-proxy ca.key
