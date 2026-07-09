@@ -20,7 +20,9 @@
 #
 # Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
 # Internal cluster services (*.svc.cluster.local) need POST and are passed through
-# after scrubbing. One exception: git's smart-HTTP git-upload-pack (clone/fetch).
+# after scrubbing. One exception: git's smart-HTTP git-upload-pack (clone/fetch),
+# host-scoped to github.com/*.github.com (HAH-99) — path suffix + content-type
+# alone are fully client-controlled and do not bound the destination.
 #
 # Response scrubbing: applied to text responses to guard against echo attacks
 # (a malicious service echoing back request content including secrets).
@@ -254,6 +256,15 @@ data:
         ct = content_type.split(";")[0].strip().lower()
         return any(ct.startswith(t) for t in TEXT_CONTENT_TYPES)
     def _is_git_upload_pack(flow: http.HTTPFlow) -> bool:
+        # HAH-99: path suffix + content-type are fully client-controlled, so an
+        # agent could otherwise POST an unscrubbed body to ANY allowlisted FQDN
+        # (e.g. storage.googleapis.com) by spoofing both. Restrict the exemption
+        # to git's actual host (github.com + its wildcard subdomains, already in
+        # apexWildcardDomains) so the widened surface is bounded to the one host
+        # this exception exists for.
+        host = flow.request.pretty_host
+        if host != "github.com" and not host.endswith(".github.com"):
+            return False
         if flow.request.method != "POST" or not flow.request.path.endswith("/git-upload-pack"):
             return False
         ct = flow.request.headers.get("content-type", "").split(";")[0].strip().lower()
@@ -404,9 +415,13 @@ data:
                     redact_breakdown[k] = redact_breakdown.get(k, 0) + v
 
         # Scrub secrets from request body (text content only; skip binary).
+        # git-upload-pack bodies are also scrubbed despite their non-text
+        # content-type (HAH-99) — cheap defense-in-depth now that the exemption
+        # is host-scoped to github.com, in case a secret ever ends up in a
+        # ref/want line (e.g. a leaked token pasted into a local branch name).
         if flow.request.content:
             ct = flow.request.headers.get("content-type", "")
-            if not ct or _is_text(ct):
+            if not ct or _is_text(ct) or _is_git_upload_pack(flow):
                 try:
                     body = flow.request.get_text(strict=False)
                     new_body, n, bd = _redact(body)
