@@ -10,4 +10,4 @@ tetragon:
     rb-size-total: 8M
     rb-queue-size: '262144'
     event-queue-size: '40000'
-    debug: 'true'
+    enable-policy-filter-debug: 'true'
