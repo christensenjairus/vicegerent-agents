@@ -47,3 +47,4 @@ spec:
           rules:
             dns:
               - matchName: cerbos.cerbos.svc.cluster.local
+              - matchName: agentgateway-proxy.agentgateway-system.svc.cluster.local
