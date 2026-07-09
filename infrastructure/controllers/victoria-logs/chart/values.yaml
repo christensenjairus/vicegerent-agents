@@ -48,7 +48,7 @@ vector:
             pod = to_string(.kubernetes.pod_name) ?? ""
             container = to_string(.kubernetes.container_name) ?? ""
             pod_app_label = to_string(.kubernetes.pod_labels."app.kubernetes.io/name") ?? ""
-            (ns == "kube-system" && pod_app_label == "tetragon" && container == "export-stdout") ||
+            (ns == "kube-system" && pod_app_label == "tetragon" && (container == "export-stdout" || container == "tetragon")) ||
             (ns == "agentgateway-system" && starts_with(pod, "agentgateway-proxy-") && container == "agentgateway") ||
             (ns == "agent-sandbox" && container == "hermes") ||
             (ns == "egress-proxy" && container == "mitmproxy")
