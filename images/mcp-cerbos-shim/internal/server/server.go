@@ -1,7 +1,12 @@
 // Package server implements the agentgateway ExtMcp gRPC service.
-// Fail-closed contract: only tools/call is evaluated; bad params/mapping/eval/Cerbos errors
-// deny. Responses are pass or error, except a tool with a mapping `force` set, which allows
-// via a mutated (rewritten-args) result instead of a bare pass — never on a denied call.
+// Fail-closed contract: only tools/call is evaluated for Cerbos authz; bad
+// params/mapping/eval/Cerbos errors deny. Responses are pass or error, except
+// a tool with a mapping `force` set, which allows via a mutated
+// (rewritten-args) result instead of a bare pass — never on a denied call.
+// resources/read and prompts/get responses also pass through secret
+// redaction (redactableResponseMethods) even though they carry no Cerbos
+// authz of their own (HAH-101) — see the resourcesRead/promptsGet doc
+// comment below for why authz and redaction diverge for these two methods.
 package server
 
 import (
@@ -22,6 +27,28 @@ import (
 )
 
 const toolsCall = "tools/call"
+
+// resources/read and prompts/get carry response bodies that can contain
+// secret-shaped strings just like a tools/call result, so both are routed
+// through CheckResponse's redaction path (HAH-101). Neither carries an
+// authorizable resource/action pair the way tools/call does -- no mapping
+// entry exists to build a Cerbos resource from a resource URI or prompt
+// name -- so CheckRequest still only evaluates Cerbos authz for tools/call;
+// these two just get the secret-redaction pass on their way out.
+const resourcesRead = "resources/read"
+const promptsGet = "prompts/get"
+
+// redactableResponseMethods are the JSON-RPC methods whose response bodies
+// CheckResponse scrubs for secret-shaped values. tools/call is the original
+// (and only fully-authorized) member; resources/read and prompts/get were
+// added by HAH-101 to close the redaction gap those methods previously had
+// -- CheckResponse used to no-op unconditionally for anything but
+// tools/call, so a resource/prompt response never got scrubbed at all.
+var redactableResponseMethods = map[string]bool{
+	toolsCall:     true,
+	resourcesRead: true,
+	promptsGet:    true,
+}
 
 // The Notion existing-page-write ancestry gate keys off the mapped resource,
 // not the tool-name string, so renaming a tool in mapping.yaml keeps the gate
@@ -267,7 +294,12 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 
 	b := s.mapping.Backends[backend]
 
-	// Only tools/call is handled; other methods deny on a deny-default backend.
+	// Cerbos authz is only evaluated for tools/call -- no mapping entry
+	// exists to build a Cerbos resource from a resources/read URI or a
+	// prompts/get name (see resourcesRead/promptsGet comment above), so
+	// there's nothing to check for either. Both still get their RESPONSE
+	// bodies scrubbed by CheckResponse (redactableResponseMethods); this
+	// gate only concerns request-side authz + argument redaction.
 	if req.GetMethod() != toolsCall {
 		if b.DefaultAction == config.ActionDeny {
 			return deny(fmt.Sprintf("method %q not handled on deny-default backend %q", req.GetMethod(), backend)), nil
@@ -687,7 +719,7 @@ func responseMutate(result []byte) *pb.McpResponseResult {
 // secrets_redact.go's doc comment on why deny is never the right response
 // here).
 func (s *Server) CheckResponse(ctx context.Context, resp *pb.McpResponse) (*pb.McpResponseResult, error) {
-	if resp.GetMethod() != toolsCall {
+	if !redactableResponseMethods[resp.GetMethod()] {
 		return responsePass(), nil
 	}
 	raw := resp.GetMcpResponse()
