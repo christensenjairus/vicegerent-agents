@@ -139,6 +139,23 @@ RUN curl -fsSL -o /usr/local/bin/jq \
     && chmod +x /usr/local/bin/yq \
     && yq --version
 
+# Bake buf for repos with a protobuf pre-commit toolchain (buf lint/format).
+# renovate: datasource=github-releases depName=bufbuild/buf
+ARG BUF_VERSION=v1.71.0
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        arm64) BUF_ARCH=aarch64 ;; \
+        amd64) BUF_ARCH=x86_64 ;; \
+        *) echo "buf: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/buf.tar.gz \
+        "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}.tar.gz" \
+    && tar -xz -C /tmp -f /tmp/buf.tar.gz buf/bin/buf --strip-components=2 \
+    && mv /tmp/buf /usr/local/bin/buf \
+    && rm /tmp/buf.tar.gz \
+    && chmod +x /usr/local/bin/buf \
+    && buf --version
+
 # Bake kustomize + kubeconform + cerbos + helm so validate.sh and pre-commit hooks
 # work offline in the egress-locked sandbox without downloading at runtime.
 # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize

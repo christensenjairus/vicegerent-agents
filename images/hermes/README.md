@@ -58,6 +58,11 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 - LSP servers via `npm -g` (node + npm are in the base).
 - `terragrunt` via pinned GitHub release asset, for repos whose pre-commit or CI uses `terragrunt hcl format` against `.tf`/`.hcl` files.
 - `ddgs` via `uv pip install` into `/opt/hermes/.venv`.
+- `buf` via GitHub release tarball -- `buf lint`/`buf format` for repos whose pre-commit
+  runs those as actual hooks.
+- `clang-format` via `pip install` (PyPI's `clang-format` package ships a prebuilt binary
+  wheel with a console-script entry point) -- lands in `/opt/hermes/.venv/bin` alongside
+  the other `requirements.txt` tools, no separate bake step needed.
 - netdebug tools (`iproute2`/`ss`, `dnsutils`/`dig`, `netcat-openbsd`/`nc`) via
   apt, for diagnosing egress / CiliumNetworkPolicy hangs from inside the sandbox.
   A default-deny policy DROPS a blocked outbound connect, so it sits in SYN-SENT
@@ -80,6 +85,12 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   Central Registry egress allowlist entry or a pre-seeded `MODULE.bazel`
   dependency cache; this bake only guarantees the `bazel`/`buildozer`/`buildifier`
   binaries themselves are present and the pinned Bazel version runs offline.
+  Note: `BUILDIFIER_VERSION`/`BUILDOZER_VERSION` here are bumped independently of
+  any one target repo's own pinned linter version (e.g. moveworks's
+  `tools/onboarding/versions.sh` pins `8.2.1` and its `linter_verify` pre-commit hook
+  does an exact-string version check) — a mismatch there fails that repo's own
+  pre-commit hook on version grounds even when formatting itself is correct. Not
+  worked around here; this sandbox doesn't commit into that repo's worktree.
 - `absl-py` (`absl`), `pygithub` (`github`), `toml`, `validators`, `yamllint` via
   `requirements.txt` — an internal monorepo's own `tools/ci/*` and
   `tools/precommit_hooks/*` entry points declare their local hooks `language: system`
