@@ -422,6 +422,18 @@ COPY patches/0017-mcp-parked-retry-interval.py /tmp/0017-mcp-parked-retry-interv
 RUN /opt/hermes/.venv/bin/python /tmp/0017-mcp-parked-retry-interval.py
 RUN rm -f /tmp/0017-mcp-parked-retry-interval.py
 
+# Patch tools/registry.py so _check_fn_cached() logs the actual exception +
+# traceback when a tool's check_fn raises, instead of only ever logging the
+# one-line "check_fn %s raised; dependent tools will be unavailable this turn"
+# summary. Hit live diagnosing a `_check_file_reqs raised` warning in gateway/
+# dashboard startup logs with no way to see what actually failed. Purely
+# additive — does not change caching, control flow, or the existing `raised`
+# bool consumed by the flake-vs-real-outage grace-period logic. Remove once
+# upstream Hermes logs check_fn exceptions with a traceback itself.
+COPY patches/0018-check-fn-exception-traceback.py /tmp/0018-check-fn-exception-traceback.py
+RUN /opt/hermes/.venv/bin/python /tmp/0018-check-fn-exception-traceback.py
+RUN rm -f /tmp/0018-check-fn-exception-traceback.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
