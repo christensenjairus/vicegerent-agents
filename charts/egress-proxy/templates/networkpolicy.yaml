@@ -38,21 +38,6 @@ spec:
         - ports:
             - port: '80'
               protocol: TCP
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: victoria-logs
-            app.kubernetes.io/name: victoria-logs
-            app: server
-      toPorts:
-        - ports:
-            - port: '9428'
-              protocol: TCP
-          rules:
-            http:
-              - method: GET
-                path: "/select/.*"
-              - method: POST
-                path: "/select/.*"
     # Forward to searxng (web search from hermes).
     - toEndpoints:
         - matchLabels:
