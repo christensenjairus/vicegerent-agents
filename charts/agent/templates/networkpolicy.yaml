@@ -20,6 +20,7 @@ spec:
           rules:
             dns:
               - matchName: egress-proxy.egress-proxy.svc.cluster.local
+              - matchName: victoria-logs-server.victoria-logs.svc.cluster.local
               {{- if .Values.networkAllowlist.slackFQDNs }}
               {{- range .Values.networkAllowlist.slackFQDNs }}
               - matchName: {{ . }}
