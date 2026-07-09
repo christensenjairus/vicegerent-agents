@@ -46,4 +46,4 @@ spec:
               protocol: TCP
           rules:
             dns:
-              - matchPattern: '*'
+              - matchName: cerbos.cerbos.svc.cluster.local
