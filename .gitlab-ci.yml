@@ -27,15 +27,25 @@ validate:pre-commit:
   interruptible: true
   variables:
     SCHEMA_DEST: $CI_PROJECT_DIR/.flux-crd-schemas/master-standalone-strict
+    TOOLS_CACHE_DIR: $CI_PROJECT_DIR/.cache/ci-tools
+    # renovate: datasource=github-releases depName=mikefarah/yq
+    YQ_VERSION: v4.49.2
+    # renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
+    KUSTOMIZE_VERSION: v5.8.1
+    # renovate: datasource=github-releases depName=yannh/kubeconform
+    KUBECONFORM_VERSION: v0.7.0
+    # renovate: datasource=github-releases depName=cerbos/cerbos
+    CERBOS_VERSION: v0.53.0
   cache:
     key:
-      prefix: validation-cache
+      prefix: validation-cache-yq${YQ_VERSION}-kustomize${KUSTOMIZE_VERSION}-kubeconform${KUBECONFORM_VERSION}-cerbos${CERBOS_VERSION}
       files:
         - .pre-commit-config.yaml
         - clusters/personal/flux-system/gotk-components.yaml
     paths:
       - .cache/pre-commit/
       - .flux-crd-schemas/
+      - .cache/ci-tools/
   rules:
     - if: $CI_PIPELINE_SOURCE == "merge_request_event"
       when: on_success
@@ -44,10 +54,29 @@ validate:pre-commit:
     - when: never
   before_script:
     - apk add --no-cache bash curl git python3 py3-pip tar 2>/dev/null || true
-    - if ! yq --version 2>/dev/null | grep -q mikefarah; then curl -sLo /usr/local/bin/yq https://github.com/mikefarah/yq/releases/download/v4.49.2/yq_linux_amd64 && chmod +x /usr/local/bin/yq; fi
-    - curl -sLo /tmp/kustomize.tar.gz https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.8.1/kustomize_v5.8.1_linux_amd64.tar.gz && tar -xzf /tmp/kustomize.tar.gz -C /usr/local/bin kustomize
-    - curl -sLo /tmp/kubeconform.tar.gz https://github.com/yannh/kubeconform/releases/download/v0.7.0/kubeconform-linux-amd64.tar.gz && tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform
-    - curl -sLo /tmp/cerbos.tar.gz https://github.com/cerbos/cerbos/releases/download/v0.53.0/cerbos_0.53.0_Linux_x86_64.tar.gz && tar -xzf /tmp/cerbos.tar.gz -C /usr/local/bin cerbos
+    - mkdir -p "$TOOLS_CACHE_DIR"
+    - |
+      if [ ! -x "$TOOLS_CACHE_DIR/yq" ]; then
+        curl -sLo "$TOOLS_CACHE_DIR/yq" "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_amd64"
+        chmod +x "$TOOLS_CACHE_DIR/yq"
+      fi
+    - |
+      if [ ! -x "$TOOLS_CACHE_DIR/kustomize" ]; then
+        curl -sLo /tmp/kustomize.tar.gz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_amd64.tar.gz"
+        tar -xzf /tmp/kustomize.tar.gz -C "$TOOLS_CACHE_DIR" kustomize
+      fi
+    - |
+      if [ ! -x "$TOOLS_CACHE_DIR/kubeconform" ]; then
+        curl -sLo /tmp/kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+        tar -xzf /tmp/kubeconform.tar.gz -C "$TOOLS_CACHE_DIR" kubeconform
+      fi
+    - |
+      if [ ! -x "$TOOLS_CACHE_DIR/cerbos" ]; then
+        curl -sLo /tmp/cerbos.tar.gz "https://github.com/cerbos/cerbos/releases/download/${CERBOS_VERSION}/cerbos_${CERBOS_VERSION#v}_Linux_x86_64.tar.gz"
+        tar -xzf /tmp/cerbos.tar.gz -C "$TOOLS_CACHE_DIR" cerbos
+      fi
+    - cp "$TOOLS_CACHE_DIR"/{yq,kustomize,kubeconform,cerbos} /usr/local/bin/
+    - chmod +x /usr/local/bin/{yq,kustomize,kubeconform,cerbos}
     - pip install pre-commit==4.5.0 detect-secrets==1.5.0 --break-system-packages --quiet
   script:
     - pre-commit run --all-files --show-diff-on-failure

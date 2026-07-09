@@ -12,11 +12,12 @@ FLUX_VERSION="${FLUX_VERSION:-v2.7.0}"
 SCHEMA_URL="https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/crd-schemas.tar.gz"
 SCHEMA_DEST="${SCHEMA_DEST:-/tmp/flux-crd-schemas/master-standalone-strict}"
 SCHEMA_VERSION_FILE="$SCHEMA_DEST/.schema-version"
+KUBECONFORM_CACHE="${KUBECONFORM_CACHE:-$(dirname "$SCHEMA_DEST")/.kubeconform-http-cache}"
 
 kustomize_flags=("--load-restrictor=LoadRestrictionsNone")
 kustomize_config="kustomization.yaml"
 kubeconform_flags=("-skip=Secret")
-kubeconform_config=("-strict" "-ignore-missing-schemas" "-schema-location" "default" "-schema-location" "$(dirname "$SCHEMA_DEST")" "-verbose")
+kubeconform_config=("-strict" "-ignore-missing-schemas" "-schema-location" "default" "-schema-location" "$(dirname "$SCHEMA_DEST")" "-cache" "$KUBECONFORM_CACHE" "-verbose")
 
 retry_cmd() {
   local n=1
@@ -152,6 +153,7 @@ open(dst, "w").write(s)
 
 require_tools
 ensure_flux_schemas
+mkdir -p "$KUBECONFORM_CACHE"
 
 echo "INFO - Validating YAML syntax"
 repo_yaml_files | while IFS= read -r -d $'\0' file; do

@@ -132,6 +132,16 @@
       "matchStrings": [
         "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+image:\\s*\\S+?:(?<currentValue>[^\\s@]+)"
       ]
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
+        "/^\\.gitlab-ci\\.yml$/"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>[a-z-]+) depName=(?<depName>[^\\s]+)\\s+\\w+_VERSION:\\s*(?<currentValue>[^\\s]+)"
+      ],
+      "versioningTemplate": "semver"
     }
   ]
 }
