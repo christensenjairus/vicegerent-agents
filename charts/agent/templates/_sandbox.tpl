@@ -65,7 +65,7 @@ spec:
               # reads the default HF_HUB_CACHE (~/.cache/huggingface/hub) — three different dirs.
               fastembed_dest="/opt/data/cache/fastembed"
               llm_dest="/opt/data/home/.hermes/mnemosyne/models"
-              whisper_dest="/opt/data/home/.cache/huggingface/hub"
+              whisper_dest="/opt/data/.cache/huggingface/hub"
               marker_dir="/opt/data/.hermes"
               mkdir -p "${fastembed_dest}" "${llm_dest}" "${whisper_dest}" "${marker_dir}" /opt/data/plugins /opt/data/.ssh
 {{- if and .Values.git.userName .Values.git.userEmail }}
