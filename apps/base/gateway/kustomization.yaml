@@ -6,5 +6,6 @@ resources:
   - gateway.yaml
   - networkpolicy.yaml
   - egress-networkpolicy.yaml
+  - apikey-policy.yaml
 commonAnnotations:
   kustomize.toolkit.fluxcd.io/force: Enabled
