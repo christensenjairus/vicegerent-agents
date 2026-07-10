@@ -4,8 +4,6 @@ resources:
   requests:
     cpu: 20m
     memory: 128Mi
-  limits:
-    memory: 512Mi
 initContainers:
   - name: velero-plugin-for-aws
     image: docker.io/velero/velero-plugin-for-aws:v1.14.2
@@ -41,8 +39,6 @@ nodeAgent:
     requests:
       cpu: 10m
       memory: 128Mi
-    limits:
-      memory: 512Mi
 schedules:
   vicegerent-daily:
     disabled: false

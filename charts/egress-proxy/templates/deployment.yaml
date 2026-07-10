@@ -82,8 +82,6 @@ spec:
             requests:
               cpu: 50m
               memory: 64Mi
-            limits:
-              memory: 256Mi
           livenessProbe:
             tcpSocket:
               port: proxy
@@ -120,8 +118,6 @@ spec:
             requests:
               cpu: 50m
               memory: 64Mi
-            limits:
-              memory: 128Mi
           # exec, not httpGet: the server binds 127.0.0.1 only, so a kubelet
           # networked probe (which dials the pod IP) can't reach it. -healthcheck
           # runs in-container against loopback; distroless has no shell for a
