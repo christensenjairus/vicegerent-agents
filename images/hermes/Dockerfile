@@ -29,12 +29,12 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/faster-whisper/models--Systran--faster-whisper-base
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2026.7.7@sha256:b6c019227889e6675424a2b6223b2cafdd36bf7d1048d1ddd8e043b880d6cc0f
+FROM nousresearch/hermes-agent:v2026.7.1@sha256:b6c019227889e6675424a2b6223b2cafdd36bf7d1048d1ddd8e043b880d6cc0f
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
-      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.7"
+      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.1"
 
 # requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
 # ENV covers non-login shells (exec sessions); /etc/profile.d re-prepends it since Debian's /etc/profile
