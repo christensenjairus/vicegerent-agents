@@ -90,6 +90,16 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   Prefer exact `matchName` per real hostname over wildcards for in-cluster service DNS. When
   editing egress policy for a workload, check both its `toEndpoints`/`toFQDNs` rules and its DNS
   `matchName` list for every hostname it actually needs.
+  **Corollary — a `matchName` allowlist only works if the resolver actually queries that exact
+  name.** With the k8s default `ndots:5`, a Pod resolves a name with fewer than five dots
+  (e.g. the 4-label `agentgateway-proxy.agentgateway-system.svc.cluster.local`) by trying the
+  search domains *first* — emitting `…svc.cluster.local.<search-domain>` names that are not in
+  the allowlist and get dropped. glibc (hermes/CPython) tolerates the dropped attempts and falls
+  through to the absolute name; a musl resolver (the static `codex` binary) returns
+  `EAI_AGAIN` ("failed to lookup address information: Try again") and the connection never
+  happens. The agent Sandbox sets `dnsConfig.options ndots:1` (`charts/agent/templates/_sandbox.tpl`)
+  so every FQDN destination is queried absolutely first — keep that in place whenever the DNS
+  egress list is exact-`matchName`.
 - **MCP authorization layering** — agentgateway is the single ingress gate for MCP traffic (routing,
   auth, mTLS to the host vMCP). Two separate concerns sit on top: *tool selection* (which tools an
   agent can see/call) and *argument-level authorization*. Tool selection is done upstream in ToolHive's

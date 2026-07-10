@@ -18,6 +18,12 @@ spec:
         # runtime/tmp are emptyDir and genuinely get no backup either way.
         backup.velero.io/backup-volumes-excludes: gitrepos,models,runtime,tmp,data
     spec:
+      # ndots:1 so exact-matchName DNS egress (networkpolicy.yaml) works for musl (codex) —
+      # see AGENTS.md DNS gotcha. Every destination here is already an FQDN.
+      dnsConfig:
+        options:
+          - name: ndots
+            value: "1"
       automountServiceAccountToken: false
       securityContext:
         fsGroup: 10000
