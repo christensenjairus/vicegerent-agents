@@ -27,3 +27,5 @@ data:
     trust_level = "trusted"
     [projects."/opt/hermes"]
     trust_level = "trusted"
+    [features]
+    respect_system_proxy = true
