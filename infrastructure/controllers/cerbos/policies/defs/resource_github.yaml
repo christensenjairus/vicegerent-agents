@@ -29,6 +29,12 @@
 # to begin with, since this operator uses GitHub for PRs only). Rather than
 # build an allowlist for a capability the operator explicitly isn't sure
 # should exist, this denies any call that sets reviewers outright.
+#
+# deny-pr-not-from-fork: create_pull_request into ${githubForkRequiredOwners}
+# must set head as "<owner>:branch" with owner in ${githubForkOwners}. Bare
+# head or wrong owner is denied. update_pull_request has no head arg (source
+# branch can't change post-creation), so it's not covered. "*" in either var
+# disables the check.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -76,6 +82,27 @@ resourcePolicy:
           ruleActivated: >-
             "This agent is not allowed to set reviewers on a pull request. Request"
             + " reviews manually instead."
+    - name: deny-pr-not-from-fork
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            !("*" in [${githubForkOwners}])
+            && has(request.resource.attr.owner) && request.resource.attr.owner
+            in [${githubForkRequiredOwners}]
+            && has(request.resource.attr.head) && request.resource.attr.head
+            != ""
+            && !(request.resource.attr.head.contains(":")
+            && request.resource.attr.head.split(":")[0] in [${githubForkOwners}])
+      output:
+        when:
+          ruleActivated: >-
+            "PRs into " + request.resource.attr.owner + "/" + request.resource.attr.repo
+            + " must come from your personal fork (head must be"
+            + " '<fork-owner>:branch' with <fork-owner> matching an allowed"
+            + " fork-owner pattern), not a same-repo branch."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW
