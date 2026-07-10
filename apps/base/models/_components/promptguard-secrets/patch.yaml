@@ -2,10 +2,6 @@
 # Shared promptGuard secret+PII scrubbing for all three AI backends (anthropic/openai/haiku-oai) — the single source to edit.
 # Pattern set mirrors egress-proxy REDACT_PATTERNS (charts/egress-proxy/templates/addon-configmap.yaml) / the Go shim registry; no gitleaks layer here. The cross-language mirror stays manual.
 #
-# Action is Mask (redact to `<masked>`, request/response still flows), not Reject.
-# GOTCHA: under Mask a false positive corrupts payload (masks a real tool-call ID), so
-# the tight patterns below still matter.
-#
 # PII is expressed as custom regex, NOT the `builtins: [Ssn, CreditCard, PhoneNumber]`
 # shorthand agentgateway ships. Read agentgateway v1.3.1 source
 # (crates/agentgateway/src/llm/policy/pii/{us_ssn,credit_card,phone}_recognizer.rs):
@@ -55,10 +51,10 @@
             - >-
               \b(?:6011[0-9]{12}|65[0-9]{14}|64[4-9][0-9]{13}|622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9]{2}|9(?:[01][0-9]|2[0-5]))[0-9]{10})\b
             - (?:\+?1[-.\s]?)?(?:\([0-9]{3}\)[-.\s]?|[0-9]{3}[-.\s])[0-9]{3}[-.\s][0-9]{4}\b
-          action: Mask
+          action: Reject
         response:
-          message: Outbound content matched a secret or PII guard pattern; matched
-            spans were masked before forwarding.
+          message: 'Request rejected: outbound content matched a secret or PII guard
+            pattern.'
     response:
       - regex:
           matches:
@@ -91,7 +87,7 @@
             - >-
               \b(?:6011[0-9]{12}|65[0-9]{14}|64[4-9][0-9]{13}|622(?:12[6-9]|1[3-9][0-9]|[2-8][0-9]{2}|9(?:[01][0-9]|2[0-5]))[0-9]{10})\b
             - (?:\+?1[-.\s]?)?(?:\([0-9]{3}\)[-.\s]?|[0-9]{3}[-.\s])[0-9]{3}[-.\s][0-9]{4}\b
-          action: Mask
+          action: Reject
         response:
-          message: Inbound content matched a secret or PII guard pattern; matched
-            spans were masked before returning.
+          message: 'Response rejected: inbound content matched a secret or PII guard
+            pattern.'

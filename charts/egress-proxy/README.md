@@ -15,7 +15,7 @@ Cilium network policy and the Sandbox CRD's inherent isolation.
 
 ### Secrets scrubbing
 Applied to every request — headers and body — before forwarding to any destination,
-internal (searxng) or external (internet). **Two layers** run on each
+internal (agentgateway, searxng) or external (internet). **Two layers** run on each
 scrubbed string: a hand-rolled regex registry (`REDACT_PATTERNS`) then gitleaks'
 ~180-rule default ruleset via the in-Pod `gitleaks-sidecar` container over loopback
 (`images/egress-gitleaks-sidecar`). The registry mirrors `mcp-cerbos-shim`'s
@@ -38,9 +38,8 @@ both through the same two-layer `_redact()`.
 
 ### Method enforcement
 GET and HEAD only for external destinations. POST, PUT, PATCH, DELETE → 403.
-Internal cluster services (searxng) may use any method — they hold no sandbox
-secrets. agentgateway is no longer reached through this proxy (the sandbox connects to
-it directly). Exception: `git-upload-pack` (smart-HTTP clone/fetch,
+Internal cluster services (agentgateway, searxng) may use any method — they require
+POST and hold no sandbox secrets. Exception: `git-upload-pack` (smart-HTTP clone/fetch,
 read-only) is allowed through so `pre-commit` can install hook repos.
 
 ### URL length limit

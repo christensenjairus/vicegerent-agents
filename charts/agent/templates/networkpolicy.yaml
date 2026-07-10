@@ -36,7 +36,8 @@ spec:
               {{- end }}
               {{- end }}
               - matchName: github.com
-    # Non-agentgateway HTTP(S) (internet, searxng) via the scrubbing proxy.
+    # All HTTP(S) traffic — to internet, agentgateway, and searxng — routes through
+    # the scrubbing proxy. Secrets are redacted before reaching any destination.
     - toEndpoints:
         - matchLabels:
             io.kubernetes.pod.namespace: egress-proxy
@@ -44,16 +45,6 @@ spec:
       toPorts:
         - ports:
             - port: '8080'
-              protocol: TCP
-    # agentgateway, direct. GOTCHA: the DNS matchName above only permits *resolving* the
-    # name; this L4 rule is separately required to actually connect.
-    - toEndpoints:
-        - matchLabels:
-            io.kubernetes.pod.namespace: agentgateway-system
-            gateway.networking.k8s.io/gateway-name: agentgateway-proxy
-      toPorts:
-        - ports:
-            - port: '80'
               protocol: TCP
     # Slack uses Socket Mode (WSS) + POST Web API — bypass the GET-only proxy.
     # Restricted to exactly the FQDNs slack-bolt needs; wildcard *.slack.com removed.
