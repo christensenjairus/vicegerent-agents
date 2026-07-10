@@ -193,8 +193,8 @@ spec:
             - name: egress-proxy-ca-cert
               mountPath: /reload/egress-proxy-ca
               readOnly: true
-        # Win the startup race: block until egress-proxy, agentgateway (via proxy),
-        # and the vMCP route are all reachable before hermes starts, so a cold cluster
+        # Win the startup race: block until egress-proxy, agentgateway (direct), and
+        # the vMCP route are all reachable before hermes starts, so a cold cluster
         # doesn't require a pod restart to recover.
         - name: wait-deps
           image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -223,9 +223,9 @@ spec:
               done
               [ "${n}" -lt "${MAX}" ] && echo "egress-proxy ready"
 
-              # 2) agentgateway THROUGH the proxy: any HTTP response means it's up.
+              # 2) agentgateway direct (in no_proxy, bypasses egress-proxy): any HTTP response means it's up.
               n=0
-              echo "waiting for agentgateway (via egress-proxy)..."
+              echo "waiting for agentgateway (direct)..."
               until code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "${AGW}/" 2>/dev/null) \
                     && [ "${code}" != "000" ]; do
                 n=$((n+1))
@@ -237,8 +237,8 @@ spec:
               done
               [ "${n}" -lt "${MAX}" ] && echo "agentgateway ready (HTTP ${code})"
 
-              # 3) vMCP: MCP initialize POST through the proxy must return HTTP 200.
-              #    This exercises the full path: proxy -> agentgateway -> ghostunnel -> host ToolHive vMCP.
+              # 3) vMCP: MCP initialize POST must return HTTP 200.
+              #    This exercises the full path: agentgateway -> ghostunnel -> host ToolHive vMCP.
               n=0
               body='{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"wait-deps","version":"0"}}}'
               echo "waiting for vMCP initialize (200) at ${VMCP}..."
@@ -270,11 +270,12 @@ spec:
               value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
             - name: HTTPS_PROXY
               value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
-            # Only loopback bypasses the proxy — agentgateway hostname must egress via the proxy.
+            # agentgateway bypasses the proxy (scrubs secrets itself). GOTCHA: this must
+            # stay in sync with the DNS + L4 rules in templates/networkpolicy.yaml.
             - name: no_proxy
-              value: 127.0.0.1,localhost
+              value: 127.0.0.1,localhost,agentgateway-proxy.agentgateway-system.svc.cluster.local
             - name: NO_PROXY
-              value: 127.0.0.1,localhost
+              value: 127.0.0.1,localhost,agentgateway-proxy.agentgateway-system.svc.cluster.local
             - name: TMPDIR
               value: /tmp
             - name: AGENTGATEWAY_API_KEY
@@ -328,7 +329,7 @@ spec:
               value: /opt/data
             - name: HERMES_SLACK_COMMAND_NAME
               value: {{ .Values.slack.commandName }}
-            # Route all HTTP(S) traffic through the GET-only MITM proxy.
+            # Route general HTTP(S) through the GET-only MITM proxy (agentgateway exempt, see no_proxy).
             - name: http_proxy
               value: http://egress-proxy.egress-proxy.svc.cluster.local:8080
             - name: https_proxy
@@ -356,13 +357,12 @@ spec:
                 -Djavax.net.ssl.trustStore=/opt/data/certs/java-cacerts.p12
                 -Djavax.net.ssl.trustStoreType=PKCS12
                 -Djavax.net.ssl.trustStorePassword=changeit
-            # Slack bypasses the proxy — Socket Mode + Web API require POST + WebSocket.
-            # Loopback stays direct. All other destinations (agentgateway, searxng, internet)
-            # flow through the scrubbing proxy so secrets are redacted before forwarding.
+            # Slack + agentgateway bypass the proxy (Slack needs POST/WebSocket;
+            # agentgateway scrubs secrets itself). Others go through the proxy.
             - name: no_proxy
-              value: 127.0.0.1,localhost,slack.com,.slack.com
+              value: 127.0.0.1,localhost,slack.com,.slack.com,agentgateway-proxy.agentgateway-system.svc.cluster.local
             - name: NO_PROXY
-              value: 127.0.0.1,localhost,slack.com,.slack.com
+              value: 127.0.0.1,localhost,slack.com,.slack.com,agentgateway-proxy.agentgateway-system.svc.cluster.local
             - name: SEARXNG_URL
               value: http://searxng.searxng.svc.cluster.local:8080
             # Config homes on PVC (seeded by seed-data) to stay writable under readOnlyRootFilesystem.
