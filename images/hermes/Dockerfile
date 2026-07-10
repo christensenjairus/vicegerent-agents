@@ -460,24 +460,6 @@ COPY patches/0018-check-fn-exception-traceback.py /tmp/0018-check-fn-exception-t
 RUN /opt/hermes/.venv/bin/python /tmp/0018-check-fn-exception-traceback.py
 RUN rm -f /tmp/0018-check-fn-exception-traceback.py
 
-# agent/anthropic_adapter.py's _requires_bearer_auth() only trusts a hardcoded
-# set of third-party hosts (MiniMax, Azure Foundry) to need
-# Authorization: Bearer *** instead of Anthropic's native x-api-key --
-# our in-cluster agentgateway /anthropic route isn't on that list, so Hermes's
-# own outbound Anthropic calls send x-api-key. HAH-109's agentgateway
-# apiKeyAuthentication policy (apps/base/gateway/apikey-policy.yaml) validates
-# Authorization: Bearer only (agentgateway's APIKeyAuthentication.location
-# default), so Hermes's own model calls would 401 the moment that policy is
-# live -- Codex/Claude Code are unaffected since they already send Bearer.
-# Purely additive: extends the boolean OR by matching agentgateway-proxy's
-# in-cluster Service FQDN suffix, not a bare "/anthropic" path substring, so
-# official api.anthropic.com and other /anthropic-path third-party proxies are
-# unaffected. Remove once this repo's own route stops requiring
-# apiKeyAuthentication, or Hermes gains a config-level auth-scheme override.
-COPY patches/0019-anthropic-bearer-for-agentgateway.py /tmp/0019-anthropic-bearer-for-agentgateway.py
-RUN /opt/hermes/.venv/bin/python /tmp/0019-anthropic-bearer-for-agentgateway.py
-RUN rm -f /tmp/0019-anthropic-bearer-for-agentgateway.py
-
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +

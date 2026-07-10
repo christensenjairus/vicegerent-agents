@@ -8,10 +8,7 @@
 #   <name>-secrets                 password, signing-secret, public-key,
 #                                  SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
 #                                  SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (Slack optional)
-#   <name>-agentgateway-api-key    api-key         (random bearer token; mirrored into
-#                                  agentgateway-system/agentgateway-api-keys keyed "<name>"
-#                                  so agentgateway's apiKeyAuthentication policy can
-#                                  validate this agent's own outbound calls)
+#   <name>-agentgateway-api-key    api-key         (random bearer token)
 #   <name>-ssh-key                 hermes_agent_ed25519  (ed25519 private key)
 #
 # Generated material (dashboard auth, SSH key, bearer token) is generated once and
@@ -86,20 +83,6 @@ secret_val() {
   return 0
 }
 
-# ensure_secret_key <name> <ns> <key> <value> -- merge-patch ONE key into a Secret
-# in an arbitrary namespace, without touching any other key already present.
-# Creates the Secret if it doesn't exist yet. Idempotent and safe to re-run:
-# other agents'/mcp-cerbos-shim's entries in a shared multi-tenant Secret
-# (e.g. agentgateway-system/agentgateway-api-keys) survive untouched.
-ensure_secret_key() {
-  local name="$1" ns="$2" key="$3" value="$4"
-  kc -n "$ns" get secret "$name" >/dev/null 2>&1 \
-    || kc -n "$ns" create secret generic "$name" >/dev/null
-  local b64; b64="$(printf '%s' "$value" | base64 | tr -d '\n')"
-  kc -n "$ns" patch secret "$name" --type=merge \
-    -p "{\"data\":{\"$key\":\"$b64\"}}" >/dev/null
-}
-
 # --- prerequisites ---------------------------------------------------------
 for cmd in kubectl openssl ssh-keygen jq; do
   command -v "$cmd" >/dev/null 2>&1 || die "$cmd is required but not on PATH"
@@ -119,31 +102,15 @@ echo "${B}vicegerent agent secret setup${N}  (agent: $AGENT, context: $KUBE_CONT
 ensure_ns "$NS"
 
 # --- agentgateway virtual API key ------------------------------------------
-# Also mirrored into agentgateway-system/agentgateway-api-keys (keyed "$AGENT"):
-# that copy is what the apiKeyAuthentication policy validates against, this
-# copy is what's mounted as AGENTGATEWAY_API_KEY on the agent. Merge-patched
-# so other agents'/mcp-cerbos-shim's entries in the shared Secret survive.
 step "$ITEM_API_KEY"
-existing_key="$(secret_val "$ITEM_API_KEY" api-key)"
-if [[ -n "$existing_key" ]]; then
+if [[ -n "$(secret_val "$ITEM_API_KEY" api-key)" ]]; then
   info "agentgateway API key already set; reusing."
-  api_key="$existing_key"
 else
-  api_key="$(openssl rand -hex 32)"
   kc -n "$NS" create secret generic "$ITEM_API_KEY" \
-    --from-literal="api-key=$api_key" \
+    --from-literal="api-key=$(openssl rand -hex 32)" \
     --dry-run=client -o yaml | kc apply -f - >/dev/null
   info "Generated agentgateway API key."
 fi
-# Always (re-)mirror -- an upgrading install won't have the agentgateway-system
-# copy yet; ensure_secret_key is idempotent. This mirroring step was MISSING
-# entirely before this fix (HAH-109): the policy validated a Secret nothing
-# ever populated per-agent, so every agent's own outbound calls 401'd with
-# "invalid credentials" or "no API Key found" regardless of header scheme --
-# confirmed live via agentgateway-proxy pod logs and by checking that
-# agentgateway-api-keys only ever had an entry for mcp-cerbos-shim, never any
-# agent, and grepping this whole repo turned up no other writer of that Secret.
-ensure_secret_key agentgateway-api-keys agentgateway-system "$AGENT" "$api_key"
 
 # --- SSH key ---------------------------------------------------------------
 # ed25519 keypair (generate-once). Private key → <name>-ssh-key; public key is
