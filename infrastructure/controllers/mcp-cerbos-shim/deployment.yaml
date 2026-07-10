@@ -26,6 +26,7 @@ spec:
       containers:
         - name: mcp-cerbos-shim
           image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.28.0
+          imagePullPolicy: Always  # a same-tag rebuild is otherwise served from node image cache
           ports:
             - name: grpc
               containerPort: 4445
