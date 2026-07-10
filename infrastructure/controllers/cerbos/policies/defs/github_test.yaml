@@ -89,6 +89,28 @@ resources:
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', hasReviewers: 'false'}
+  create_pr_moveworks_bare_head:
+    # Bare head (no owner prefix at all) into a restricted owner -- same-repo
+    # branch, must be denied.
+    id: moveworks-emu/moveworks
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: moveworks, branch: '', head: some-feature-branch}
+  create_pr_moveworks_fork_qualified:
+    # head qualified with the allowed fork owner -- allowed.
+    id: moveworks-emu/moveworks
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: moveworks, branch: '', head: jchristensen_movester:some-feature-branch}
+  create_pr_moveworks_wrong_fork_owner:
+    # head IS qualified (contains ':'), but owner is wrong -- still denied.
+    id: moveworks-emu/moveworks
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: moveworks, branch: '', head: someoneelse:some-feature-branch}
+  create_pr_non_restricted_owner_bare_head:
+    # Bare head into a non-restricted allowed owner (christensenjairus is not
+    # in githubForkRequiredOwners) -- unaffected by the new rule.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', head: some-feature-branch}
 tests:
   - name: calls confined to an allowed repo are allowed
     input:
@@ -186,4 +208,27 @@ tests:
         actions: {access: EFFECT_DENY}
       - principal: hermes
         resource: create_pr_no_reviewers
+        actions: {access: EFFECT_ALLOW}
+  - name: PRs into a restricted owner must come from an allowed fork; unrestricted
+      owners are unaffected
+    input:
+      principals: [hermes]
+      resources:
+        - create_pr_moveworks_bare_head
+        - create_pr_moveworks_fork_qualified
+        - create_pr_moveworks_wrong_fork_owner
+        - create_pr_non_restricted_owner_bare_head
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_pr_moveworks_bare_head
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_pr_moveworks_fork_qualified
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_pr_moveworks_wrong_fork_owner
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_pr_non_restricted_owner_bare_head
         actions: {access: EFFECT_ALLOW}

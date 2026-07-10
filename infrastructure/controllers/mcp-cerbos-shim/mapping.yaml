@@ -196,6 +196,8 @@ backends:
       # capability the operator isn't sure should exist at all, this denies
       # any call that sets reviewers outright -- request reviews manually
       # instead.
+      # head carried only for create_pull_request (update has no head arg) --
+      # feeds resource_github.yaml's deny-pr-not-from-fork.
       github_create_pull_request:
         <<: *github_repo
         force: {draft: true}
@@ -204,6 +206,7 @@ backends:
           owner: get(args,'owner','')
           repo: get(args,'repo','')
           branch: get(args,'branch','')
+          head: get(args,'head','')
       github_update_pull_request:
         <<: *github_repo
         force: {draft: true}

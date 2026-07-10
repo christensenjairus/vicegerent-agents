@@ -22,6 +22,14 @@ data:
     "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
     "christensenjairus/vicegerent-agents"
 
+  # Owners requiring fork-qualified PR heads (resource_github.yaml). "*" disables.
+  githubForkRequiredOwners: >-
+    "moveworks-emu"
+
+  # Allowed fork owner(s) for the above. "*" disables.
+  githubForkOwners: >-
+    "jchristensen_movester"
+
   # Jira projects this machine's agents may WRITE to (resource_jira.yaml) --
   # reads are unrestricted. CEL-list-ready; every issue/epic key is expected
   # to start with one of these prefixes + "-".
