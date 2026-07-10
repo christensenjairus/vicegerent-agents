@@ -12,13 +12,11 @@ and each call leaves from a different place; a fourth point covers log ingestion
 carries agent-controlled content by a completely different mechanism (stdout, not a
 network call) and would otherwise bypass all three of the others entirely:
 
-- **The Hermes sandbox** makes its own HTTP(S) calls (curl, git-over-HTTP, searxng). These
-  are forced through the egress-proxy by the `http_proxy`/`https_proxy` env vars set on the
-  sandbox container (`charts/agent/templates/_sandbox.tpl`). That env var only binds the
-  sandbox's own processes — it does nothing for any other pod. **agentgateway is the
-  exception:** it is in the sandbox's `no_proxy`, so the sandbox's MCP and model calls reach
-  agentgateway *directly*, not through the egress-proxy — agentgateway carries its own
-  scrubbing (legs 2 and 3 below), so the proxy hop was redundant for that destination.
+- **The Hermes sandbox** makes its own HTTP(S) calls (curl, git-over-HTTP, MCP and model
+  calls to agentgateway, searxng). Every one is forced through the egress-proxy by the
+  `http_proxy`/`https_proxy` env vars set on the sandbox container
+  (`charts/agent/templates/_sandbox.tpl`). That env var only binds the sandbox's own
+  processes — it does nothing for any other pod.
 - **agentgateway** makes a gRPC ExtProc call to `mcp-cerbos-shim` for every `tools/call`
   (the guardrail). This call originates from agentgateway, so it never touches the
   egress-proxy.
@@ -35,20 +33,17 @@ The two agentgateway legs are provably disjoint from the sandbox's egress path: 
 gateway's egress policy (`apps/base/gateway/egress-networkpolicy.yaml`) allows it to reach
 the model providers directly (`toEntities: [world]` on 443) and the shim directly (cerbos
 namespace, 4445), with no hop through the egress-proxy; and its ingress policy
-(`apps/base/gateway/networkpolicy.yaml`) accepts the agent sandbox directly, plus the shim,
-as *separate*, independently-allowed sources. A scrubber sitting on the sandbox's egress
-path structurally cannot see either agentgateway-originated call, no matter how it is
-configured — so each leg carries its own enforcement point. (The sandbox now also reaches
-agentgateway directly rather than through the egress-proxy, so even the sandbox→agentgateway
-request leg no longer transits the proxy — its scrubbing is leg 2/leg 3, not leg 1.)
+(`apps/base/gateway/networkpolicy.yaml`) accepts the egress-proxy and the shim as two
+*separate*, independently-allowed sources. A scrubber sitting on the sandbox's egress path
+structurally cannot see either agentgateway-originated call, no matter how it is
+configured — so each leg carries its own enforcement point.
 
 ## The four enforcement points
 
 ### 1. egress-proxy (mitmproxy, Python)
 
-- **Covers:** the outbound HTTP(S) the Hermes sandbox itself makes to non-agentgateway
-  destinations — internet (FQDN allowlist) and searxng. agentgateway is in the sandbox's
-  `no_proxy` and is reached directly, so it no longer transits this proxy (see legs 2/3).
+- **Covers:** all outbound HTTP(S) the Hermes sandbox itself makes — internet (FQDN
+  allowlist), searxng, and the sandbox's own calls to agentgateway.
 - **Catches:** the 16-pattern hand-rolled regex registry (`REDACT_PATTERNS` in
   `charts/egress-proxy/templates/addon-configmap.yaml`) **plus** gitleaks' ~180-rule
   default ruleset via the in-Pod localhost sidecar
@@ -64,10 +59,10 @@ request leg no longer transits the proxy — its scrubbing is leg 2/leg 3, not l
 - **What is external-only:** SSRF block, URL-length limit, URL path/query scrub,
   GET/HEAD-body block, `Authorization`/`Basic`/`x-api-key` header scrub, method
   enforcement, and the FQDN allowlist all apply only to external destinations. Hosts
-  ending in `.cluster.local`/`.svc` (searxng) are classified internal and skip those.
-  **Body scrubbing and non-`Authorization` header scrubbing, however, run on internal
-  traffic too** — so the sandbox→searxng leg is redacted here. (agentgateway is no longer
-  reached through this proxy at all, so its request leg is scrubbed at leg 2/leg 3, not here.)
+  ending in `.cluster.local`/`.svc` (agentgateway, searxng) are classified internal and
+  skip those. **Body scrubbing and non-`Authorization` header scrubbing, however, run on
+  internal traffic too** — so the sandbox→agentgateway leg is redacted here as well as at
+  the shim. Only agentgateway's own legitimate auth header is deliberately left intact.
 - **Known limits:** pattern-based only — no encoded-form detection (base64, hex, rot13),
   no Luhn check on card numbers, space/dash-grouped cards not matched. The FQDN allowlist
   is the primary external control, not this scrub. Streaming responses (SSE /
@@ -113,21 +108,17 @@ request leg no longer transits the proxy — its scrubbing is leg 2/leg 3, not l
   AIPromptGuard is regex + webhook only, so the ~180-rule ruleset the other two legs carry
   has no equivalent here. This is the single most important coverage gap on the platform.
 - **Where the patterns live:** the `promptGuard.request[].regex.matches` /
-  `.response[].regex.matches` lists in the shared kustomize component
-  `apps/base/models/_components/promptguard-secrets/patch.yaml` (applied to all three
-  backends), hand-mirrored from `REDACT_PATTERNS` (see the maintenance note below).
-- **Action:** `Mask` — redact-and-forward, like the other legs: a matched span is replaced
-  with `<masked>` and the request/response continues rather than blocking the call. (This
-  was `Reject` until the agentgateway-direct-egress change; it was switched to `Mask` so the
-  behavior mirrors the egress-proxy and shim now that this leg also carries the
-  sandbox→agentgateway request that the proxy used to scrub.)
+  `.response[].regex.matches` lists in each `backend.yaml`, hand-mirrored from
+  `REDACT_PATTERNS` (see the maintenance note below).
+- **Action:** `Reject` — unlike the other two legs, a match rejects the whole
+  request/response rather than redacting it (response message: "Request rejected: outbound
+  content matched a secret or PII guard pattern.").
 - **Known limits / caveats:** regex-only, no gitleaks. The PII builtins are agentgateway's
   own implementations of SSN/card/phone detection, *not* the literal regexes the other two
   legs use, so their exact match behavior can differ. `streaming: Enabled` — on the
   **response** side the body has already begun streaming to the caller before the full
-  content can be matched, so treat response-side masking as best-effort detection, not a
-  hard guarantee. Request-side masking runs on the full body before forwarding, so it is
-  reliable.
+  content can be matched, so treat the response-side `Reject` as best-effort detection, not
+  a hard guarantee. The request-side `Reject` is a real block.
 
 ### 4. victoria-logs Vector agent (VRL remap, cluster-wide DaemonSet)
 
@@ -175,13 +166,13 @@ flowchart LR
     VECTOR["Vector<br/>(victoria-logs DaemonSet)"]
     VLOGS[VictoriaLogs]
 
-    H -->|"http_proxy: sandbox outbound except agentgateway<br/>①regex + gitleaks, REDACT"| EP
-    H -->|"MCP + model routes — direct (agentgateway in no_proxy)"| AGW
+    H -->|"http_proxy: all sandbox outbound<br/>①regex + gitleaks, REDACT"| EP
+    EP -->|"MCP + model routes (internal: body scrubbed)"| AGW
     EP --> NET
     EP --> SX
     AGW -->|"gRPC ExtProc, tools/call — NOT via egress-proxy<br/>②regex + gitleaks, REDACT"| SHIM
     SHIM --> VMCP
-    AGW -->|"HTTPS model call — NOT via egress-proxy<br/>③regex + PII builtins, MASK — NO gitleaks"| LLM
+    AGW -->|"HTTPS model call — NOT via egress-proxy<br/>③regex + PII builtins, REJECT — NO gitleaks"| LLM
     H -.->|"bypass — NOT scrubbed (accepted risk)"| DIRECT
     TETRA -->|"PROCESS_EXEC/KPROBE args, agent-sandbox exec events"| ALLPODS
     ALLPODS -->|"kubernetes_logs, no namespace filter<br/>④regex, REDACT — NO gitleaks"| VECTOR
@@ -190,10 +181,8 @@ flowchart LR
 
 Every arrow that carries agent content is labelled with its enforcement point. The two
 agentgateway-originated arrows (② and ③) are explicitly marked "NOT via egress-proxy" —
-they are the disjoint legs egress-proxy cannot see. The sandbox→agentgateway arrow is now
-also direct (agentgateway is in the sandbox `no_proxy`), so the MCP/model request leg is
-scrubbed at ②/③ rather than ①. The ③ leg is one gap to keep in mind: regex-only, with
-**no gitleaks equivalent** — the ④ leg shares that same gap. The dotted
+they are the disjoint legs egress-proxy cannot see. The ③ leg is one gap to keep in mind:
+regex-only, with **no gitleaks equivalent** — the ④ leg shares that same gap. The dotted
 arrow (git-over-SSH, Slack) bypasses all HTTP scrubbing by design; note this bypass is
 scoped to the HTTP legs only — a secret in a git-over-SSH or Slack-bound command's
 arguments is still exec'd inside the sandbox and so still passes through Tetragon → ④,
@@ -228,7 +217,7 @@ Vector log leg do not.
 | US phone | ✅ regex | ✅ regex | ✅ `PhoneNumber` builtin | ✅ regex |
 | Email | ❌ excluded | ❌ excluded | ❌ excluded | ❌ excluded |
 | **gitleaks ~180-rule ruleset** | ✅ | ✅ | ❌ **none** | ❌ **none** |
-| Action on match | redact | redact | redact (mask) | redact |
+| Action on match | redact | redact | **reject** | redact |
 
 Two asymmetries matter: the bottom `gitleaks` row, and the Vector leg's structurally
 narrower field coverage. On the AI-provider leg, coverage is exactly the 16 secret
@@ -247,8 +236,8 @@ source**:
 1. `images/mcp-cerbos-shim/internal/server/secrets_redact.go` — `secretPatternRegistry`
    (Go, RE2).
 2. `charts/egress-proxy/templates/addon-configmap.yaml` — `REDACT_PATTERNS` (Python, `re`).
-3. `apps/base/models/_components/promptguard-secrets/patch.yaml` — the shared `promptGuard`
-   `matches` component applied to all three AI backends (agentgateway, Rust regex crate).
+3. `apps/base/models/{anthropic,openai,haiku-oai}/backend.yaml` — `promptGuard` `matches`
+   (agentgateway, Rust regex crate).
 4. `infrastructure/controllers/victoria-logs/chart/values.yaml` — the `redactor`
    transform's `source:` block (VRL, Rust regex crate under the hood — same dialect as
    #3, but a separate literal copy since VRL and agentgateway's CRD field have no shared
@@ -268,7 +257,7 @@ Go/Python/VRL regexes vs. agentgateway's native builtins), so PII changes touch 
 
 None of the four legs match email addresses, deliberately. Email addresses are
 load-bearing in legitimate agent traffic — most concretely, Jira ticket assignment is done
-*by email address*, so masking or rejecting on an email match would break a normal,
+*by email address*, so scrubbing or rejecting on an email match would break a normal,
 authorized workflow. agentgateway's PII builtins support an `Email` option and it was
 deliberately dropped from all three backends (`builtins` is `[Ssn, CreditCard,
 PhoneNumber]`, not `[Ssn, CreditCard, Email, PhoneNumber]`); the egress-proxy and shim
