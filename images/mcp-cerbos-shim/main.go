@@ -14,6 +14,7 @@ import (
 	config "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/authz"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/moderation"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/server"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/upstream"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
@@ -89,6 +90,18 @@ func main() {
 	opts = append(opts, server.WithPagerdutyIncidentService(upstream.New(upstream.DefaultVMCPURL, nil)))
 	log.Printf("pagerduty incident service-resolution gate enabled (manage_incidents, add_note_to_incident)")
 
+	// Outbound content-moderation gate, toggled per-cluster via
+	// CONTENT_MODERATION_ENABLED (work only).
+	if cfg.contentModerationEnabled {
+		opts = append(opts,
+			server.WithModeration(moderation.New(moderation.DefaultModerationURL, cfg.moderationModel, nil)),
+			server.WithModerationVerbs(splitNonEmpty(cfg.moderationWriteVerbs, ",")),
+		)
+		log.Printf("outbound content-moderation gate enabled (Notion/Linear/GitHub/GitLab/Jira/PagerDuty writes)")
+	} else {
+		log.Printf("outbound content-moderation gate disabled (CONTENT_MODERATION_ENABLED unset/not true)")
+	}
+
 	srv := server.New(mapping, engine, decider, server.Principal{
 		ID:    "hermes",
 		Roles: []string{"agent"},
@@ -113,6 +126,9 @@ type envConfig struct {
 	cerbosAddr                 string
 	cerbosPlaintext            bool
 	notionAllowedParentPageIDs string
+	contentModerationEnabled   bool
+	moderationModel            string
+	moderationWriteVerbs       string
 }
 
 func loadEnv() envConfig {
@@ -122,6 +138,10 @@ func loadEnv() envConfig {
 		cerbosAddr:                 envOr("CERBOS_ADDR", "cerbos.cerbos.svc.cluster.local:3593"),
 		cerbosPlaintext:            envOr("CERBOS_PLAINTEXT", "true") == "true",
 		notionAllowedParentPageIDs: envOr("NOTION_ALLOWED_PARENT_PAGE_IDS", ""),
+		contentModerationEnabled:   envOr("CONTENT_MODERATION_ENABLED", "") == "true",
+		// Empty values fall back to the package defaults.
+		moderationModel:      envOr("MODERATION_MODEL", ""),
+		moderationWriteVerbs: envOr("MODERATION_WRITE_VERBS", ""),
 	}
 }
 

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"google.golang.org/grpc/codes"
@@ -22,6 +23,7 @@ import (
 	config "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/authz"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/moderation"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/upstream"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
 )
@@ -130,12 +132,42 @@ var (
 
 const pagerdutyIncidentResource = "pagerduty_incident"
 
+// DefaultModeratedWriteVerbs are tool-name substrings identifying a WRITE
+// call likely to carry free text a human will read. A verb heuristic
+// instead of a hand-enumerated tool list, so new write tools are covered
+// automatically. Deliberately excludes bare "comment" (false-matches
+// read tools like notion-get-comments) in favor of "add_comment"/"create_comment".
+var DefaultModeratedWriteVerbs = []string{
+	"create",
+	"update",
+	"save",
+	"add_note",
+	"add_comment",
+	"transition",
+}
+
+// isModeratedWriteTool reports whether toolName matches any verb in verbs,
+// case-insensitively, as a substring.
+func isModeratedWriteTool(toolName string, verbs []string) bool {
+	lower := strings.ToLower(toolName)
+	for _, verb := range verbs {
+		if strings.Contains(lower, verb) {
+			return true
+		}
+	}
+	return false
+}
+
 // upstreamLookupTimeout bounds a single live shim->vMCP lookup call (Notion
 // ancestry, Linear issue-team resolution) so one gated tools/call can't hang
 // the whole CheckRequest (the gateway is FailClosed, so a hang would deny
 // anyway — but only after its own longer timeout, holding the connection
 // open meanwhile).
 const upstreamLookupTimeout = 5 * time.Second
+
+// moderationTimeout bounds a single moderation-endpoint call (fails open on
+// timeout -- see checkModeration).
+const moderationTimeout = 10 * time.Second
 
 // callToolMeta is the vMCP optimizer's (thv vmcp serve --optimizer/--optimizer-embedding)
 // meta-tool name. With the optimizer on, vMCP exposes only find_tool/call_tool instead
@@ -217,6 +249,16 @@ type Server struct {
 	// deny-write-outside-allowed-services rule (resource_pagerduty.yaml)
 	// evaluates it exactly like an explicit-service call.
 	pagerdutyIncidentService upstream.ToolCaller
+
+	// moderationChecker, when set, sends free-text args of matching write
+	// calls through OpenAI's Moderations endpoint before the call reaches
+	// vMCP. Nil disables the gate (per-cluster toggle, see main.go). Unlike
+	// the redaction gate, a flagged result DENIES the call -- there's no
+	// safe partial-mutation of "the content is offensive."
+	moderationChecker moderation.Checker
+
+	// moderatedWriteVerbs is the verb list isModeratedWriteTool checks against.
+	moderatedWriteVerbs []string
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -265,6 +307,27 @@ func WithLinearProjectTeam(client upstream.ToolCaller) Option {
 func WithPagerdutyIncidentService(client upstream.ToolCaller) Option {
 	return func(s *Server) {
 		s.pagerdutyIncidentService = client
+	}
+}
+
+// WithModeration enables the outbound content-moderation gate using checker
+// to classify free-text arguments. Unset (nil checker) disables the gate.
+func WithModeration(checker moderation.Checker) Option {
+	return func(s *Server) {
+		s.moderationChecker = checker
+		if s.moderatedWriteVerbs == nil {
+			s.moderatedWriteVerbs = DefaultModeratedWriteVerbs
+		}
+	}
+}
+
+// WithModerationVerbs overrides the default write-verb list. Apply after
+// WithModeration so it isn't overwritten by WithModeration's own default.
+func WithModerationVerbs(verbs []string) Option {
+	return func(s *Server) {
+		if len(verbs) > 0 {
+			s.moderatedWriteVerbs = verbs
+		}
 	}
 }
 
@@ -338,6 +401,19 @@ func (s *Server) CheckRequest(ctx context.Context, req *pb.McpRequest) (*pb.McpR
 		cp.Arguments = params
 		if cp.Arguments == nil {
 			cp.Arguments = map[string]any{}
+		}
+	}
+
+	// Content-moderation gate: runs before the mapping lookup below and
+	// before Cerbos, on the tool name/args alone -- deliberately independent
+	// of whether cp.Name has a Cerbos mapping entry, so an entirely unmapped
+	// backend (e.g. GitLab, which has no Cerbos policy at all) still gets
+	// its free-text writes checked. No-op if disabled or the tool doesn't
+	// match a write verb.
+	if s.moderationChecker != nil && isModeratedWriteTool(cp.Name, s.moderatedWriteVerbs) {
+		if derr := s.checkModeration(ctx, cp.Arguments); derr != nil {
+			log.Printf("deny: %s failed content moderation (backend=%s): %v", cp.Name, backend, derr)
+			return deny(derr.Error()), nil
 		}
 	}
 
@@ -541,6 +617,63 @@ func buildMutatedParams(cp callParams, wrapped bool, force map[string]any) ([]by
 // it. Every failure path is fail-closed: an unconfigured gate, a missing
 // page_id, a lookup error, and a confirmed not-under-any-allowed-parent all
 // deny.
+// checkModeration sends every free-text arg through s.moderationChecker.
+// Fails OPEN on a moderation-service error (unlike every other gate in this
+// file, which fails closed) -- a service outage shouldn't deny every write
+// cluster-wide, and Cerbos authz still applies regardless.
+func (s *Server) checkModeration(ctx context.Context, args map[string]any) error {
+	strs := extractStrings(args)
+	if len(strs) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, moderationTimeout)
+	defer cancel()
+	result, err := s.moderationChecker.Check(ctx, strs)
+	if err != nil {
+		log.Printf("moderation check failed, failing OPEN (see checkModeration doc comment): %v", err)
+		return nil
+	}
+	if result.Flagged {
+		return fmt.Errorf(
+			"this call's content was flagged by the moderation gate (categories: %s); "+
+				"rewrite the content and try again",
+			strings.Join(result.FlaggedCategories, ", "),
+		)
+	}
+	return nil
+}
+
+// extractStrings walks a decoded value and collects every string at any
+// depth, unwrapping one level of JSON-encoded string (Jira's fields/
+// additional_fields args are raw JSON strings).
+func extractStrings(v any) []string {
+	var out []string
+	var walk func(any)
+	walk = func(v any) {
+		switch t := v.(type) {
+		case string:
+			if trimmed := strings.TrimSpace(t); len(trimmed) > 0 && (trimmed[0] == '{' || trimmed[0] == '[') {
+				var nested any
+				if err := json.Unmarshal([]byte(t), &nested); err == nil {
+					walk(nested)
+					return
+				}
+			}
+			out = append(out, t)
+		case map[string]any:
+			for _, val := range t {
+				walk(val)
+			}
+		case []any:
+			for _, val := range t {
+				walk(val)
+			}
+		}
+	}
+	walk(v)
+	return out
+}
+
 func (s *Server) checkNotionAncestry(ctx context.Context, pageID string) error {
 	if s.notionAncestry == nil || len(s.notionAllowedParentIDs) == 0 {
 		// The gate is mandatory for these tools: production always wires it

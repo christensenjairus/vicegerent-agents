@@ -86,13 +86,69 @@ Consequences:
   `deny-create-outside-scratchpad` rule), and `notion_notion-update-page` is
   mapped both to the destructive-command Cerbos deny AND to a shim-side live
   ancestry gate that denies updates to any page not under the
-  Scratchpad tree. `notion_notion-create-comment` stays unmapped. Everything
-  else passes untouched.
+  Scratchpad tree. `notion_notion-create-comment` shares that same live
+  ancestry gate (it targets an existing page by id too, with no
+  destructive-command surface of its own). Everything else passes untouched.
 
 The shim mapping and Cerbos rules exist to *deny* protected resources, not to permit
 tools. To allow or disallow a tool outright, change the exposed tool set (ToolHive's
 `aggregation.tools` today, or an agentgateway per-tool allowlist in a centralized
 setup) — not the mapping or an `allow` rule here.
+
+### Content Moderation
+
+A third, orthogonal concern sits alongside tool selection and argument-level
+authorization: content **quality**, not authorization. Every rule described
+above checks WHO/WHERE a call targets (repo, team, parent page, service id) —
+none of them inspect WHAT a call's free text actually says. A hallucinated
+claim about a person, a wrong incident-attribution narrative, or plainly
+offensive content in a shared Notion/Linear workspace or a merged GitHub PR
+description was previously uncatchable by any layer of this platform.
+
+When enabled (`CONTENT_MODERATION_ENABLED=true`, work cluster only —
+`contentModerationEnabled` cluster-var, empty/unset on personal), the shim
+sends every free-text string argument of a matching write call through
+OpenAI's Moderations endpoint (reused `openai` AgentgatewayBackend, no new
+secret or egress rule) BEFORE Cerbos is consulted, and denies outright on a
+flagged result. "Matching write call" is a **verb heuristic** on the tool
+name (`create`/`update`/`save`/`add_note`/`add_comment`/`transition` as a
+case-insensitive substring — `DefaultModeratedWriteVerbs`/
+`MODERATION_WRITE_VERBS`), not a hand-enumerated tool list: a newly added or
+upstream-renamed write tool is covered automatically, at the cost of also
+matching some non-text writes (harmless — extracting zero free-text strings
+from those args is a zero-cost no-op, see `checkModeration`). Deliberately
+excludes a bare "comment" substring (would false-match read tools like
+`notion-get-comments`) in favor of the more specific "add_comment"/
+"create_comment" forms actual write tools use. `transition` covers Jira's
+`transition_issue`, whose optional comment ("resolve with comment: ...")
+wouldn't otherwise match any other verb here.
+
+This check runs on the tool name/args alone, **independent of whether the
+tool has a Cerbos mapping entry in `mapping.yaml`** — GitLab, which has no
+Cerbos-mapped tools or policy at all (see "Authorization Layers" above),
+still gets its `create_issue`/`update_merge_request`/etc. write calls
+checked. Placing this ahead of the mapping lookup is deliberate: tying it to
+Cerbos-mapping status would silently exempt every unmapped backend from
+moderation regardless of what its tool names matched.
+
+**Fail-open exception (unlike every other gate in this file):** a
+moderation-service error (network failure, non-200, malformed response)
+allows the call through rather than denying it. Every other gate here fails
+closed on its own malfunction because its failure mode is "an authz check
+couldn't be verified," which this platform treats as unsafe-by-default; a
+moderation-endpoint hiccup is a service degradation, not an authz gap, and
+Cerbos's own (unaffected) authz check still runs regardless — denying every
+Notion/Linear/GitHub/GitLab/Jira/PagerDuty write cluster-wide on an OpenAI
+outage is a worse outcome than the pre-existing no-content-check status quo.
+
+**Known false-positive risk (precedent: MR !426):** agentgateway's own
+promptGuard `builtins: [Ssn, CreditCard, PhoneNumber]` shorthand
+self-rejected ordinary numeric content in production twice because of
+unscored low-confidence patterns. OpenAI's Moderations endpoint is a
+different mechanism (a real classifier, not a regex), but the same
+"verify against real traffic before calling it done" discipline applies —
+this was checked against live traffic before being considered stable; see
+the HAH-106 MR description for that verification.
 
 ### Guardrail Attachment
 
@@ -207,6 +263,9 @@ aborts startup (k8s restarts the pod; the gateway's `FailClosed` denies meanwhil
 | `MAPPING_PATH` | `/etc/mcp-cerbos-shim/mapping.yaml` | mapping file |
 | `CERBOS_ADDR` | `cerbos.cerbos.svc.cluster.local:3593` | Cerbos PDP gRPC |
 | `CERBOS_PLAINTEXT` | `true` | use plaintext to the PDP (mTLS later) |
+| `CONTENT_MODERATION_ENABLED` | `false` | enable the outbound content-moderation gate (see "Content Moderation" above) |
+| `MODERATION_MODEL` | `omni-moderation-latest` | OpenAI Moderations model override |
+| `MODERATION_WRITE_VERBS` | `create,update,save,add_note,add_comment,transition` | comma-separated verb-heuristic override |
 
 The Cerbos principal is a fixed constant (`hermes`/`agent`) stamped on every
 request for audit context. It is **not** an authorization control: the policy

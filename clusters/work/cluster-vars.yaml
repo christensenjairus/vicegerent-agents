@@ -119,6 +119,9 @@ data:
   notionAllowedParentPageIds: >-
     6fc3f07af7084089a14088581502e3f1,1de588d8909f80458ad6c0a831284768,306588d8909f806d9e78f7004cf3b9db,41348461628a472bbc16c14e2e866a89
 
+  # Write content moderation enabled for work profile
+  contentModerationEnabled: 'true'
+
   # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
   # createSilence's duration is capped by this value; work alerts are capped
   # tighter than personal (24h vs 14d) since a stale work silence hides a

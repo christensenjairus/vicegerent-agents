@@ -25,7 +25,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: mcp-cerbos-shim
-          image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.27.0
+          image: harbor.hahomelabs.com/vicegerent/mcp-cerbos-shim:v0.28.0
           ports:
             - name: grpc
               containerPort: 4445
@@ -34,6 +34,18 @@ spec:
               value: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id)
             - name: NOTION_ALLOWED_PARENT_PAGE_IDS
               value: ${notionScratchpadPageId},${notionAllowedParentPageIds}  # pragma: allowlist secret (Notion page ids; Scratchpad always implicit, plus cluster-vars' team-folder list)
+            - name: CONTENT_MODERATION_ENABLED
+              value: ${contentModerationEnabled}
+            # Optional escape hatches for the moderation gate -- empty by
+            # default (moderation.DefaultModel / server.DefaultModeratedWriteVerbs
+            # apply). Static empty values, not cluster-vars tokens: unlike
+            # contentModerationEnabled these aren't a per-cluster toggle,
+            # just an override valve if the model needs to change or a new
+            # write-verb needs adding without a code change.
+            - name: MODERATION_MODEL
+              value: ''
+            - name: MODERATION_WRITE_VERBS
+              value: ''
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
