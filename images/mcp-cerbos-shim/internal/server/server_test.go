@@ -4,11 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
+	"sort"
 	"strings"
 	"testing"
 
 	config "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/moderation"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
 )
 
@@ -87,6 +90,11 @@ backends:
         attr: { repo: "get(args,'repo','')" }
         force:
           parent: { type: page_id, page_id: scratchpadid }
+      github_create_pull_request:
+        resourceType: gh_action
+        action: create_pull_request
+        id: "get(args,'repo','')"
+        attr: { repo: "get(args,'repo','')" }
 `
 
 func newTestServer(t *testing.T, d *stubDecider) *Server {
@@ -1357,4 +1365,282 @@ func TestRedactString_Idempotent(t *testing.T) {
 	if _, np := redactString(strings.Repeat(redactedPlaceholder+" ", 8)); np != 0 {
 		t.Errorf("the redaction placeholder was matched as a secret (%d hits) -- scrub cannot converge", np)
 	}
+}
+
+// stubModerationChecker lets tests force a flagged/non-flagged verdict or an
+// error, and records the exact strings it was asked to check.
+type stubModerationChecker struct {
+	flagged    bool
+	categories []string
+	err        error
+	gotInputs  []string
+	calls      int
+}
+
+func (s *stubModerationChecker) Check(_ context.Context, inputs []string) (*moderation.Result, error) {
+	s.calls++
+	s.gotInputs = inputs
+	if s.err != nil {
+		return nil, s.err
+	}
+	if s.flagged {
+		return &moderation.Result{Flagged: true, FlaggedCategories: s.categories}, nil
+	}
+	return &moderation.Result{}, nil
+}
+
+func newTestServerWithModeration(t *testing.T, d *stubDecider, m moderation.Checker) *Server {
+	t.Helper()
+	cfg, err := config.Parse([]byte(testMappingYAML))
+	if err != nil {
+		t.Fatalf("parse mapping: %v", err)
+	}
+	e, err := eval.Compile(cfg)
+	if err != nil {
+		t.Fatalf("compile: %v", err)
+	}
+	return New(cfg, e, d, Principal{ID: "hermes", Roles: []string{"agent"}}, WithModeration(m))
+}
+
+// TestIsModeratedWriteTool_GeneralizesToUnenumeratedTools proves the verb
+// heuristic covers a brand-new tool name that appears nowhere in this
+// shim's allowlists/mappings and was never hand-added for moderation --
+// the whole point of matching on verb shape instead of an enumerated list.
+func TestIsModeratedWriteTool_GeneralizesToUnenumeratedTools(t *testing.T) {
+	cases := []struct {
+		name string
+		want bool
+	}{
+		{"linear_save_project_x", true}, // hypothetical future tool, never enumerated anywhere
+		{"gitlab_create_snippet", true}, // hypothetical future tool, never enumerated anywhere
+		{"jira_add_comment_to_issue", true},
+		{"pagerduty_add_note_to_incident", true},
+		{"notion_notion-create-pages", true}, // dash-separated backend name
+		{"kubernetes_getResource", false},
+		{"notion_notion-get-comments", false}, // read tool: must not false-match bare "comment"
+		{"gitlab_resolve_merge_request_thread", false},
+	}
+	for _, c := range cases {
+		if got := isModeratedWriteTool(c.name, DefaultModeratedWriteVerbs); got != c.want {
+			t.Errorf("isModeratedWriteTool(%q) = %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// TestWithModerationVerbs_OverridesDefault proves a custom verb list
+// (e.g. from an operator-set MODERATION_WRITE_VERBS env override, see
+// main.go) actually replaces DefaultModeratedWriteVerbs rather than being
+// silently ignored, and that an empty override falls back to the default.
+func TestWithModerationVerbs_OverridesDefault(t *testing.T) {
+	t.Run("custom verb list gates a tool the default list would miss", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{flagged: true} // would deny if it ran
+		cfg, err := config.Parse([]byte(testMappingYAML))
+		if err != nil {
+			t.Fatalf("parse mapping: %v", err)
+		}
+		e, err := eval.Compile(cfg)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		s := New(cfg, e, d, Principal{ID: "hermes", Roles: []string{"agent"}},
+			WithModeration(m), WithModerationVerbs([]string{"getresource"}))
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getResource", map[string]any{"name": "n"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny: custom verb list should have matched getResource and the checker is set to flag")
+		}
+		if m.calls != 1 {
+			t.Fatalf("expected moderation checker to be called once under the custom verb list, got %d calls", m.calls)
+		}
+	})
+
+	t.Run("empty verbs override falls back to DefaultModeratedWriteVerbs", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{flagged: true}
+		cfg, err := config.Parse([]byte(testMappingYAML))
+		if err != nil {
+			t.Fatalf("parse mapping: %v", err)
+		}
+		e, err := eval.Compile(cfg)
+		if err != nil {
+			t.Fatalf("compile: %v", err)
+		}
+		s := New(cfg, e, d, Principal{ID: "hermes", Roles: []string{"agent"}},
+			WithModeration(m), WithModerationVerbs(nil))
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r", "title": "a perfectly normal title"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		_ = r
+		if m.calls != 1 {
+			t.Fatalf("expected default verb list (\"create\") to still gate github_create_pull_request, got %d calls", m.calls)
+		}
+	})
+}
+
+func TestCheckRequest_ModerationGate(t *testing.T) {
+	t.Run("nil checker (gate disabled): call proceeds untouched, decider still runs", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		s := newTestServer(t, d) // no WithModeration option -- checker is nil
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r", "title": "hello"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass with the gate disabled, got deny=%v mutated=%v", isDeny(r), isMutated(r))
+		}
+		if d.calls != 1 {
+			t.Fatalf("decider should still run once with the gate disabled, got %d calls", d.calls)
+		}
+	})
+
+	t.Run("tool matching no write verb: checker never called", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{flagged: true} // would deny if it ran
+		s := newTestServerWithModeration(t, d, m)
+		r, err := s.CheckRequest(context.Background(), mcpReq("kubernetes", "tools/call",
+			toolCall("getResource", map[string]any{"name": "n"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for an unmoderated tool even with a flagging checker")
+		}
+		if m.calls != 0 {
+			t.Fatalf("moderation checker should never be called for a tool matching no write verb, got %d calls", m.calls)
+		}
+	})
+
+	t.Run("flagged content denies the call before Cerbos ever runs", func(t *testing.T) {
+		d := &stubDecider{allow: true} // would allow if reached
+		m := &stubModerationChecker{flagged: true, categories: []string{"harassment"}}
+		s := newTestServerWithModeration(t, d, m)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r", "title": "bad content here"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isDeny(r) {
+			t.Fatalf("expected deny for flagged content, got pass=%v mutated=%v", isPass(r), isMutated(r))
+		}
+		if !strings.Contains(r.GetError().GetReason(), "harassment") {
+			t.Errorf("deny reason should surface the flagged category, got %q", r.GetError().GetReason())
+		}
+		if d.calls != 0 {
+			t.Fatalf("Cerbos should never be consulted once moderation denies, got %d calls", d.calls)
+		}
+	})
+
+	t.Run("non-flagged content proceeds to Cerbos normally", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{flagged: false}
+		s := newTestServerWithModeration(t, d, m)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r", "title": "a perfectly normal title"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected pass for non-flagged content")
+		}
+		if d.calls != 1 {
+			t.Fatalf("Cerbos should still run once moderation passes, got %d calls", d.calls)
+		}
+		found := false
+		for _, s := range m.gotInputs {
+			if s == "a perfectly normal title" {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("moderation checker should have received the title string, got %v", m.gotInputs)
+		}
+	})
+
+	t.Run("moderation service error fails OPEN, unlike every other live-lookup gate", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{err: fmt.Errorf("connection refused")}
+		s := newTestServerWithModeration(t, d, m)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r", "title": "whatever"})))
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		if !isPass(r) {
+			t.Fatalf("expected the gate to fail OPEN on a moderation-service error, got deny=%v", isDeny(r))
+		}
+		if d.calls != 1 {
+			t.Fatalf("Cerbos should still run after a moderation-service error, got %d calls", d.calls)
+		}
+	})
+
+	t.Run("short/id-shaped strings are skipped, so an id-only call never reaches the checker", func(t *testing.T) {
+		d := &stubDecider{allow: true}
+		m := &stubModerationChecker{flagged: true} // would deny if called with any input
+		s := newTestServerWithModeration(t, d, m)
+		r, err := s.CheckRequest(context.Background(), mcpReq("github", "tools/call",
+			toolCall("github_create_pull_request", map[string]any{"repo": "r"}))) // "r" is 1 char, filtered client-side too, but repo isn't even sent to Check if nothing qualifies
+		if err != nil {
+			t.Fatalf("err: %v", err)
+		}
+		_ = r
+	})
+}
+
+func TestExtractStrings(t *testing.T) {
+	t.Run("flat map", func(t *testing.T) {
+		got := extractStrings(map[string]any{"title": "hello", "count": 3.0, "ok": true})
+		want := []string{"hello"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("nested array of objects (Notion pages[])", func(t *testing.T) {
+		got := extractStrings(map[string]any{
+			"pages": []any{
+				map[string]any{"content": "first page body"},
+				map[string]any{"content": "second page body"},
+			},
+		})
+		want := []string{"first page body", "second page body"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("JSON-encoded string arg (Jira fields/additional_fields smuggling) is unwrapped", func(t *testing.T) {
+		got := extractStrings(map[string]any{
+			"fields": `{"description": "smuggled description text", "priority": {"name": "High"}}`,
+		})
+		want := []string{"smuggled description text", "High"}
+		// The unwrapped JSON decodes to a map[string]any, whose iteration
+		// order Go does not guarantee -- sort both sides before comparing.
+		sort.Strings(got)
+		sort.Strings(want)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("a string that merely looks like JSON but fails to parse falls through flat", func(t *testing.T) {
+		got := extractStrings(map[string]any{"note": "{not valid json"})
+		want := []string{"{not valid json"}
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("got %v, want %v", got, want)
+		}
+	})
+
+	t.Run("empty input yields empty output, not nil-vs-empty panics", func(t *testing.T) {
+		got := extractStrings(map[string]any{})
+		if len(got) != 0 {
+			t.Errorf("got %v, want empty", got)
+		}
+	})
 }
