@@ -29,3 +29,4 @@ data:
     trust_level = "trusted"
     [features]
     respect_system_proxy = true
+    suppress_unstable_features_warning = true
