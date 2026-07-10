@@ -34,17 +34,11 @@ spec:
               value: ${notionScratchpadPageId}  # pragma: allowlist secret (Notion page id)
             - name: NOTION_ALLOWED_PARENT_PAGE_IDS
               value: ${notionScratchpadPageId},${notionAllowedParentPageIds}  # pragma: allowlist secret (Notion page ids; Scratchpad always implicit, plus cluster-vars' team-folder list)
-            - name: CONTENT_MODERATION_ENABLED
-              value: ${contentModerationEnabled}
-            # Optional escape hatches for the moderation gate -- empty by
-            # default (moderation.DefaultModel / server.DefaultModeratedWriteVerbs
-            # apply). Static empty values, not cluster-vars tokens: unlike
-            # contentModerationEnabled these aren't a per-cluster toggle,
-            # just an override valve if the model needs to change or a new
-            # write-verb needs adding without a code change.
-            - name: MODERATION_MODEL
+            - name: CONTENT_MODERATION  # "enabled"/"disabled" -- see README's "Content Moderation"
+              value: ${contentModeration}
+            - name: MODERATION_MODEL  # override valve, not a cluster-vars token
               value: ''
-            - name: MODERATION_WRITE_VERBS
+            - name: MODERATION_WRITE_VERBS  # override valve, not a cluster-vars token
               value: ''
           securityContext:
             allowPrivilegeEscalation: false

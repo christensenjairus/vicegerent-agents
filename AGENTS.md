@@ -147,7 +147,7 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   A third, orthogonal concern is **content moderation** — content *quality*, not authz: the
   shim can send free-text args of write-shaped calls (Notion/Linear/GitHub/GitLab/Jira/
   PagerDuty) through OpenAI's Moderations endpoint before Cerbos runs, denying on a flagged
-  result. Work cluster only (`contentModerationEnabled` cluster-var), and — unlike every
+  result. Toggled per-cluster (`contentModeration` cluster-var), and — unlike every
   other gate above — fails OPEN on a moderation-service error, since a classifier outage is a
   service degradation, not an authz gap. See `images/mcp-cerbos-shim/README.md`
   ("Content Moderation").

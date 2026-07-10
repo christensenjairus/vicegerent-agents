@@ -90,16 +90,15 @@ func main() {
 	opts = append(opts, server.WithPagerdutyIncidentService(upstream.New(upstream.DefaultVMCPURL, nil)))
 	log.Printf("pagerduty incident service-resolution gate enabled (manage_incidents, add_note_to_incident)")
 
-	// Outbound content-moderation gate, toggled per-cluster via
-	// CONTENT_MODERATION_ENABLED (work only).
-	if cfg.contentModerationEnabled {
+	// Outbound content-moderation gate, toggled per-cluster via CONTENT_MODERATION.
+	if cfg.contentModeration {
 		opts = append(opts,
 			server.WithModeration(moderation.New(moderation.DefaultModerationURL, cfg.moderationModel, nil)),
 			server.WithModerationVerbs(splitNonEmpty(cfg.moderationWriteVerbs, ",")),
 		)
 		log.Printf("outbound content-moderation gate enabled (Notion/Linear/GitHub/GitLab/Jira/PagerDuty writes)")
 	} else {
-		log.Printf("outbound content-moderation gate disabled (CONTENT_MODERATION_ENABLED unset/not true)")
+		log.Printf("outbound content-moderation gate disabled (CONTENT_MODERATION unset/not enabled)")
 	}
 
 	srv := server.New(mapping, engine, decider, server.Principal{
@@ -126,7 +125,7 @@ type envConfig struct {
 	cerbosAddr                 string
 	cerbosPlaintext            bool
 	notionAllowedParentPageIDs string
-	contentModerationEnabled   bool
+	contentModeration          bool
 	moderationModel            string
 	moderationWriteVerbs       string
 }
@@ -138,7 +137,8 @@ func loadEnv() envConfig {
 		cerbosAddr:                 envOr("CERBOS_ADDR", "cerbos.cerbos.svc.cluster.local:3593"),
 		cerbosPlaintext:            envOr("CERBOS_PLAINTEXT", "true") == "true",
 		notionAllowedParentPageIDs: envOr("NOTION_ALLOWED_PARENT_PAGE_IDS", ""),
-		contentModerationEnabled:   envOr("CONTENT_MODERATION_ENABLED", "") == "true",
+		// "enabled", never "true"/"false" -- see README's "Content Moderation".
+		contentModeration: envOr("CONTENT_MODERATION", "") == "enabled",
 		// Empty values fall back to the package defaults.
 		moderationModel:      envOr("MODERATION_MODEL", ""),
 		moderationWriteVerbs: envOr("MODERATION_WRITE_VERBS", ""),

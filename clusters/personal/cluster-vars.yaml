@@ -117,8 +117,9 @@ data:
   # notionScratchpadPageId above regardless of this list.
   notionAllowedParentPageIds: 1ccde885971080989baffe615ee5922b  # pragma: allowlist secret (Notion page id; "Teamspace Home")
 
-  # No content moderation on personal
-  contentModerationEnabled: ''
+  # "enabled"/"disabled", never "true"/"false" -- see mcp-cerbos-shim README's
+  # "Content Moderation" section.
+  contentModeration: enabled
 
   # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
   # createSilence's duration is capped by this value; personal machine gets a
