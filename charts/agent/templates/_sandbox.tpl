@@ -139,15 +139,8 @@ spec:
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
               # Seed ConfigMap-owned config files; agent runtime state uses different files in the same dirs.
               mkdir -p /opt/data/.codex /opt/data/.claude
-              # Render config.toml and settings.json from templates — substitutes
-              # AGENTGATEWAY_API_KEY so codex/claude-code send the correct bearer
-              # token to agentgateway without relying on shell env var lookup.
-              sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
-                < /reload/codex-config/config.toml \
-                > /opt/data/.codex/config.toml
-              sed "s|\${AGENTGATEWAY_API_KEY}|${AGENTGATEWAY_API_KEY}|g" \
-                < /reload/claude-config/settings.json \
-                > /opt/data/.claude/settings.json
+              cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
+              cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
               cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
               cp -f /reload/claude-config/CLAUDE.md /opt/data/.claude/CLAUDE.md
               # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
@@ -171,12 +164,6 @@ spec:
           env:
             - name: PYTHONDONTWRITEBYTECODE
               value: '1'
-            - name: AGENTGATEWAY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-                  key: api-key
-                  optional: true
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -250,7 +237,6 @@ spec:
               echo "waiting for vMCP initialize (200) at ${VMCP}..."
               until code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 \
                       -X POST \
-                      -H "Authorization: Bearer ${AGENTGATEWAY_API_KEY}" \
                       -H "Accept: application/json, text/event-stream" \
                       -H "Content-Type: application/json" \
                       -d "${body}" \
@@ -283,12 +269,6 @@ spec:
               value: 127.0.0.1,localhost
             - name: TMPDIR
               value: /tmp
-            - name: AGENTGATEWAY_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-                  key: api-key
-                  optional: false
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -383,18 +363,12 @@ spec:
             - name: GIT_SSH_COMMAND
               value: ssh -i /opt/hermes-ssh/hermes_agent_ed25519 -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
+            # agentgateway injects the real upstream provider key; these clients only
+            # need a non-empty value, and the egress proxy scrubs it in transit.
             - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-                  key: api-key
-                  optional: false
+              value: unused
             - name: OPENAI_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-                  key: api-key
-                  optional: false
+              value: unused
             # TODO: haiku is overkill for mnemosyne consolidation; replace with a cheap OpenAI model once org tokens are available.
             - name: MNEMOSYNE_LLM_ENABLED
               value: 'true'
@@ -403,11 +377,7 @@ spec:
             - name: MNEMOSYNE_LLM_MODEL
               value: claude-haiku-4-5
             - name: MNEMOSYNE_LLM_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-                  key: api-key
-                  optional: false
+              value: unused
             - name: HF_HUB_OFFLINE
               value: '1'
             - name: HERMES_WRITE_SAFE_ROOT

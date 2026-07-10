@@ -1,19 +1,15 @@
 package server
 
-// Secret redaction for MCP tool-call traffic that never touches the
-// egress-proxy at all. The egress-proxy (charts/egress-proxy) scrubs the
-// same credential-shaped patterns from EVERY outbound request/response, but
-// deliberately skips anything classified internal (host ends in
-// ".cluster.local"/".svc") -- agentgateway/vMCP traffic matches that
-// exclusion, since agentgateway's own Bearer auth is legitimate and must
-// pass through unscrubbed. The unintended side effect: nothing scans the
-// actual MCP tool-call ARGUMENT/RESULT payloads riding on that same
-// connection. If an agent reads a credential-shaped string from anywhere
-// (a file, a log, a prior tool result) and passes it into a Jira comment
-// body, a GitHub PR description, a Linear issue, etc., it sails through
-// completely untouched -- the egress-proxy's own exclusion for "trusted"
-// internal traffic doesn't distinguish "agentgateway's auth header" from
-// "an arbitrary string an agent chose to put in a tool-call argument".
+// Secret redaction for MCP tool-call payloads. The egress-proxy
+// (charts/egress-proxy) scrubs the same credential-shaped patterns from EVERY
+// outbound request/response, internal agentgateway/vMCP traffic included, but it
+// works at the transport layer -- HTTP headers, URL, and body. It does not
+// semantically parse the JSON-RPC tool-call ARGUMENT/RESULT payloads riding on
+// the MCP connection, and it skips streaming (SSE) response bodies, which is how
+// vMCP returns tool results. So if an agent reads a credential-shaped string from
+// anywhere (a file, a log, a prior tool result) and passes it into a Jira comment
+// body, a GitHub PR description, a Linear issue, etc., it can slip past the
+// transport-layer scrub untouched.
 //
 // This closes that gap at the one place that sees every tool call in both
 // directions regardless of destination backend: CheckRequest (before a

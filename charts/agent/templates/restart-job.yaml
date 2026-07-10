@@ -62,9 +62,6 @@ spec:
             - name: approval-policy
               mountPath: /reload/approval-policy
               readOnly: true
-            - name: agentgateway-api-key
-              mountPath: /reload/api-key
-              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -86,9 +83,5 @@ spec:
         - name: approval-policy
           configMap:
             name: {{ include "vicegerent-agent.name" . }}-approval-policy
-        - name: agentgateway-api-key
-          secret:
-            secretName: {{ include "vicegerent-agent.name" . }}-agentgateway-api-key
-            optional: true
         - name: tmp
           emptyDir: {}

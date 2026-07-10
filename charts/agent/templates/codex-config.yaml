@@ -13,7 +13,9 @@ data:
     [model_providers.vicegerent]
     name = "Vicegerent agentgateway"
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"
-    experimental_bearer_token = "${AGENTGATEWAY_API_KEY}"
+    # Placeholder: agentgateway injects the real upstream key; the client only
+    # needs a non-empty value, and the egress proxy scrubs it in transit.
+    experimental_bearer_token = "unused"
     wire_api = "responses"
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"

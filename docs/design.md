@@ -4,7 +4,7 @@ Why this exists, what it's compared against, and the tradeoffs — split out of 
 
 ## What it provides
 
-Every agent runs as its own `agent-sandbox` pod, non-root and pod-hardened, with its own generated credentials (SSH key, dashboard auth, agentgateway bearer token) that are never shared with another agent. From there:
+Every agent runs as its own `agent-sandbox` pod, non-root and pod-hardened, with its own generated credentials (SSH key, dashboard auth) that are never shared with another agent. From there:
 
 - The sandbox has no direct internet or cluster access. Cilium egress-locks it to a scrubbing egress proxy, git-over-SSH, Slack, and DNS.
 - Every model call and every MCP tool call goes through agentgateway.

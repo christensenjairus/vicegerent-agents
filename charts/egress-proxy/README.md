@@ -25,14 +25,14 @@ scrubbed string: a hand-rolled regex registry (`REDACT_PATTERNS`) then gitleaks'
 |---|---|
 | `-----BEGIN ... PRIVATE KEY-----` | SSH private keys — RSA, EC, Ed25519, OpenSSH, PKCS#8 encrypted |
 | `xox[bpraescd]-...` / `xapp-...` | Slack tokens — bot, app-level, user, refresh, socket, client, app-config |
-| `Bearer <token>` / `Basic <creds>` | auth values in URL/body; the `Authorization` header itself is stripped on external requests |
-| `x-api-key` / `api-key` headers | API-key headers redacted on external requests |
+| `Bearer <token>` / `Basic <creds>` | auth values in URL/body; the `Authorization` header itself is stripped on every request |
+| `x-api-key` / `api-key` headers | API-key headers redacted on every request |
 | AWS / GitHub / GitLab / Google | `AKIA…`, `gh?_…`, `glpat-…`, `AIza…` |
 | OpenAI / Anthropic / Stripe | `sk-…` / `sk-proj-…`, `sk-ant-…`, `sk_live_…` / `rk_test_…` |
 | Notion / Twilio / npm / JWT | `ntn_…`, `SK<32 hex>`, `npm_…`, `eyJ….eyJ….…` |
 | gitleaks default ruleset | ~180 provider tokens/keys/connection strings the registry doesn't name (SendGrid, etc.) |
 
-The request **URL path and query** are also scrubbed on external requests, and
+The request **URL path and query** are also scrubbed on every request, and
 response bodies are scrubbed (non-streaming only) to guard against echo attacks —
 both through the same two-layer `_redact()`.
 

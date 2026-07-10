@@ -9,7 +9,7 @@ data:
     {
       "env": {
         "ANTHROPIC_BASE_URL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic",
-        "ANTHROPIC_AUTH_TOKEN": "${AGENTGATEWAY_API_KEY}"
+        "ANTHROPIC_AUTH_TOKEN": "unused"
       },
       "model": "claude-opus-4-8",
       "enableAllProjectMcpServers": true,

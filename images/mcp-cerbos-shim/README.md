@@ -39,7 +39,7 @@ dropped from the allowlist instead). (Notion `create-pages` is also mapped; see
 
 | Layer | Job |
 | --- | --- |
-| **agentgateway** | MCP ingress gate: routing, bearer auth, mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup that's left to ToolHive. |
+| **agentgateway** | MCP ingress gate: routing and mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup that's left to ToolHive. |
 | **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, a Jira project/issue key, a GitHub owner/repo/branch, a Linear teamId, an Alertmanager silence duration, a PagerDuty manage_incidents change, a Notion update-page command, or a Firecrawl interact code payload) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
 | **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a non-DEVOPS Linear team, an over-cap Alertmanager silence, an out-of-scope PagerDuty change, a destructive Notion update-page command, or a code-carrying Firecrawl interact call, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
 

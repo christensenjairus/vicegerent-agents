@@ -8,10 +8,9 @@
 #   <name>-secrets                 password, signing-secret, public-key,
 #                                  SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
 #                                  SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (Slack optional)
-#   <name>-agentgateway-api-key    api-key         (random bearer token)
 #   <name>-ssh-key                 hermes_agent_ed25519  (ed25519 private key)
 #
-# Generated material (dashboard auth, SSH key, bearer token) is generated once and
+# Generated material (dashboard auth, SSH key) is generated once and
 # reused on re-run; Slack values are taken from the environment or prompted for.
 # Secrets are disposable/recreatable — keep your own copy of any Slack tokens.
 #
@@ -43,7 +42,6 @@ done
 AGENT="$(echo "$AGENT" | tr '[:upper:]' '[:lower:]')"
 
 ITEM="${AGENT}-secrets"
-ITEM_API_KEY="${AGENT}-agentgateway-api-key"  # pragma: allowlist secret
 ITEM_SSH="${AGENT}-ssh-key"  # pragma: allowlist secret
 
 # Fixed key name: the sandbox mounts this Secret at /opt/hermes-ssh/<name> and
@@ -100,17 +98,6 @@ trap cleanup EXIT INT TERM
 
 echo "${B}vicegerent agent secret setup${N}  (agent: $AGENT, context: $KUBE_CONTEXT)"
 ensure_ns "$NS"
-
-# --- agentgateway virtual API key ------------------------------------------
-step "$ITEM_API_KEY"
-if [[ -n "$(secret_val "$ITEM_API_KEY" api-key)" ]]; then
-  info "agentgateway API key already set; reusing."
-else
-  kc -n "$NS" create secret generic "$ITEM_API_KEY" \
-    --from-literal="api-key=$(openssl rand -hex 32)" \
-    --dry-run=client -o yaml | kc apply -f - >/dev/null
-  info "Generated agentgateway API key."
-fi
 
 # --- SSH key ---------------------------------------------------------------
 # ed25519 keypair (generate-once). Private key → <name>-ssh-key; public key is
@@ -175,7 +162,6 @@ check() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$
 check_optional() { if [[ -n "$(secret_val "$1" "$2")" ]]; then echo "  ${G}ok${N}   $NS/$1 ($2)"; else echo "  ${Y}skip${N} $NS/$1 ($2)  (optional)"; fi; }
 check "$ITEM" password
 check "$ITEM" signing-secret
-check "$ITEM_API_KEY" api-key
 check_optional "$ITEM" public-key
 check_optional "$ITEM_SSH" "$SSH_KEY_FILE"
 check_optional "$ITEM" SLACK_BOT_TOKEN

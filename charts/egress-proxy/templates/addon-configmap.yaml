@@ -14,9 +14,10 @@
 #      card numbers, US phone numbers — Email deliberately excluded).
 #   2. gitleaks' ~180-rule default ruleset, via the in-Pod localhost sidecar
 #      (images/egress-gitleaks-sidecar) — catches shapes the registry doesn't.
-# The Authorization header itself (Bearer/Basic/x-api-key) is scrubbed on external
-# requests only; internal services (agentgateway) legitimately use Bearer auth and
-# are in-cluster/trusted, so their auth headers are not scrubbed.
+# The Authorization header itself (Bearer/Basic/x-api-key) is scrubbed on every
+# request regardless of destination: the agent has no legitimate token to send to
+# any host (agentgateway injects the real upstream provider key on its own outbound
+# leg), so an auth header on an agent request is only ever a secret to strip.
 #
 # Method enforcement (GET/HEAD only) applies to EXTERNAL destinations only.
 # Internal cluster services (*.svc.cluster.local) need POST and are passed through
@@ -86,7 +87,8 @@ data:
     # 2048 chars is generous for all legitimate API/search use cases.
     MAX_URL_LENGTH = 2048
 
-    # In-cluster service hostnames — POST allowed, Bearer auth NOT scrubbed (legitimate).
+    # In-cluster service hostnames — exempt from method/FQDN enforcement only (POST
+    # allowed). Secret scrubbing (headers, URL, body) applies to them too; see request().
     INTERNAL_SUFFIXES = (".cluster.local", ".svc")
 
     # Restricts an already-FQDN-allowlisted host to specific path prefixes.
@@ -240,8 +242,7 @@ data:
     # (this process IS the proxy).
     _gitleaks_opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))
 
-    # Authorization Bearer scrubbing — external destinations only.
-    # Internal services (agentgateway) use Bearer auth legitimately; do not scrub them.
+    # Authorization Bearer scrubbing — applied to every destination.
     # Match Bearer token permissively — strip everything after "Bearer " regardless of
     # trailing content (avoids header variants like "Bearer token; extra=data" leaking).
     BEARER_PATTERN = re.compile(r"(?i)^(Bearer\s+)\S+")
@@ -389,20 +390,19 @@ data:
             )
             return
 
-        # Scrub secrets from request URL path + query string on external requests.
+        # Scrub secrets from request URL path + query string on every destination.
         # Headers and body are scrubbed later; the URL is the only remaining data channel
         # for GET requests (bodies blocked below), so it must also be scrubbed.
         # NOTE: scrubbing is pattern-based — encoding (base64, hex) evades it; the FQDN
         # allowlist is the primary external control, not this scrub.
-        if not internal:
-            raw_path = flow.request.path
-            new_path, n, bd = _redact(raw_path)
-            if n:
-                flow.request.path = new_path
-                log.warning(
-                    "client=%s REDACTED-URL count=%d patterns=%s method=%s url=%s",
-                    _client(flow), n, _fmt_breakdown(bd), method, url,
-                )
+        raw_path = flow.request.path
+        new_path, n, bd = _redact(raw_path)
+        if n:
+            flow.request.path = new_path
+            log.warning(
+                "client=%s REDACTED-URL count=%d patterns=%s method=%s url=%s",
+                _client(flow), n, _fmt_breakdown(bd), method, url,
+            )
 
         # Block GET/HEAD request bodies on external requests — no legitimate use,
         # potential exfiltration channel. Checked before scrubbing so we avoid
@@ -417,28 +417,25 @@ data:
             )
             return
 
-        # Scrub Bearer tokens from Authorization header on external requests.
-        # Internal services (agentgateway) legitimately use Bearer auth — skip them.
+        # Scrub Bearer tokens from the Authorization header on every destination.
         redacted = 0
         redact_breakdown: dict[str, int] = {}
-        if not internal:
-            auth = flow.request.headers.get("authorization", "")
-            m = BEARER_PATTERN.match(auth) if auth else None
-            if m:
-                flow.request.headers["authorization"] = m.group(1) + "<masked>"
-                redacted += 1
+        auth = flow.request.headers.get("authorization", "")
+        m = BEARER_PATTERN.match(auth) if auth else None
+        if m:
+            flow.request.headers["authorization"] = m.group(1) + "<masked>"
+            redacted += 1
 
-        # Scrub additional auth header schemes on external requests.
+        # Scrub additional auth header schemes on every destination.
         # Basic auth credentials and API key headers carry secrets in plaintext.
-        if not internal:
-            auth = flow.request.headers.get("authorization", "")
-            if auth.lower().startswith("basic "):
-                flow.request.headers["authorization"] = "Basic <masked>"
+        auth = flow.request.headers.get("authorization", "")
+        if auth.lower().startswith("basic "):
+            flow.request.headers["authorization"] = "Basic <masked>"
+            redacted += 1
+        for hdr in ("x-api-key", "api-key"):
+            if flow.request.headers.get(hdr):
+                flow.request.headers[hdr] = "<masked>"
                 redacted += 1
-            for hdr in ("x-api-key", "api-key"):
-                if flow.request.headers.get(hdr):
-                    flow.request.headers[hdr] = "<masked>"
-                    redacted += 1
 
         # Scrub secrets from all request headers.
         for name, value in list(flow.request.headers.items()):

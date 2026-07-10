@@ -108,7 +108,7 @@ The host-only ghostunnel files (`~/.vicegerent/ghostunnel`): `ca.cert`, `ca.key`
 
 ### Per-agent
 
-Run once per named agent. Each agent gets its own independently generated dashboard credentials, SSH key, and agentgateway bearer token — no material is shared between agents.
+Run once per named agent. Each agent gets its own independently generated dashboard credentials and SSH key — no material is shared between agents.
 
 ```bash
 ./vicegerent secrets setup agent hermes   # accepts -y/--yes
@@ -120,7 +120,6 @@ This applies these Kubernetes Secrets in namespace `agent-sandbox` (agent `<name
 <name>-secrets               password, signing-secret, public-key,
                              SLACK_BOT_TOKEN, SLACK_APP_TOKEN,
                              SLACK_ALLOWED_USERS, SLACK_HOME_CHANNEL (Slack optional)
-<name>-agentgateway-api-key  api-key                 (random hex bearer token)
 <name>-ssh-key               hermes_agent_ed25519    (ed25519 private key)
 ```
 
