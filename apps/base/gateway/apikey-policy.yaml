@@ -1,0 +1,22 @@
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: agentgateway-apikey
+  namespace: agentgateway-system
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: anthropic
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: openai
+    - group: gateway.networking.k8s.io
+      kind: HTTPRoute
+      name: haiku-oai
+  traffic:
+    apiKeyAuthentication:
+      mode: Strict
+      secretRef:
+        name: agentgateway-api-keys
