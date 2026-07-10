@@ -2,7 +2,7 @@
 # https://github.com/kubernetes-sigs/agent-sandbox/blob/main/helm/values.yaml
 image:
   repository: registry.k8s.io/agent-sandbox/agent-sandbox-controller
-  tag: v0.5.0
+  tag: v0.5.1
 resources:
   requests:
     cpu: 10m
