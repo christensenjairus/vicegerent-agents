@@ -149,8 +149,8 @@ func TestDeployedMapping_JiraTransitionIssueMatchesModerationVerb(t *testing.T) 
 }
 
 // Proves the gate is disabled entirely when moderationChecker is nil (the
-// CONTENT_MODERATION_ENABLED=false posture main.go wires for the personal
-// cluster) -- a real write-shaped deployed tool must reach Cerbos untouched.
+// CONTENT_MODERATION=disabled posture main.go wires per-cluster) -- a real
+// write-shaped deployed tool must reach Cerbos untouched.
 func TestDeployedMapping_ModerationDisabledSkipsGateEntirely(t *testing.T) {
 	d := &stubDecider{allow: true}
 	mapping := deployedMapping(t)

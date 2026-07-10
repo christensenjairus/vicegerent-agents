@@ -105,8 +105,8 @@ claim about a person, a wrong incident-attribution narrative, or plainly
 offensive content in a shared Notion/Linear workspace or a merged GitHub PR
 description was previously uncatchable by any layer of this platform.
 
-When enabled (`CONTENT_MODERATION_ENABLED=true`, work cluster only —
-`contentModerationEnabled` cluster-var, empty/unset on personal), the shim
+When enabled (`CONTENT_MODERATION=enabled`, toggled per-cluster via the
+`contentModeration` cluster-var), the shim
 sends every free-text string argument of a matching write call through
 OpenAI's Moderations endpoint (reused `openai` AgentgatewayBackend, no new
 secret or egress rule) BEFORE Cerbos is consulted, and denies outright on a
@@ -130,6 +130,15 @@ still gets its `create_issue`/`update_merge_request`/etc. write calls
 checked. Placing this ahead of the mapping lookup is deliberate: tying it to
 Cerbos-mapping status would silently exempt every unmapped backend from
 moderation regardless of what its tool names matched.
+
+**Why the cluster-var is `enabled`/`disabled`, never `true`/`false`:** Flux's
+`postBuild.substituteFrom` does a raw text `${var}` replace on
+already-rendered manifest bytes, and kustomize's own YAML emitter strips
+quotes around this token regardless of source formatting — so a bare
+`true`/`false` re-parses as a YAML boolean, not the string Kubernetes'
+typed `EnvVar.Value` requires (confirmed byte-for-byte; this broke the work
+cluster's rollout once already). `enabled`/`disabled` aren't YAML 1.1
+bool/null/numeric tokens, so they always stay strings.
 
 **Fail-open exception (unlike every other gate in this file):** a
 moderation-service error (network failure, non-200, malformed response)
@@ -263,7 +272,7 @@ aborts startup (k8s restarts the pod; the gateway's `FailClosed` denies meanwhil
 | `MAPPING_PATH` | `/etc/mcp-cerbos-shim/mapping.yaml` | mapping file |
 | `CERBOS_ADDR` | `cerbos.cerbos.svc.cluster.local:3593` | Cerbos PDP gRPC |
 | `CERBOS_PLAINTEXT` | `true` | use plaintext to the PDP (mTLS later) |
-| `CONTENT_MODERATION_ENABLED` | `false` | enable the outbound content-moderation gate (see "Content Moderation" above) |
+| `CONTENT_MODERATION` | unset (`""`) | `enabled`/`disabled` -- toggles the outbound content-moderation gate (see "Content Moderation" above) |
 | `MODERATION_MODEL` | `omni-moderation-latest` | OpenAI Moderations model override |
 | `MODERATION_WRITE_VERBS` | `create,update,save,add_note,add_comment,transition` | comma-separated verb-heuristic override |
 
