@@ -100,13 +100,7 @@ The Secret block and the secret-redaction gate both depend on `AgentgatewayPolic
 attaching the `tools/call -> mcp-cerbos-shim` guardrail with `methods: {tools/call:
 Full}` and `failureMode: FailClosed`. `Full` is the `MCPMethodPhase` enum value that
 routes BOTH `CheckRequest` and `CheckResponse` through the shim; the other values are
-`Off`, `Request` (request-phase only), and `Response` (response-phase only). As of
-HAH-101, `resources/read` and `prompts/get` are ALSO routed to the shim, but at phase
-`Response` only -- neither has a Cerbos mapping to build an authorizable resource
-from (no resource URI/prompt-name -> kind mapping exists), so there's no request-side
-check to run for them; they exist purely to get their response bodies through
-`CheckResponse`'s secret redaction (`redactableResponseMethods` in server.go), the
-same gap `tools/call` results already had closed. Setting
+`Off`, `Request` (request-phase only), and `Response` (response-phase only). Setting
 `Request` instead of `Full` compiles, deploys, and passes `scripts/validate.sh`'s
 render check with no error — it silently means `CheckResponse` (and therefore
 response-side secret redaction — see "Building a redact-and-mutate gate" in the

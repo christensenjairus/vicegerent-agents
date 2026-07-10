@@ -75,10 +75,7 @@ configured — so each leg carries its own enforcement point.
 - **Covers:** every MCP `tools/call` argument (`CheckRequest`, before the call reaches the
   host vMCP) and every tool result (`CheckResponse`, before the result reaches the model),
   regardless of which backend the tool lives on. This is the one place that sees every
-  tool call in both directions. `resources/read` and `prompts/get` results are also
-  covered on the response leg only (HAH-101) -- neither method has a Cerbos mapping
-  to build an authorizable resource from, so only their response bodies pass through
-  redaction; there is no request-side check for either.
+  tool call in both directions.
 - **Catches:** the same two layers as the egress-proxy — the hand-rolled
   `secretPatternRegistry` (`images/mcp-cerbos-shim/internal/server/secrets_redact.go`)
   **plus** gitleaks' ~180-rule ruleset, here run in-process (not a sidecar). Walks JSON

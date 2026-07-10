@@ -20,8 +20,6 @@ spec:
         processors:
           - methods:
               tools/call: Full
-              resources/read: Response
-              prompts/get: Response
             remote:
               backendRef:
                 name: mcp-cerbos-shim
