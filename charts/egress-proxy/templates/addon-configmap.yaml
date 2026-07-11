@@ -353,6 +353,44 @@ data:
     def _fmt_breakdown(breakdown: dict[str, int]) -> str:
         # Sorted by count desc for readability; e.g. "jwt:15,phone:57".
         return ",".join(f"{k}:{v}" for k, v in sorted(breakdown.items(), key=lambda kv: -kv[1]))
+
+    def _mcp_tool_calls(flow: http.HTTPFlow) -> list[tuple[str, object]]:
+        # Extract (tool, arguments) for every JSON-RPC tools/call in the request
+        # body; [] for anything that isn't one. Only the HTTP vmcp server transits
+        # this proxy (mnemosyne is stdio/local), so every call here is vmcp's
+        # call_tool/find_tool wrapper — call_tool is unwrapped so the REAL nested
+        # tool surfaces. Fail-quiet on any parse error: logging must never break
+        # the request path. Runs AFTER body redaction (request() below), so the
+        # arguments returned are already <masked>-scrubbed — secrets never logged.
+        if flow.request.method != "POST":
+            return []
+        ct = flow.request.headers.get("content-type", "").split(";")[0].strip().lower()
+        if ct != "application/json":
+            return []
+        try:
+            msg = json.loads(flow.request.get_text(strict=False))
+        except Exception:
+            return []
+        # Accept a single JSON-RPC object or a batch (list of them).
+        entries = msg if isinstance(msg, list) else [msg]
+        calls: list[tuple[str, object]] = []
+        for entry in entries:
+            if not isinstance(entry, dict) or entry.get("method") != "tools/call":
+                continue
+            params = entry.get("params")
+            if not isinstance(params, dict):
+                continue
+            name = params.get("name")
+            args = params.get("arguments")
+            if not isinstance(args, dict):
+                args = {}
+            # Unwrap vmcp's call_tool wrapper to surface the real tool + its params.
+            if name == "call_tool" and isinstance(args.get("tool_name"), str):
+                inner = args.get("parameters")
+                calls.append((args["tool_name"], inner if isinstance(inner, dict) else {}))
+            else:
+                calls.append((name if isinstance(name, str) else "?", args))
+        return calls
     def request(flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         method = flow.request.method
@@ -508,7 +546,16 @@ data:
                     {"Content-Type": "text/plain"},
                 )
                 return
-        log.info("client=%s ALLOW internal=%s method=%s url=%s", _client(flow), internal, method, url)
+        mcp_calls = _mcp_tool_calls(flow)
+        if mcp_calls:
+            for tool, args in mcp_calls:
+                log.info(
+                    "client=%s MCP-CALL tool=%s args=%s url=%s",
+                    _client(flow), tool,
+                    json.dumps(args, separators=(",", ":"), ensure_ascii=False), url,
+                )
+        else:
+            log.info("client=%s ALLOW internal=%s method=%s url=%s", _client(flow), internal, method, url)
     def response(flow: http.HTTPFlow) -> None:
         status = flow.response.status_code if flow.response else "-"
 
