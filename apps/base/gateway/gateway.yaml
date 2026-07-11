@@ -29,6 +29,12 @@ spec:
     registry: harbor.hahomelabs.com/vicegerent
     repository: agentgateway
     tag: v1.3.1
+    # Always re-pull on pod (re)start, mirroring hermes-agent's convention: this image
+    # is our own carried-patch build (images/agentgateway-proxy/), not a stock upstream
+    # tag, so a rebuilt image with the same tag is common (patch-only changes) and
+    # should not require a tag bump to actually deploy. Always still requires a pod
+    # restart/rollout to take effect -- it does not hot-swap a running pod's image.
+    pullPolicy: Always
   logging:
     format: json
   deployment:
