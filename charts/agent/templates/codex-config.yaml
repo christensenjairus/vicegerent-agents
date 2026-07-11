@@ -18,11 +18,14 @@ data:
     # needs a non-empty value, and the egress proxy scrubs it in transit.
     experimental_bearer_token = "unused"
     wire_api = "responses"
+    sandbox_mode = "danger-full-access"
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"
     args = ["mcp"]
+    tool_timeout_sec = 180
     [mcp_servers.vmcp]
     url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp"
+    tool_timeout_sec = 180
     # Pre-trust PVC-seeded workdirs so codex never blocks on directory trust.
     [projects."/workspace"]
     trust_level = "trusted"
