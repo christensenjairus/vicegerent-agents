@@ -19,7 +19,7 @@ data:
       "permissions": {
         "allow": ["mcp__mnemosyne", "mcp__vmcp"],
         "deny": ["WebSearch", "WebFetch"]
-      }
+      },
       "theme": "dark",
       "skipDangerousModePermissionPrompt": true
     }
