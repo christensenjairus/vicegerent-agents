@@ -150,7 +150,12 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   result. Toggled per-cluster (`contentModeration` cluster-var), and — unlike every
   other gate above — fails OPEN on a moderation-service error, since a classifier outage is a
   service degradation, not an authz gap. See `images/mcp-cerbos-shim/README.md`
-  ("Content Moderation").
+  ("Content Moderation"). A fifth concern is **prompt-injection detection** — a two-stage
+  gate on tool READ results (Firecrawl/Tavily/Notion/Jira/GitHub/GitLab reads etc.) via
+  `CheckResponse`: a broad regex prefilter gates a stage-2 LLM-judge call, and a confirmed
+  detection DENIES the call (deny only, never a partial strip), toggled per-cluster
+  (`promptInjectionDetection` cluster-var). See `images/mcp-cerbos-shim/README.md`
+  ("Prompt Injection Detection").
 
 ## Command Approval System
 

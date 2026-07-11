@@ -15,6 +15,7 @@ import (
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/authz"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/moderation"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/promptinjection"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/server"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/upstream"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
@@ -101,6 +102,21 @@ func main() {
 		log.Printf("outbound content-moderation gate disabled (CONTENT_MODERATION unset/not enabled)")
 	}
 
+	// Inbound two-stage prompt-injection gate (HAH-107), toggled per-cluster
+	// via PROMPT_INJECTION_DETECTION. BLOCKING: a stage-1 regex match
+	// confirmed by the stage-2 LLM judge DENIES the call -- see server.go's
+	// checkPromptInjection doc comment for the full fail-open/deny
+	// contract and why blocking is safe here (unlike a bare regex gate).
+	if cfg.promptInjectionDetection {
+		opts = append(opts, server.WithPromptInjectionDetection(
+			promptinjection.New(),
+			promptinjection.NewClient(promptinjection.DefaultJudgeURL, cfg.promptInjectionJudgeModel, nil),
+		))
+		log.Printf("prompt-injection detection gate enabled (BLOCKING, tools/call+resources/read+prompts/get results)")
+	} else {
+		log.Printf("prompt-injection detection gate disabled (PROMPT_INJECTION_DETECTION unset/not enabled)")
+	}
+
 	srv := server.New(mapping, engine, decider, server.Principal{
 		ID:    "hermes",
 		Roles: []string{"agent"},
@@ -128,6 +144,8 @@ type envConfig struct {
 	contentModeration          bool
 	moderationModel            string
 	moderationWriteVerbs       string
+	promptInjectionDetection   bool
+	promptInjectionJudgeModel  string
 }
 
 func loadEnv() envConfig {
@@ -142,6 +160,12 @@ func loadEnv() envConfig {
 		// Empty values fall back to the package defaults.
 		moderationModel:      envOr("MODERATION_MODEL", ""),
 		moderationWriteVerbs: envOr("MODERATION_WRITE_VERBS", ""),
+		// "enabled", never "true"/"false" -- same Flux substituteFrom/kustomize
+		// YAML-emitter gotcha as CONTENT_MODERATION, see README's "Prompt
+		// Injection Detection".
+		promptInjectionDetection: envOr("PROMPT_INJECTION_DETECTION", "") == "enabled",
+		// Empty falls back to promptinjection.DefaultJudgeModel.
+		promptInjectionJudgeModel: envOr("PROMPT_INJECTION_JUDGE_MODEL", ""),
 	}
 }
 

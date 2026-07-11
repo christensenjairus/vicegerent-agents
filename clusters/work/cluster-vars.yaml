@@ -126,9 +126,8 @@ data:
   # DevOps team folder + 2 sibling folders + Major Incidents/RCAs folder.
   notionAllowedParentPageIds: >-
     6fc3f07af7084089a14088581502e3f1,1de588d8909f80458ad6c0a831284768,306588d8909f806d9e78f7004cf3b9db,41348461628a472bbc16c14e2e866a89
-
-  # "enabled"/"disabled" -- see personal cluster-vars.yaml's comment on this key.
   contentModeration: enabled
+  promptInjectionDetection: enabled
 
   # Alertmanager silence duration cap in seconds (resource_alertmanager.yaml).
   # createSilence's duration is capped by this value; work alerts are capped
