@@ -11,6 +11,7 @@ data:
     web_search = "disabled"
     developer_instructions = "{{ include "vicegerent-agent.webSearchInstructions" . | trim | replace "\"" "\\\"" }}"
     suppress_unstable_features_warning = true
+    sandbox_mode = "danger-full-access"
     [model_providers.vicegerent]
     name = "Vicegerent agentgateway"
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"
@@ -18,7 +19,6 @@ data:
     # needs a non-empty value, and the egress proxy scrubs it in transit.
     experimental_bearer_token = "unused"
     wire_api = "responses"
-    sandbox_mode = "danger-full-access"
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"
     args = ["mcp"]
