@@ -5,11 +5,14 @@ metadata:
   name: {{ include "vicegerent-agent.name" . }}-claude-config
   namespace: agent-sandbox
 data:
+  # DISABLE_NONESSENTIAL_TRAFFIC below: Claude Code's own telemetry/statsig/error-reporting
+  # calls api.anthropic.com directly and ignores ANTHROPIC_BASE_URL (that only covers the Messages API client).
   settings.json: |-
     {
       "env": {
         "ANTHROPIC_BASE_URL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic",
-        "ANTHROPIC_AUTH_TOKEN": "unused"
+        "ANTHROPIC_AUTH_TOKEN": "unused",
+        "DISABLE_NONESSENTIAL_TRAFFIC": "1"
       },
       "model": "claude-opus-4-8",
       "enableAllProjectMcpServers": true,
