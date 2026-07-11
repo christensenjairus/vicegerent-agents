@@ -37,6 +37,8 @@ spec:
               value: ${notionScratchpadPageId},${notionAllowedParentPageIds}  # pragma: allowlist secret (Notion page ids; Scratchpad always implicit, plus cluster-vars' team-folder list)
             - name: CONTENT_MODERATION  # "enabled"/"disabled" -- see README's "Content Moderation"
               value: ${contentModeration}
+            - name: PROMPT_INJECTION_DETECTION  # "enabled"/"disabled" -- see README's "Prompt Injection Detection"
+              value: ${promptInjectionDetection}
             - name: MODERATION_MODEL  # override valve, not a cluster-vars token
               value: ''
             - name: MODERATION_WRITE_VERBS  # override valve, not a cluster-vars token

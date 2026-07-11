@@ -24,6 +24,7 @@ import (
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/authz"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/moderation"
+	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/promptinjection"
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/upstream"
 	pb "github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/proto/gen"
 )
@@ -259,6 +260,24 @@ type Server struct {
 
 	// moderatedWriteVerbs is the verb list isModeratedWriteTool checks against.
 	moderatedWriteVerbs []string
+
+	// promptInjectionDetector, when set, runs stage 1 (broad regex prefilter)
+	// of the two-stage prompt-injection gate (HAH-107) over every
+	// redactableResponseMethods response body (tools/call, resources/read,
+	// prompts/get -- the same set secret redaction already runs on). Nil
+	// disables the gate (per-cluster toggle, see main.go).
+	promptInjectionDetector promptinjection.Detector
+
+	// promptInjectionJudge, when set, runs stage 2 (LLM-judge confirmation)
+	// ONLY on text that already matched stage 1 -- this is the cost-control
+	// mechanism, most reads never reach it. A confirmed ("yes") judgment
+	// DENIES the call (see checkPromptInjection) -- unlike the old log-only
+	// v1, this is now a blocking gate, made safe to enforce specifically
+	// BECAUSE stage 2 filters stage 1's deliberately noisy matches down to
+	// a confirmed detection. Nil (gate enabled but no judge configured)
+	// degrades to stage-1-match-always-fails-open, same as a judge-service
+	// error -- see checkPromptInjection's doc comment.
+	promptInjectionJudge promptinjection.Judge
 }
 
 // Option configures a Server at construction. Variadic so existing four-arg
@@ -328,6 +347,21 @@ func WithModerationVerbs(verbs []string) Option {
 		if len(verbs) > 0 {
 			s.moderatedWriteVerbs = verbs
 		}
+	}
+}
+
+// WithPromptInjectionDetection enables the two-stage response-side
+// prompt-injection gate (HAH-107): detector runs the stage-1 regex
+// prefilter over matching response bodies, and judge (may be nil, though
+// callers should always pass one when enabling the gate -- see main.go)
+// runs stage-2 LLM-judge confirmation only on text stage 1 already
+// flagged. A confirmed judge verdict DENIES the call -- see
+// checkPromptInjection's doc comment for the full fail-open/deny contract.
+// Unset (nil detector) disables the gate entirely.
+func WithPromptInjectionDetection(detector promptinjection.Detector, judge promptinjection.Judge) Option {
+	return func(s *Server) {
+		s.promptInjectionDetector = detector
+		s.promptInjectionJudge = judge
 	}
 }
 
@@ -841,6 +875,46 @@ func responseMutate(result []byte) *pb.McpResponseResult {
 	return &pb.McpResponseResult{Result: &pb.McpResponseResult_Mutated{Mutated: result}}
 }
 
+// responseDeny withholds a tool's RESULT entirely -- the CheckResponse-side
+// equivalent of deny() on the request side. McpResponseResult's oneof
+// carries the same AuthorizationError shape CheckRequest's deny() uses
+// (pb.McpResponseResult_Error{Error: *pb.AuthorizationError}), so this is a
+// first-class denial, not a downgraded pass/mutate. Used only by
+// checkPromptInjection's confirmed-detection path (HAH-107) -- deny only,
+// never a partial mutation/strip, same "no safe partial fix" posture
+// checkModeration already uses.
+func responseDeny(reason string) *pb.McpResponseResult {
+	return &pb.McpResponseResult{
+		Result: &pb.McpResponseResult_Error{
+			Error: &pb.AuthorizationError{
+				Code:   pb.AuthorizationError_PERMISSION_DENIED,
+				Reason: reason,
+			},
+		},
+	}
+}
+
+// promptInjectionJudgeTimeout bounds a single stage-2 judge call -- sibling
+// to moderationTimeout, same fail-open-on-timeout posture (see
+// checkPromptInjection).
+const promptInjectionJudgeTimeout = 10 * time.Second
+
+// maxJudgeCallsPerResponse caps the TOTAL number of stage-2 judge calls
+// checkPromptInjection will make for a single CheckResponse invocation,
+// across every string value and every matched pattern in the decoded body.
+// Without this, a single hostile response containing many distinct
+// stage-1-matching phrases (or many strings each matching a different
+// pattern) could fan out an unbounded number of sequential LLM calls --
+// real cost and latency an attacker fully controls (the content triggering
+// each call comes straight from the externally-sourced tool result), and
+// enough latency to risk exhausting the AgentgatewayPolicy guardrail RPC's
+// own deadline. Hitting the cap before a confirmed detection is treated as
+// a DENY, not a pass-through: a response cheap enough to synthesize this
+// many candidate matches is itself a strong signal, and letting the
+// remaining unchecked matches through unverified would reopen exactly the
+// bypass stage 2 exists to close.
+const maxJudgeCallsPerResponse = 20
+
 // CheckResponse scrubs credential-shaped strings out of a tool's RESULT
 // before it reaches the model -- the response-side half of the redaction
 // gap secrets_redact.go documents. Only tools/call responses carry
@@ -851,6 +925,12 @@ func responseMutate(result []byte) *pb.McpResponseResult {
 // best-effort, defense-in-depth layer, not a hard boundary (see
 // secrets_redact.go's doc comment on why deny is never the right response
 // here).
+//
+// checkPromptInjection (HAH-107) runs alongside redaction on the SAME raw
+// response bytes, for the SAME redactableResponseMethods set. Unlike
+// redaction, a confirmed prompt-injection detection DENIES the call --
+// checked and returned BEFORE the redaction pass runs, since there's no
+// point redacting a result that's about to be withheld entirely.
 func (s *Server) CheckResponse(ctx context.Context, resp *pb.McpResponse) (*pb.McpResponseResult, error) {
 	if !redactableResponseMethods[resp.GetMethod()] {
 		return responsePass(), nil
@@ -859,12 +939,161 @@ func (s *Server) CheckResponse(ctx context.Context, resp *pb.McpResponse) (*pb.M
 	if len(raw) == 0 {
 		return responsePass(), nil
 	}
+	if reason, blocked := s.checkPromptInjection(ctx, raw, resp.GetServiceNames()); blocked {
+		return responseDeny(reason), nil
+	}
 	redacted, n := redactRawJSON(raw)
 	if n == 0 {
 		return responsePass(), nil
 	}
 	log.Printf("redact: %d secret-shaped value(s) scrubbed from a tool result (backend=%v)", n, resp.GetServiceNames())
 	return responseMutate(redacted), nil
+}
+
+// checkPromptInjection runs the two-stage prompt-injection gate (HAH-107)
+// over raw (the same tools/call, resources/read, or prompts/get response
+// body redaction runs on). A no-op (false, "") when the gate is disabled
+// (nil detector, the per-cluster PROMPT_INJECTION_DETECTION toggle in
+// main.go).
+//
+// Stage 1 (s.promptInjectionDetector, internal/promptinjection's regex
+// registry) is deliberately broad/high-recall and expected to over-match
+// benign text -- it exists only to decide whether stage 2 runs at all,
+// which is why a stage-1-only match never blocks by itself.
+//
+// Stage 2 (s.promptInjectionJudge) runs ONLY on text stage 1 already
+// flagged -- the cost-control mechanism, since most reads never trigger it.
+// It sends the matched pattern name plus a bounded text window (see
+// promptinjection.WindowAround) to a small LLM judge and asks a strict
+// yes/no. A confirmed ("yes") verdict DENIES the call -- deny only, never a
+// partial mutation/strip, mirroring checkModeration's "no safe partial fix"
+// posture. This is a deliberate, reviewed upgrade from the ticket's own
+// suggested log-only rollout: the two-stage design's judge confirmation
+// step is what makes blocking safe, by filtering stage 1's noisy matches
+// down to a confirmed detection before anything is denied.
+//
+// A stage-2 SERVICE error (timeout, non-200, network error -- anything
+// Judge.Confirm returns as a non-nil error) fails OPEN: the call passes
+// through, logged clearly as "judge unavailable... NOT enforced" -- an
+// unrelated OpenAI outage should not deny every matching read cluster-wide.
+// This is distinct from an unconfirmed ("no", or a clearly-parsed-but-
+// ambiguous) judge verdict, which is a successful call that simply doesn't
+// confirm a detection -- that case also passes through, but is not a
+// fail-open case (see promptinjection.Client.Confirm's doc comment for the
+// service-error vs. ambiguous-verdict distinction).
+//
+// Every stage-1 match is logged regardless of stage-2 outcome (pattern
+// name, backend, and judge verdict/error), so there is still a debuggable
+// trail even though this gate now enforces.
+//
+// Scope: McpResponse carries service_names (the single mapped backend name,
+// e.g. "vmcp" for everything behind this shim's one vMCP target) and the raw
+// JSON-RPC result bytes -- it carries neither the original tool name nor a
+// per-backend (firecrawl/tavily/notion/...) breakdown, since every call is
+// muxed through one AgentgatewayBackend target. There is therefore no
+// signal here to scope detection to only the read-shaped tools the ticket
+// names (firecrawl_scrape, tavily_extract, notion-fetch, jira_get_issue,
+// github pull_request_read, gitlab get_merge_request_diffs, ...) -- this
+// scans EVERY tools/call/resources/read/prompts/get response body when the
+// gate is enabled, matching the broad-by-default posture WithModeration
+// takes for unmapped backends, but now with a real cost (stage 2 is not
+// free) -- that's acceptable because stage 2 only runs on stage-1 matches,
+// which are rare in ordinary traffic, and maxJudgeCallsPerResponse bounds
+// the worst case regardless.
+//
+// promptinjection.Detect reports EVERY occurrence of every matched pattern
+// (up to its own per-pattern cap), not just the first -- judging only a
+// string's first occurrence of a pattern would let a real injection later
+// in the same document hide behind an earlier, judged-benign occurrence of
+// that same pattern (e.g. a sentence describing the attack shape, followed
+// later by the actual attack). maxJudgeCallsPerResponse then bounds the
+// TOTAL judge calls this can fan out to across the whole response.
+func (s *Server) checkPromptInjection(ctx context.Context, raw []byte, serviceNames []string) (reason string, blocked bool) {
+	if s.promptInjectionDetector == nil {
+		return "", false
+	}
+	calls := 0
+	for _, str := range extractResponseStrings(raw) {
+		res := s.promptInjectionDetector.Detect(str)
+		if !res.Matched {
+			continue
+		}
+		for i, name := range res.MatchedNames {
+			if calls >= maxJudgeCallsPerResponse {
+				// The response-wide judge-call budget is exhausted with
+				// stage-1 matches still unverified. Deny rather than
+				// silently pass the remainder through unchecked -- a
+				// response cheap enough to synthesize this many candidate
+				// matches is itself suspicious, and passing unverified
+				// matches through would reopen the exact fan-out bypass
+				// this cap exists to close (see maxJudgeCallsPerResponse's
+				// doc comment).
+				log.Printf("prompt-injection: judge-call budget (%d) exhausted with unverified matches remaining, denying call (backend=%v)", maxJudgeCallsPerResponse, serviceNames)
+				return fmt.Sprintf("response content matched %d+ prompt-injection candidates, exceeding the per-response verification budget; tool result withheld", maxJudgeCallsPerResponse), true
+			}
+			offset := 0
+			if i < len(res.MatchedOffsets) {
+				offset = res.MatchedOffsets[i]
+			}
+			calls++
+			verdict, err := s.confirmPromptInjection(ctx, name, str, offset)
+			if err != nil {
+				log.Printf("prompt-injection: judge unavailable, matched pattern %s NOT enforced (fail-open): %v (backend=%v)", name, err, serviceNames)
+				continue
+			}
+			if verdict {
+				log.Printf("prompt-injection: pattern %s CONFIRMED by judge, denying call (backend=%v)", name, serviceNames)
+				return fmt.Sprintf("response content flagged by prompt-injection detector (pattern: %s); tool result withheld", name), true
+			}
+			log.Printf("prompt-injection: pattern %s matched stage 1 but judge did not confirm (backend=%v)", name, serviceNames)
+		}
+	}
+	return "", false
+}
+
+// confirmPromptInjection runs stage 2 for a single stage-1 match. A nil
+// promptInjectionJudge (gate enabled via detector but no judge configured)
+// is treated the same as a judge-service error -- fail open, since blocking
+// on an unconfirmed regex match alone is exactly the noisy behavior stage 2
+// exists to prevent (see checkPromptInjection's doc comment).
+func (s *Server) confirmPromptInjection(ctx context.Context, patternName, text string, offset int) (bool, error) {
+	if s.promptInjectionJudge == nil {
+		return false, fmt.Errorf("no prompt-injection judge configured")
+	}
+	ctx, cancel := context.WithTimeout(ctx, promptInjectionJudgeTimeout)
+	defer cancel()
+	window := promptinjection.WindowAround(text, offset)
+	return s.promptInjectionJudge.Confirm(ctx, patternName, window)
+}
+
+// extractResponseStrings walks a decoded JSON-RPC result body and returns
+// every string value found, depth-first -- reuses the exact same decode as
+// redactRawJSON/redactValue would, but a pure read (no rewrite), since
+// checkPromptInjection never mutates. An unparseable body yields no strings
+// (fail-open, same posture as redaction's own unparseable-body path).
+func extractResponseStrings(raw []byte) []string {
+	var decoded any
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return nil
+	}
+	var out []string
+	collectStrings(decoded, &out)
+	return out
+}
+
+func collectStrings(v any, out *[]string) {
+	switch t := v.(type) {
+	case string:
+		*out = append(*out, t)
+	case map[string]any:
+		for _, val := range t {
+			collectStrings(val, out)
+		}
+	case []any:
+		for _, val := range t {
+			collectStrings(val, out)
+		}
+	}
 }
 
 // Compile-time guard: gRPC-level errors are gateway transport failures, not denies.

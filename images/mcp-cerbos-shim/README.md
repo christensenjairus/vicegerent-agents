@@ -159,6 +159,73 @@ different mechanism (a real classifier, not a regex), but the same
 this was checked against live traffic before being considered stable; see
 the HAH-106 MR description for that verification.
 
+### Prompt Injection Detection
+
+A fourth, orthogonal concern: untrusted content flowing INTO the agent's
+context from a tool READ result -- a scraped Firecrawl/Tavily page, a fetched
+Notion/Jira/Confluence page body, a GitHub file, a GitLab merge-request
+diff -- can itself carry an injection payload ("ignore previous
+instructions", "you are now in developer mode", ...) aimed at the agent
+reading it. This is the mirror-image problem to Content Moderation above:
+that gate checks free-text arguments of WRITE calls flowing OUT before
+Cerbos is consulted; this one checks free-text in READ results flowing IN,
+after the call already happened, since there's nothing to deny on the way
+out for a read. That's also why it hooks `CheckResponse` and not
+`CheckRequest` -- the content of concern doesn't exist until the response
+comes back.
+
+When enabled (`PROMPT_INJECTION_DETECTION=enabled`, toggled per-cluster via
+the `promptInjectionDetection` cluster-var), the shim runs a **two-stage**
+gate over every `redactableResponseMethods` response body (the same
+`tools/call`/`resources/read`/`prompts/get` set secret redaction already
+covers) and **DENIES** the call on a confirmed detection -- this deliberately
+goes further than the Linear ticket's own suggested log-only first pass
+(HAH-107), a decision made specifically because the two-stage design exists
+to control the false-positive rate that would otherwise make blocking unsafe
+(see MR !426's precedent below for why that risk is real).
+
+- **Stage 1** (`internal/promptinjection`'s regex registry) is deliberately
+  broad/high-recall -- expected to over-match benign content (e.g. a security
+  blog post discussing injection attacks) -- and exists ONLY to decide
+  whether stage 2 runs at all. A stage-1-only match never blocks by itself.
+- **Stage 2** (`internal/promptinjection.Judge`, an LLM-judge call through
+  the same `agentgateway` -> `openai` `/v1/chat/completions` route
+  `internal/moderation` already uses -- no new secret or egress rule) runs
+  ONLY on the text stage 1 flagged, asking a strict yes/no: is this an actual
+  injection attempt, or text that merely discusses/documents one? This is
+  the cost-control mechanism -- most reads never trigger it, since stage 1's
+  broad net only rarely fires in ordinary traffic. A confirmed (`yes`)
+  verdict denies the call outright (deny only, never a partial mutation/
+  strip, mirroring Content Moderation's "no safe partial fix" posture); a
+  clear `no`, or the same call succeeding with an ambiguous/unparseable
+  reply, passes through unblocked. A stage-2 SERVICE error (timeout,
+  non-200, network error) fails OPEN -- an unrelated OpenAI outage
+  shouldn't deny every matching read cluster-wide -- distinct from a
+  successful call that simply doesn't confirm a detection.
+
+MR !426's precedent (agentgateway's own `promptGuard` self-rejecting
+ordinary content on an under-verified regex gate) is exactly the failure
+mode a *regex-only* blocking gate would risk -- which is why stage 1 alone
+never blocks, and why stage 2's judge confirmation exists before this gate
+denies anything. Every stage-1 match is logged regardless of the stage-2
+outcome (pattern name, backend, judge verdict/error), so there's still a
+full debug trail even though this gate now enforces.
+
+Two bounds keep the judge cost/latency finite even against an
+attacker-controlled response: stage 1 reports every occurrence of a
+matched pattern (not just the first -- a real injection later in the same
+document must not be able to hide behind an earlier, judged-benign
+occurrence of the same pattern name), and `maxJudgeCallsPerResponse` caps
+the TOTAL judge calls one `CheckResponse` invocation will make across every
+matched occurrence. Exhausting that budget with unverified matches still
+remaining is itself treated as a deny -- a response cheap enough to
+synthesize that many candidate matches is a strong signal on its own, and
+passing the unverified remainder through would reopen the same fan-out
+bypass the cap exists to close.
+
+Uses the same `enabled`/`disabled` cluster-var convention as
+`contentModeration` (see that section above for why never `true`/`false`).
+
 ### Guardrail Attachment
 
 The Secret block and the secret-redaction gate both depend on `AgentgatewayPolicy`
@@ -275,6 +342,8 @@ aborts startup (k8s restarts the pod; the gateway's `FailClosed` denies meanwhil
 | `CONTENT_MODERATION` | unset (`""`) | `enabled`/`disabled` -- toggles the outbound content-moderation gate (see "Content Moderation" above) |
 | `MODERATION_MODEL` | `omni-moderation-latest` | OpenAI Moderations model override |
 | `MODERATION_WRITE_VERBS` | `create,update,save,add_note,add_comment,transition` | comma-separated verb-heuristic override |
+| `PROMPT_INJECTION_DETECTION` | unset (`""`) | `enabled`/`disabled` -- toggles the response-side prompt-injection detection gate (see "Prompt Injection Detection" above) |
+| `PROMPT_INJECTION_JUDGE_MODEL` | `gpt-4.1-mini` | stage-2 judge chat-completion model override |
 
 The Cerbos principal is a fixed constant (`hermes`/`agent`) stamped on every
 request for audit context. It is **not** an authorization control: the policy
