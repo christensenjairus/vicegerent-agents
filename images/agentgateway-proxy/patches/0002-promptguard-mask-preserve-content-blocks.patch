@@ -1,0 +1,758 @@
+From 716899ef1ec771e4334010bd0bd907d37dc07de0 Mon Sep 17 00:00:00 2001
+From: jchristensen_movester <jchristensen@moveworks.ai>
+Date: Sat, 11 Jul 2026 17:49:52 +0000
+Subject: [PATCH] llm: mask promptGuard text in place, never round-trip through
+ get_messages/set_messages
+
+apply_regex()/apply_regex_response() previously scanned for a mask match by
+flattening every message via get_messages() and, on any match, wrote the
+full message list back via set_messages(). Both get_messages() and
+set_messages() round-trip through SimpleChatCompletionMessage { role,
+content: Strng }, which has no representation for anything but plain text.
+A message whose content is entirely non-text blocks -- most commonly a
+tool_result-only user turn, the normal shape of every message immediately
+following a tool call -- flattens to an empty string on the way in, and
+set_messages() writes that empty string back as the message's entire
+content on the way out. Anthropic's API then rejects the request with
+'messages.N: user messages must have non-empty content'.
+
+Reject detection is unaffected by this bug (it returns before ever calling
+set_messages()), so it keeps using get_messages() unchanged.
+
+Fix: add RequestType::mask_text_content()/ResponseType::mask_text_content(),
+a new trait method that walks each format's own content representation and
+masks only genuine text spans (ContentBlock::Text, ContentPart::Text, etc),
+leaving every other content type -- tool_use, tool_result, images, and any
+JSON shape wrapped in ContentPart::Unknown -- completely untouched. Wire
+apply_regex()/apply_regex_response() to call this for Action::Mask instead
+of the lossy get_messages()/set_messages() round-trip.
+
+Implemented for every RequestType/ResponseType this platform routes
+promptGuard-masking traffic through:
+- Anthropic Messages format (messages.rs) -- the anthropic backend
+- OpenAI Completions format (completions.rs) -- the openai/haiku-oai backends
+- OpenAI Responses format (responses.rs) -- the openai backend's /v1/responses
+  route; walks the raw JSON per-item so any item shape without a typed model
+  (function_call, function_call_output, reasoning, etc.) passes through
+  unmodified
+- TextRequest (policy/mod.rs) -- the realtime WebSocket adapter, trivially
+  lossless since it wraps a single plain string with no structure to lose
+
+Formats with no dedicated implementation fall back to the trait's default
+(no-op, reports unchanged), so they are simply never masked rather than
+risking corruption -- never a regression from 'masked' to 'corrupted'.
+
+Adds regression tests reproducing the exact failure (a tool_result-only
+message alongside a message that matches a mask pattern) at both the
+messages.rs unit level and the Policy::apply_regex dispatch level, plus a
+companion test confirming Reject continues to work and never mutates.
+---
+ crates/agentgateway/src/llm/policy/mod.rs     |  95 +++++---
+ crates/agentgateway/src/llm/policy/tests.rs   | 112 ++++++++++
+ .../agentgateway/src/llm/types/completions.rs |  44 ++++
+ crates/agentgateway/src/llm/types/messages.rs | 208 ++++++++++++++++++
+ crates/agentgateway/src/llm/types/mod.rs      |  32 +++
+ .../agentgateway/src/llm/types/responses.rs   |  92 ++++++++
+ 6 files changed, 547 insertions(+), 36 deletions(-)
+
+diff --git a/crates/agentgateway/src/llm/policy/mod.rs b/crates/agentgateway/src/llm/policy/mod.rs
+index 6c17861..7b897f2 100644
+--- a/crates/agentgateway/src/llm/policy/mod.rs
++++ b/crates/agentgateway/src/llm/policy/mod.rs
+@@ -382,6 +382,18 @@ impl crate::llm::RequestType for TextRequest {
+ 			self.content = m.content.to_string();
+ 		}
+ 	}
++
++	// TextRequest wraps a single plain string with no array/tool_result structure to
++	// preserve, so masking it in place is trivially lossless (unlike the flattening
++	// hazard mask_text_content exists to avoid for the structured formats).
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		if let Some(replacement) = mask(&self.content) {
++			self.content = replacement;
++			true
++		} else {
++			false
++		}
++	}
+ }
+
+ impl PromptGuard {
+@@ -948,30 +960,37 @@ impl Policy {
+ 		Ok(None)
+ 	}
+
++	/// Reject detection still scans via `get_messages()`, which is safe: on a match this
++	/// returns immediately and never calls `set_messages()`, so its lossy flatten never
++	/// gets written back. Masking, however, must NEVER go through `get_messages()`/
++	/// `set_messages()` -- see `RequestType::mask_text_content` for why -- so it is
++	/// dispatched separately below via the format-specific in-place text masker.
+ 	fn apply_regex(
+ 		req: &mut dyn RequestType,
+ 		rgx: &RegexRules,
+ 		rej: &RequestRejection,
+ 	) -> anyhow::Result<GuardrailOutcome> {
+-		let mut msgs = req.get_messages();
+-		let mut any_changed = false;
+-		for msg in &mut msgs {
+-			match Self::apply_prompt_guard_regex(&msg.content, rgx) {
+-				Some(RegexResult::Reject) => {
+-					return Ok(GuardrailOutcome::Rejected(rej.as_response()));
+-				},
+-				Some(RegexResult::Mask(content)) => {
+-					any_changed = true;
+-					msg.content = content.into();
+-				},
+-				None => {},
+-			}
+-		}
+-		if any_changed {
+-			req.set_messages(msgs);
+-			return Ok(GuardrailOutcome::Masked);
++		match &rgx.action {
++			Action::Reject => {
++				for msg in req.get_messages() {
++					if let Some(RegexResult::Reject) = Self::apply_prompt_guard_regex(&msg.content, rgx) {
++						return Ok(GuardrailOutcome::Rejected(rej.as_response()));
++					}
++				}
++				Ok(GuardrailOutcome::None)
++			},
++			Action::Mask => {
++				let mut mask_fn = |text: &str| match Self::apply_prompt_guard_regex(text, rgx) {
++					Some(RegexResult::Mask(masked)) => Some(masked),
++					_ => None,
++				};
++				if req.mask_text_content(&mut mask_fn) {
++					Ok(GuardrailOutcome::Masked)
++				} else {
++					Ok(GuardrailOutcome::None)
++				}
++			},
+ 		}
+-		Ok(GuardrailOutcome::None)
+ 	}
+
+ 	fn apply_regex_response(
+@@ -979,25 +998,29 @@ impl Policy {
+ 		rgx: &RegexRules,
+ 		rej: &RequestRejection,
+ 	) -> anyhow::Result<GuardrailOutcome> {
+-		let mut msgs = resp.to_webhook_choices();
+-		let mut any_changed = false;
+-		for msg in &mut msgs {
+-			match Self::apply_prompt_guard_regex(&msg.message.content, rgx) {
+-				Some(RegexResult::Reject) => {
+-					return Ok(GuardrailOutcome::Rejected(rej.as_response()));
+-				},
+-				Some(RegexResult::Mask(content)) => {
+-					any_changed = true;
+-					msg.message.content = content.into();
+-				},
+-				None => {},
+-			}
+-		}
+-		if any_changed {
+-			resp.set_webhook_choices(msgs)?;
+-			return Ok(GuardrailOutcome::Masked);
++		match &rgx.action {
++			Action::Reject => {
++				for msg in resp.to_webhook_choices() {
++					if let Some(RegexResult::Reject) =
++						Self::apply_prompt_guard_regex(&msg.message.content, rgx)
++					{
++						return Ok(GuardrailOutcome::Rejected(rej.as_response()));
++					}
++				}
++				Ok(GuardrailOutcome::None)
++			},
++			Action::Mask => {
++				let mut mask_fn = |text: &str| match Self::apply_prompt_guard_regex(text, rgx) {
++					Some(RegexResult::Mask(masked)) => Some(masked),
++					_ => None,
++				};
++				if resp.mask_text_content(&mut mask_fn) {
++					Ok(GuardrailOutcome::Masked)
++				} else {
++					Ok(GuardrailOutcome::None)
++				}
++			},
+ 		}
+-		Ok(GuardrailOutcome::None)
+ 	}
+
+ 	async fn apply_webhook(
+diff --git a/crates/agentgateway/src/llm/policy/tests.rs b/crates/agentgateway/src/llm/policy/tests.rs
+index 1c7d834..29ac234 100644
+--- a/crates/agentgateway/src/llm/policy/tests.rs
++++ b/crates/agentgateway/src/llm/policy/tests.rs
+@@ -1449,3 +1449,115 @@ fn test_google_model_armor_implicit_auth_used_when_no_user_credentials() {
+ 		resolved.backend_auth
+ 	);
+ }
++
++/// End-to-end regression test for the request-phase corruption this patch fixes:
++/// `Policy::apply_regex` with `action: Mask` must not corrupt a message whose content is
++/// entirely `tool_result` blocks, even when a *different* message in the same request
++/// matches the mask pattern. Before this patch, `apply_regex` round-tripped every
++/// message through `get_messages()`/`set_messages()`, which flattened the tool_result
++/// message to an empty string and then wrote that empty string back as its entire
++/// content -- corrupting the request and causing Anthropic's API to reject it with
++/// "messages.N: user messages must have non-empty content".
++#[test]
++fn apply_regex_mask_preserves_tool_result_only_message() {
++	use crate::llm::types::messages::{ContentBlock, ContentPart, Request, RequestMessage};
++
++	let mut req = Request {
++		messages: vec![
++			RequestMessage {
++				role: "user".to_string(),
++				content: Some(ContentBlock::Array(vec![ContentPart::Unknown(
++					serde_json::json!({
++						"type": "tool_result",
++						"tool_use_id": "toolu_01abc",
++						"content": "unrelated tool output",
++					}),
++				)])),
++				rest: Default::default(),
++			},
++			RequestMessage {
++				role: "user".to_string(),
++				content: Some(ContentBlock::Text(
++					"here is a secret: 4111111111111111".to_string(),
++				)),
++				rest: Default::default(),
++			},
++		],
++		..Default::default()
++	};
++
++	let rgx = RegexRules {
++		action: Action::Mask,
++		rules: vec![RegexRule::Regex {
++			pattern: regex::Regex::new(r"\d{16}").unwrap(),
++		}],
++	};
++	let rej = RequestRejection::default();
++
++	let outcome = Policy::apply_regex(&mut req, &rgx, &rej).expect("apply_regex should succeed");
++	assert!(
++		matches!(outcome, GuardrailOutcome::Masked),
++		"expected Masked outcome"
++	);
++
++	// The tool_result-only message must survive completely untouched.
++	match &req.messages[0].content {
++		Some(ContentBlock::Array(parts)) => match &parts[0] {
++			ContentPart::Unknown(v) => {
++				assert_eq!(v["type"], "tool_result");
++				assert_eq!(v["content"], "unrelated tool output");
++			},
++			other => panic!("expected untouched tool_result block, got {other:?}"),
++		},
++		other => panic!(
++			"tool_result-only message must remain a non-empty structured Array, got {other:?}"
++		),
++	}
++
++	// The credit-card-shaped digit run in the second message was masked.
++	match &req.messages[1].content {
++		Some(ContentBlock::Text(t)) => assert!(
++			!t.contains("4111111111111111"),
++			"expected digits to be masked, got: {t}"
++		),
++		other => panic!("expected masked Text content, got {other:?}"),
++	}
++}
++
++/// Companion test: with `action: Reject`, a match must still reject the whole request
++/// (unchanged behavior) and must not touch req.messages at all.
++#[test]
++fn apply_regex_reject_still_rejects_and_does_not_mutate() {
++	use crate::llm::types::messages::{ContentBlock, Request, RequestMessage};
++
++	let mut req = Request {
++		messages: vec![RequestMessage {
++			role: "user".to_string(),
++			content: Some(ContentBlock::Text(
++				"here is a secret: 4111111111111111".to_string(),
++			)),
++			rest: Default::default(),
++		}],
++		..Default::default()
++	};
++
++	let rgx = RegexRules {
++		action: Action::Reject,
++		rules: vec![RegexRule::Regex {
++			pattern: regex::Regex::new(r"\d{16}").unwrap(),
++		}],
++	};
++	let rej = RequestRejection::default();
++
++	let outcome = Policy::apply_regex(&mut req, &rgx, &rej).expect("apply_regex should succeed");
++	assert!(
++		matches!(outcome, GuardrailOutcome::Rejected(_)),
++		"expected Rejected outcome"
++	);
++
++	// Reject must never mutate the request.
++	match &req.messages[0].content {
++		Some(ContentBlock::Text(t)) => assert_eq!(t, "here is a secret: 4111111111111111"),
++		other => panic!("Reject path must not mutate content, got {other:?}"),
++	}
++}
+diff --git a/crates/agentgateway/src/llm/types/completions.rs b/crates/agentgateway/src/llm/types/completions.rs
+index 31f1315..21992d4 100644
+--- a/crates/agentgateway/src/llm/types/completions.rs
++++ b/crates/agentgateway/src/llm/types/completions.rs
+@@ -227,6 +227,19 @@ impl ResponseType for Response {
+ 	fn serialize(&self) -> serde_json::Result<Vec<u8>> {
+ 		serde_json::to_vec(&self)
+ 	}
++
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		let mut changed = false;
++		for choice in self.choices.iter_mut() {
++			if let Some(text) = choice.message.content.as_mut()
++				&& let Some(replacement) = mask(text)
++			{
++				*text = replacement;
++				changed = true;
++			}
++		}
++		changed
++	}
+ }
+
+ impl super::RequestType for Request {
+@@ -344,6 +357,37 @@ impl super::RequestType for Request {
+ 	fn set_messages(&mut self, messages: Vec<SimpleChatCompletionMessage>) {
+ 		self.messages = messages.into_iter().map(convert_message).collect();
+ 	}
++
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		let mut changed = false;
++		for msg in self.messages.iter_mut() {
++			let Some(content) = msg.content.as_mut() else {
++				continue;
++			};
++			match content {
++				Content::Text(t) => {
++					if let Some(replacement) = mask(t) {
++						*t = replacement;
++						changed = true;
++					}
++				},
++				// Array parts without a `text` field (image_url, input_audio, etc.) are
++				// left untouched -- only ContentPart::text spans are masked in place, so a
++				// message made entirely of non-text parts never gets rewritten or dropped.
++				Content::Array(parts) => {
++					for part in parts.iter_mut() {
++						if let Some(text) = part.text.as_mut()
++							&& let Some(replacement) = mask(text)
++						{
++							*text = replacement;
++							changed = true;
++						}
++					}
++				},
++			}
++		}
++		changed
++	}
+ }
+
+ fn convert_message(r: SimpleChatCompletionMessage) -> RequestMessage {
+diff --git a/crates/agentgateway/src/llm/types/messages.rs b/crates/agentgateway/src/llm/types/messages.rs
+index 323e5ee..377702c 100644
+--- a/crates/agentgateway/src/llm/types/messages.rs
++++ b/crates/agentgateway/src/llm/types/messages.rs
+@@ -251,6 +251,65 @@ impl RequestType for Request {
+ 		self.messages = message_prompts.into_iter().map(Into::into).collect();
+ 	}
+
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		let mut changed = false;
++
++		// System prompt: mask each text span, whether it's the plain-string form or an
++		// array of text parts. Never touches non-text parts (there currently are none in
++		// TextBlock, but this keeps the match exhaustive-safe if that changes).
++		if let Some(system) = &mut self.system {
++			match system {
++				TextBlock::Text(t) => {
++					if let Some(replacement) = mask(t) {
++						*t = replacement;
++						changed = true;
++					}
++				},
++				TextBlock::Array(parts) => {
++					for part in parts.iter_mut() {
++						if let TextPart::Text { text, .. } = part
++							&& let Some(replacement) = mask(text)
++						{
++							*text = replacement;
++							changed = true;
++						}
++					}
++				},
++			}
++		}
++
++		// Messages: mask only ContentBlock::Text and ContentPart::Text spans. A message
++		// whose content is ContentBlock::Array of entirely non-text parts (e.g. a
++		// tool_result-only user turn) is walked and left completely untouched -- unlike
++		// get_messages()/set_messages(), it is never flattened, never round-tripped, and
++		// never has its structure replaced.
++		for msg in self.messages.iter_mut() {
++			let Some(content) = msg.content.as_mut() else {
++				continue;
++			};
++			match content {
++				ContentBlock::Text(t) => {
++					if let Some(replacement) = mask(t) {
++						*t = replacement;
++						changed = true;
++					}
++				},
++				ContentBlock::Array(parts) => {
++					for part in parts.iter_mut() {
++						if let ContentPart::Text { text, .. } = part
++							&& let Some(replacement) = mask(text)
++						{
++							*text = replacement;
++							changed = true;
++						}
++					}
++				},
++			}
++		}
++
++		changed
++	}
++
+ 	fn to_openai(&self) -> Result<Vec<u8>, AIError> {
+ 		conversion::completions::from_messages::translate(self)
+ 	}
+@@ -421,6 +480,19 @@ impl ResponseType for Response {
+ 	fn serialize(&self) -> serde_json::Result<Vec<u8>> {
+ 		serde_json::to_vec(&self)
+ 	}
++
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		let mut changed = false;
++		for block in self.content.iter_mut() {
++			if let Some(text) = block.text.as_mut()
++				&& let Some(replacement) = mask(text)
++			{
++				*text = replacement;
++				changed = true;
++			}
++		}
++		changed
++	}
+ }
+
+ // 'typed' provides a typed accessor
+@@ -1075,3 +1147,139 @@ pub mod typed {
+ 		}
+ 	}
+ }
++
++#[cfg(test)]
++mod mask_text_content_tests {
++	use super::*;
++	use crate::llm::RequestType as _;
++
++	/// Regression test for the corruption this patch fixes: a request where one message
++	/// is entirely `tool_result` content (the normal shape of every user turn immediately
++	/// following a tool call in the Anthropic Messages API) must survive masking untouched
++	/// -- its content must remain a structured array, never collapse to an empty string.
++	#[test]
++	fn mask_preserves_tool_result_only_message() {
++		let mut req = Request {
++			messages: vec![
++				RequestMessage {
++					role: "user".to_string(),
++					content: Some(ContentBlock::Array(vec![ContentPart::Unknown(
++						serde_json::json!({
++							"type": "tool_result",
++							"tool_use_id": "toolu_01abc",
++							"content": "some tool output, unrelated to any secret",
++						}),
++					)])),
++					rest: Default::default(),
++				},
++				RequestMessage {
++					role: "user".to_string(),
++					content: Some(ContentBlock::Text(
++						"here is a key: sk-ant-abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
++					)),
++					rest: Default::default(),
++				},
++			],
++			..Default::default()
++		};
++
++		let mut masked_any = false;
++		let changed = req.mask_text_content(&mut |text: &str| {
++			if text.contains("sk-ant-") {
++				masked_any = true;
++				Some("<masked>".to_string())
++			} else {
++				None
++			}
++		});
++
++		assert!(changed, "expected the second message's secret to be masked");
++		assert!(masked_any);
++
++		// The tool_result-only message must be untouched: still an Array of Unknown,
++		// never collapsed to Text(""), and its JSON payload byte-identical.
++		match &req.messages[0].content {
++			Some(ContentBlock::Array(parts)) => {
++				assert_eq!(parts.len(), 1);
++				match &parts[0] {
++					ContentPart::Unknown(v) => {
++						assert_eq!(v["type"], "tool_result");
++						assert_eq!(v["tool_use_id"], "toolu_01abc");
++						assert_eq!(v["content"], "some tool output, unrelated to any secret");
++					},
++					other => panic!("expected Unknown content part, got {other:?}"),
++				}
++			},
++			other => panic!(
++				"tool_result-only message must remain a structured Array, got {other:?}"
++			),
++		}
++
++		// The second message's secret was masked in place.
++		match &req.messages[1].content {
++			Some(ContentBlock::Text(t)) => assert_eq!(t, "<masked>"),
++			other => panic!("expected masked Text content, got {other:?}"),
++		}
++	}
++
++	/// A message with mixed text + non-text array parts masks only the text parts.
++	#[test]
++	fn mask_preserves_non_text_parts_in_mixed_array() {
++		let mut req = Request {
++			messages: vec![RequestMessage {
++				role: "user".to_string(),
++				content: Some(ContentBlock::Array(vec![
++					ContentPart::Text {
++						r#type: "text".to_string(),
++						text: "leaked: sk-ant-abcdefghijklmnopqrstuvwxyz0123456789".to_string(),
++						rest: Default::default(),
++					},
++					ContentPart::Unknown(serde_json::json!({
++						"type": "image",
++						"source": {"type": "base64", "media_type": "image/png", "data": "AAAA"},
++					})),
++				])),
++				rest: Default::default(),
++			}],
++			..Default::default()
++		};
++
++		let changed = req.mask_text_content(&mut |text: &str| {
++			text.contains("sk-ant-").then(|| "<masked>".to_string())
++		});
++		assert!(changed);
++
++		match &req.messages[0].content {
++			Some(ContentBlock::Array(parts)) => {
++				match &parts[0] {
++					ContentPart::Text { text, .. } => assert_eq!(text, "<masked>"),
++					other => panic!("expected masked Text part, got {other:?}"),
++				}
++				match &parts[1] {
++					ContentPart::Unknown(v) => assert_eq!(v["type"], "image"),
++					other => panic!("expected untouched Unknown image part, got {other:?}"),
++				}
++			},
++			other => panic!("expected Array content, got {other:?}"),
++		}
++	}
++
++	/// No match anywhere -> no change reported, request left alone.
++	#[test]
++	fn mask_reports_no_change_when_nothing_matches() {
++		let mut req = Request {
++			messages: vec![RequestMessage {
++				role: "user".to_string(),
++				content: Some(ContentBlock::Text("nothing sensitive here".to_string())),
++				rest: Default::default(),
++			}],
++			..Default::default()
++		};
++		let changed = req.mask_text_content(&mut |_text: &str| None);
++		assert!(!changed);
++		match &req.messages[0].content {
++			Some(ContentBlock::Text(t)) => assert_eq!(t, "nothing sensitive here"),
++			other => panic!("unexpected mutation: {other:?}"),
++		}
++	}
++}
+diff --git a/crates/agentgateway/src/llm/types/mod.rs b/crates/agentgateway/src/llm/types/mod.rs
+index 0ff37d9..3805e58 100644
+--- a/crates/agentgateway/src/llm/types/mod.rs
++++ b/crates/agentgateway/src/llm/types/mod.rs
+@@ -26,6 +26,14 @@ pub trait ResponseType: Send + Sync {
+ 		resp: Vec<crate::llm::policy::webhook::ResponseChoice>,
+ 	) -> anyhow::Result<()>;
+ 	fn serialize(&self) -> serde_json::Result<Vec<u8>>;
++
++	/// Rewrite only the plain-text portions of this response in place. See
++	/// `RequestType::mask_text_content` for the full rationale -- same lossy round-trip
++	/// hazard applies on the response leg via `to_webhook_choices()`/`set_webhook_choices()`.
++	/// Default implementation does nothing and reports no change.
++	fn mask_text_content(&mut self, _mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		false
++	}
+ }
+
+ /// RequestType is an abstraction over provider/endpoint specific request formats that enables
+@@ -41,6 +49,30 @@ pub trait RequestType: Send + Sync {
+ 	fn get_messages(&self) -> Vec<SimpleChatCompletionMessage>;
+ 	fn set_messages(&mut self, messages: Vec<SimpleChatCompletionMessage>);
+
++	/// Rewrite only the plain-text portions of this request's messages in place, leaving
++	/// any non-text content (tool_use, tool_result, images, or any other structured block)
++	/// byte-for-byte untouched.
++	///
++	/// This exists because `get_messages()`/`set_messages()` round-trip through
++	/// `SimpleChatCompletionMessage { role, content: Strng }`, which has no representation
++	/// for anything but plain text: a message whose content is exclusively non-text blocks
++	/// (e.g. a `tool_result`-only turn, which is the normal shape of every message
++	/// immediately following a tool call) flattens to an empty string on the way in, and
++	/// `set_messages()` writes that empty string back as the message's *entire* content on
++	/// the way out -- corrupting the request. Regex/PII masking must never trigger that
++	/// round-trip, since a mask match on any one message previously caused every message in
++	/// the request to be rewritten via `set_messages()`.
++	///
++	/// `mask` is called once per contiguous text span found in the message content; it
++	/// returns `Some(replacement)` to rewrite that span in place, or `None` to leave it
++	/// unchanged. Returns `true` if any span was modified.
++	///
++	/// Default implementation is conservative: it does nothing and reports no change, so
++	/// formats without a dedicated implementation are simply not masked (never corrupted).
++	fn mask_text_content(&mut self, _mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		false
++	}
++
+ 	fn to_openai(&self) -> Result<Vec<u8>, AIError> {
+ 		Err(AIError::UnsupportedConversion(strng::literal!("openai")))
+ 	}
+diff --git a/crates/agentgateway/src/llm/types/responses.rs b/crates/agentgateway/src/llm/types/responses.rs
+index 700ac2f..632046f 100644
+--- a/crates/agentgateway/src/llm/types/responses.rs
++++ b/crates/agentgateway/src/llm/types/responses.rs
+@@ -379,6 +379,31 @@ impl RequestType for Request {
+ 		);
+ 	}
+
++	/// Mask only text spans in place, operating on the raw `serde_json::Value` an item
++	/// wraps so any item shape this proxy doesn't have a typed model for (function calls,
++	/// function call outputs, reasoning items, image content, etc.) passes through
++	/// completely untouched. See `RequestType::mask_text_content` for why this must never
++	/// go through `get_messages()`/`set_messages()`.
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		match &mut self.input {
++			RequestInput::Text(text) => {
++				if let Some(replacement) = mask(text) {
++					*text = replacement;
++					true
++				} else {
++					false
++				}
++			},
++			RequestInput::Items(items) => {
++				let mut changed = false;
++				for item in items.iter_mut() {
++					changed |= mask_json_text_fields(&mut item.0, mask);
++				}
++				changed
++			},
++		}
++	}
++
+ 	fn to_openai(&self) -> Result<Vec<u8>, AIError> {
+ 		// Passthrough - just serialize
+ 		serde_json::to_vec(&self).map_err(AIError::RequestMarshal)
+@@ -519,6 +544,73 @@ impl ResponseType for Response {
+ 	fn serialize(&self) -> serde_json::Result<Vec<u8>> {
+ 		serde_json::to_vec(&self)
+ 	}
++
++	fn mask_text_content(&mut self, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++		let mut changed = false;
++		for item in self.output.iter_mut() {
++			// Only OutputItem::Message carries visible text; tool calls, function call
++			// outputs, and reasoning items are left completely untouched.
++			if let OutputItem::Message(msg) = item {
++				for part in msg.content.iter_mut() {
++					// Only the OutputText variant has a text field; refusals and any other
++					// content variant are skipped entirely.
++					if let Content::OutputText(t) = part
++						&& let Some(replacement) = mask(&t.text)
++					{
++						t.text = replacement;
++						changed = true;
++					}
++				}
++			}
++		}
++		changed
++	}
++}
++
++/// Walk a raw Responses API input item's JSON value and mask only its text-bearing
++/// string fields, leaving every other field and every non-text item/content type
++/// (image_url, function_call, function_call_output, reasoning, etc.) byte-for-byte
++/// untouched. Handles both `"content": "plain string"` and
++/// `"content": [{"type": "input_text"/"output_text", "text": "..."}, ...]` shapes.
++fn mask_json_text_fields(value: &mut Value, mask: &mut dyn FnMut(&str) -> Option<String>) -> bool {
++	let mut changed = false;
++	let Some(obj) = value.as_object_mut() else {
++		return false;
++	};
++	match obj.get_mut("content") {
++		Some(Value::String(text)) => {
++			if let Some(replacement) = mask(text) {
++				*text = replacement;
++				changed = true;
++			}
++		},
++		Some(Value::Array(parts)) => {
++			for part in parts.iter_mut() {
++				let Some(part_obj) = part.as_object_mut() else {
++					continue;
++				};
++				let is_text_part = matches!(
++					part_obj.get("type").and_then(Value::as_str),
++					Some("input_text") | Some("output_text")
++				);
++				if !is_text_part {
++					continue;
++				}
++				if let Some(Value::String(text)) = part_obj.get_mut("text") {
++					and_mask(text, mask, &mut changed);
++				}
++			}
++		},
++		_ => {},
++	}
++	changed
++}
++
++fn and_mask(text: &mut String, mask: &mut dyn FnMut(&str) -> Option<String>, changed: &mut bool) {
++	if let Some(replacement) = mask(text) {
++		*text = replacement;
++		*changed = true;
++	}
+ }
+
+ pub mod typed {
+--
+2.47.3

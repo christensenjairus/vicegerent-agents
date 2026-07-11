@@ -15,6 +15,10 @@
 # mcp-cerbos-shim use (dash-delimited SSN excluding invalid ranges, IIN-prefixed
 # credit cards, separator-required phone numbers) — same shape across the whole
 # redaction stack, and none of them fire on a bare unformatted digit run.
+#
+# action stays Reject here deliberately until the 0002 agentgateway-proxy
+# patch (see images/agentgateway-proxy/patches/) is built, deployed, and
+# verified live — see that patch/Dockerfile and MR !503 for why.
 - op: add
   path: /spec/ai/groups/0/providers/0/policies/ai/promptGuard
   value:

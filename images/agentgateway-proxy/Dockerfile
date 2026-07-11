@@ -1,5 +1,6 @@
 # syntax=docker/dockerfile:1.25
-# Upstream agentgateway with request-phase guardrail rejects returned as JSON-RPC errors; UI omitted.
+# Upstream agentgateway with request-phase guardrail rejects returned as JSON-RPC errors,
+# and promptGuard Mask rewriting message content in place instead of a lossy round-trip; UI omitted.
 
 # renovate: datasource=github-releases depName=agentgateway/agentgateway
 ARG AGW_VERSION=v1.3.1
@@ -41,7 +42,7 @@ WORKDIR /
 COPY --from=builder /out/agentgateway /app/agentgateway
 
 LABEL org.opencontainers.image.title="vicegerent-agentgateway" \
-      org.opencontainers.image.description="Vicegerent build of agentgateway/agentgateway carrying the request-phase guardrail 200 patch" \
+      org.opencontainers.image.description="Vicegerent build of agentgateway/agentgateway carrying the request-phase guardrail 200 patch and the promptGuard mask content-preservation patch" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
       org.opencontainers.image.base.name="https://github.com/agentgateway/agentgateway"
 
