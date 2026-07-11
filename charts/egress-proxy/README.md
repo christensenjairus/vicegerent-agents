@@ -60,11 +60,24 @@ Requests to RFC1918, link-local (169.254/16), loopback, and CGNAT (100.64/10) ra
 
 ### Audit log
 Every request emits a JSON log line (one object per line, `message` carries the same
-content the pre-JSON format used):
+content the pre-JSON format used). The `ALLOW` line records the request **method**,
+**url** (path + query), and **body** — so the log captures *what* left the sandbox,
+not just where:
 ```
-{"time": "2026-07-08T22:14:03+0000", "level": "INFO", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 ALLOW internal=False method=GET url=https://pypi.org/simple/requests/"}
+{"time": "2026-07-08T22:14:03+0000", "level": "INFO", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 ALLOW internal=False method=GET url=https://pypi.org/simple/requests/ body=-"}
+{"time": "2026-07-08T22:14:03+0000", "level": "INFO", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 ALLOW internal=True method=POST url=https://agentgateway.../v1/messages body={\"model\":\"claude-...\",\"messages\":[...]}"}
 {"time": "2026-07-08T22:14:03+0000", "level": "WARNING", "logger": "egress-proxy", "message": "client=10.1.2.3:41822 BLOCKED method=POST url=https://api.github.com/repos/..."}
 ```
+The logged body is the **already-scrubbed** body (secrets masked by `_redact()` before
+the line is emitted), shaped for readability by `_body_for_log()`:
+- inline base64 media (`data:image/…;base64,…`) is elided to `[base64 image/png 214.6KB]` —
+  a single vision image is otherwise hundreds of KB of noise;
+- the result is capped to the **trailing** 4096 chars (`MAX_BODY_LOG_CHARS`) with a
+  `[+Nchars]` prefix — chat completions resend the whole conversation each turn, so the
+  newest content is at the end of the body;
+- binary / undecodable bodies are summarized by size only, e.g. `body=<1.2KB application/x-git-upload-pack-request>`;
+- requests with no body log `body=-`.
+
 View with: `kubectl logs -n egress-proxy deploy/egress-proxy` — pipe through `jq` for
 readability, e.g. `... | jq -r .message`.
 
