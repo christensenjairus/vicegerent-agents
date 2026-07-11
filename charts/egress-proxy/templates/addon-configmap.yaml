@@ -353,6 +353,52 @@ data:
     def _fmt_breakdown(breakdown: dict[str, int]) -> str:
         # Sorted by count desc for readability; e.g. "jwt:15,phone:57".
         return ",".join(f"{k}:{v}" for k, v in sorted(breakdown.items(), key=lambda kv: -kv[1]))
+
+    # ── Request-body audit logging ──────────────────────────────────────────
+    # The ALLOW line records the (already-scrubbed) request body so the audit
+    # log captures *what* left the sandbox, not just the method and URL. Two
+    # shaping steps keep the line usable:
+    #   1. Inline base64 media (data: URLs — vision images, audio) is elided to
+    #      a size placeholder; one image is hundreds of KB of unreadable noise.
+    #   2. The result is capped to the TRAILING MAX_BODY_LOG_CHARS. Chat
+    #      completions resend the whole conversation every turn, so the newest
+    #      content sits at the END of the body — keep the tail, drop the head.
+    # Secrets are already masked by _redact() before request() reaches the ALLOW
+    # line, so the logged body carries no live credential. Binary/undecodable
+    # bodies are summarized by size only (get_text would yield mojibake).
+    MAX_BODY_LOG_CHARS = 4096
+    BASE64_DATA_URL_PATTERN = re.compile(
+        r"data:(?P<mime>[^;,\s\"']+);base64,(?P<data>[A-Za-z0-9+/=]+)"
+    )
+
+    def _human_bytes(n: int) -> str:
+        if n < 1024:
+            return f"{n}B"
+        if n < 1024 * 1024:
+            return f"{n / 1024:.1f}KB"
+        return f"{n / (1024 * 1024):.1f}MB"
+
+    def _elide_base64(m: re.Match) -> str:
+        approx = len(m.group("data")) * 3 // 4  # base64 decodes to ~3/4 bytes
+        return f"[base64 {m.group('mime')} {_human_bytes(approx)}]"
+
+    def _body_for_log(flow: http.HTTPFlow) -> str:
+        content = flow.request.content
+        if not content:
+            return "-"
+        ct = flow.request.headers.get("content-type", "")
+        if ct and not _is_text(ct):
+            return f"<{_human_bytes(len(content))} {ct.split(';')[0].strip()}>"
+        try:
+            text = flow.request.get_text(strict=False)
+        except Exception:
+            text = None
+        if not text:
+            return f"<{_human_bytes(len(content))} undecodable>"
+        text = BASE64_DATA_URL_PATTERN.sub(_elide_base64, text)
+        if len(text) > MAX_BODY_LOG_CHARS:
+            return f"[+{len(text) - MAX_BODY_LOG_CHARS}chars] {text[-MAX_BODY_LOG_CHARS:]}"
+        return text
     def request(flow: http.HTTPFlow) -> None:
         host = flow.request.pretty_host
         method = flow.request.method
@@ -508,7 +554,10 @@ data:
                     {"Content-Type": "text/plain"},
                 )
                 return
-        log.info("client=%s ALLOW internal=%s method=%s url=%s", _client(flow), internal, method, url)
+        log.info(
+            "client=%s ALLOW internal=%s method=%s url=%s body=%s",
+            _client(flow), internal, method, url, _body_for_log(flow),
+        )
     def response(flow: http.HTTPFlow) -> None:
         status = flow.response.status_code if flow.response else "-"
 
