@@ -27,6 +27,11 @@ spec:
               - matchName: {{ . }}
               {{- end }}
               {{- end }}
+              {{- if .Values.networkAllowlist.edgeTtsFQDNs }}
+              {{- range .Values.networkAllowlist.edgeTtsFQDNs }}
+              - matchName: {{ . }}
+              {{- end }}
+              {{- end }}
               {{- if .Values.networkAllowlist.cnameChainedFQDN }}
               - matchName: {{ .Values.networkAllowlist.cnameChainedFQDN }}
               {{- end }}
@@ -61,6 +66,20 @@ spec:
     {{- if .Values.networkAllowlist.slackFQDNs }}
     - toFQDNs:
         {{- range .Values.networkAllowlist.slackFQDNs }}
+        - matchName: {{ . }}
+        {{- end }}
+      toPorts:
+        - ports:
+            - port: '443'
+              protocol: TCP
+    {{- end }}
+    # edge-tts (tts.provider: edge) speaks WSS to speech.platform.bing.com -- same
+    # GET-only-proxy-can't-handle-it reasoning as the Slack bypass above. Opt-in only
+    # (networkAllowlist.edgeTtsFQDNs empty by default): text sent here leaves the
+    # scrubbing proxy's redaction/logging entirely.
+    {{- if .Values.networkAllowlist.edgeTtsFQDNs }}
+    - toFQDNs:
+        {{- range .Values.networkAllowlist.edgeTtsFQDNs }}
         - matchName: {{ . }}
         {{- end }}
       toPorts:
