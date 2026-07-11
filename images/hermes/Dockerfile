@@ -87,6 +87,19 @@ COPY requirements.txt /tmp/requirements.txt
 RUN uv pip install --python /opt/hermes/.venv/bin/python --no-cache -r /tmp/requirements.txt \
     && rm /tmp/requirements.txt
 
+# Patch: mnemosyne-memory (pulled in by mnemosyne-hermes[all]) ships a stray
+# top-level tools/ directory of its own dev/benchmark scripts with no
+# __init__.py, which Python treats as a namespace package and which then
+# shadows Hermes Agent's real `tools` package for any process whose cwd
+# isn't /opt/hermes -- i.e. every real session, since terminal.cwd is
+# /workspace. This breaks tools/file_tools.py's lazy `from tools import
+# check_file_requirements` import, making `hermes doctor` falsely report
+# "file (system dependency not met)". Remove once mnemosyne-memory stops
+# shipping tools/ as a floating top-level directory in its wheel.
+COPY patches/0019-remove-mnemosyne-tools-namespace-collision.py /tmp/0019-remove-mnemosyne-tools-namespace-collision.py
+RUN /opt/hermes/.venv/bin/python /tmp/0019-remove-mnemosyne-tools-namespace-collision.py \
+    && rm /tmp/0019-remove-mnemosyne-tools-namespace-collision.py
+
 # Global npm CLIs used by Hermes/coding agents; package.json is the Renovate-tracked source.
 COPY package.json /tmp/npm/package.json
 RUN cd /tmp/npm \
