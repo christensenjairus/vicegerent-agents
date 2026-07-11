@@ -20,6 +20,9 @@ data:
         "allow": ["mcp__mnemosyne", "mcp__vmcp"],
         "deny": ["WebSearch", "WebFetch"]
       },
+      "sandbox": {
+        "enabled": false
+      },
       "theme": "dark",
       "skipDangerousModePermissionPrompt": true
     }
