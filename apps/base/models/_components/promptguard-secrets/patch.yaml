@@ -19,10 +19,24 @@
 # action is Mask (not Reject): the agentgateway-proxy 0002 patch
 # (images/agentgateway-proxy/patches/) shipped and was verified live first; see that
 # patch and MR !503 for why Mask was unsafe before it.
+#
+# streaming is omitted deliberately, NOT an oversight: the promptGuard.streaming
+# field's CRD schema is a single-value enum (['Enabled']) -- it's presence-as-bool,
+# there is no 'Disabled' value; omitting it is how you disable it (schema default).
+# It stays omitted because agentgateway v1.3.1's streaming response path
+# (evaluate_streaming_response_window -> TextResponse in llm/policy/mod.rs) has no
+# mask_text_content override and no code path to rewrite bytes mid-stream
+# (StreamingGuardrailOutcome only has a Blocked variant) -- a response-side Mask
+# action against a streamed response would be a silent no-op with no log/metric/
+# error. Request-side masking (this patch's actual target bug) is unaffected by
+# this setting since requests are always fully buffered before the guard runs.
+# Non-streaming responses are also unaffected and mask correctly.
+# Only set `streaming: Enabled` once upstream/local patch adds real streaming
+# masking (or the response action is changed to Reject, which does support
+# blocking mid-stream via the Blocked outcome).
 - op: add
   path: /spec/ai/groups/0/providers/0/policies/ai/promptGuard
   value:
-    streaming: Enabled
     request:
       - regex:
           matches:
