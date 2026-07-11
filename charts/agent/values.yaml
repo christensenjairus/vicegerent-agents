@@ -38,6 +38,11 @@ networkAllowlist:
   # needs POST + WebSocket). Empty by default so the bypass list is opt-in per agent, not silently
   # inherited from this chart default.
   slackFQDNs: []
+  # Same WSS-bypass shape as slackFQDNs, for edge-tts (tts.provider: edge): its only endpoint is
+  # speech.platform.bing.com over WSS. Empty by default -- text sent to TTS leaves the scrubbing
+  # proxy's protection entirely (no auth, no DPA, no retention guarantee from Microsoft), so this
+  # is opt-in per agent, not a platform default. Set alongside config.tts.provider: edge.
+  edgeTtsFQDNs: []
 # Personality/voice only. The chart appends a fixed Environment section after this.
 soul: ''
 # Agent config.yaml as a literal YAML string. Merged with defaultConfig and
