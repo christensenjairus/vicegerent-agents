@@ -10,6 +10,7 @@ data:
     model_provider = "vicegerent"
     web_search = "disabled"
     developer_instructions = "{{ include "vicegerent-agent.webSearchInstructions" . | trim | replace "\"" "\\\"" }}"
+    suppress_unstable_features_warning = true
     [model_providers.vicegerent]
     name = "Vicegerent agentgateway"
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"
@@ -31,4 +32,3 @@ data:
     trust_level = "trusted"
     [features]
     respect_system_proxy = true
-    suppress_unstable_features_warning = true
