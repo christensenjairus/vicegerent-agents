@@ -43,6 +43,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.parse
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any, Generator, Iterator
@@ -382,6 +383,116 @@ def list_all_workload_names() -> set[str]:
     return {w["name"] for w in data if "name" in w}
 
 
+def _resolve_param_value(server: dict[str, Any], param_name: str, runtime_dir: Path) -> str:
+    """Resolve one configured param's current value (secret or runtime state),
+    same lookup `build_thv_run_argv` does for `apply: server_arg`/`kubeconfig`.
+    """
+    name = server["name"]
+    for param in server.get("params", []):
+        if param["name"] != param_name:
+            continue
+        if param.get("secret"):
+            return read_secret_value(param_secret_name(name, param_name))
+        return server_param(runtime_dir, name, param_name, param.get("default", ""))
+    return ""
+
+
+def build_permission_profile(server: dict[str, Any], runtime_dir: Path) -> dict[str, Any] | None:
+    """Build a ToolHive network permission-profile dict for one server, or None
+    if the server is declared `network.broad` (needs unrestricted egress and is
+    deliberately exempted from allowlisting — see `toolhive-servers.json`) or
+    `network.exempt` (network-mode carve-out, e.g. kubernetes' raw docker-network
+    access — out of scope for permission-profile allowlisting entirely).
+
+    Isolation is ToolHive's default since v0.30.1 (no `--isolate-network` flag
+    needed); passing `--permission-profile <path>` with a `network.outbound`
+    block scopes what that isolation actually allows out. Static hosts come
+    straight from config. A dynamic hostname is resolved at run time from the
+    already-`configure`d value and never hardcoded here, since it's per-operator:
+    `host_from_param` reads it out of a `params[]` entry (gitlab's api_url,
+    alertmanager('_gov')'s url); `host_from_secret` reads it out of a top-level
+    `secrets[]` entry instead (jira_url, grafana('_gov')_url) via `thv secret get`
+    directly, since those aren't in `params` at all. Either way, raise a clear
+    error if the value isn't set yet — same pattern as the existing kubeconfig
+    "run `vicegerent mcp configure`" error.
+    """
+    name = server["name"]
+    net = server.get("network")
+    if net is None:
+        raise SystemExit(
+            f"{name}: no 'network' config in toolhive-servers.json — every server "
+            "must declare network.allow_hosts/host_from_param/host_from_secret, "
+            "network.broad=true, or network.exempt=true (see host/mcp/README.md)"
+        )
+    if net.get("broad") or net.get("exempt"):
+        return None
+
+    allow_hosts = list(net.get("allow_hosts", []))
+    host_from_param = net.get("host_from_param")
+    if host_from_param:
+        value = _resolve_param_value(server, host_from_param, runtime_dir)
+        if not value:
+            raise SystemExit(
+                f"{name}: network.host_from_param {host_from_param!r} has no value yet "
+                "— run `vicegerent mcp configure` to set it"
+            )
+        host = urllib.parse.urlparse(value).hostname
+        if not host:
+            raise SystemExit(
+                f"{name}: could not parse a hostname out of configured "
+                f"{host_from_param}={value!r}"
+            )
+        allow_hosts.append(host)
+
+    host_from_secret = net.get("host_from_secret")
+    if host_from_secret:
+        value = read_secret_value(host_from_secret)
+        if not value:
+            raise SystemExit(
+                f"{name}: network.host_from_secret {host_from_secret!r} has no value yet "
+                "— run `vicegerent mcp configure` (or `thv secret set` it) first"
+            )
+        host = urllib.parse.urlparse(value).hostname
+        if not host:
+            raise SystemExit(
+                f"{name}: could not parse a hostname out of configured "
+                f"{host_from_secret}={value!r}"
+            )
+        allow_hosts.append(host)
+
+    if not allow_hosts:
+        raise SystemExit(
+            f"{name}: network config resolved to an empty allow_hosts list — "
+            "refusing to run with a permission profile that blocks all egress "
+            "unless that's actually intended (set network.broad=true instead)"
+        )
+
+    return {
+        "network": {
+            "outbound": {
+                "insecure_allow_all": False,
+                "allow_host": allow_hosts,
+                "allow_port": list(net.get("allow_ports", [443])),
+            }
+        }
+    }
+
+
+def write_permission_profile(
+    server: dict[str, Any], runtime_dir: Path
+) -> Path | None:
+    """Build and persist the permission-profile JSON for one server; return its
+    path, or None if the server is `network.broad` (no profile needed — it
+    inherits ToolHive's default unrestricted `network` profile).
+    """
+    profile = build_permission_profile(server, runtime_dir)
+    if profile is None:
+        return None
+    path = runtime_dir / f"permission-profile-{server['name']}.json"
+    path.write_text(json.dumps(profile, indent=2) + "\n", encoding="utf-8")
+    return path
+
+
 def build_thv_run_argv(
     server: dict[str, Any],
     group: str,
@@ -413,6 +524,18 @@ def build_thv_run_argv(
         argv += ["--transport", transport]
 
     argv += list(server.get("run_flags", []))
+
+    # Network egress lockdown: isolation is ToolHive's default since
+    # v0.30.1, so an unrestricted workload here would be one that already
+    # opted out via run_flags (kubernetes: --isolate-network=false, needs raw
+    # docker-network TCP to the kind API server and can't go through the
+    # egress proxy — see README "Kubernetes networking"). Every other server
+    # gets an explicit --permission-profile: either a narrow static/dynamic
+    # allowlist, or (network.broad, e.g. tavily/firecrawl) an explicit opt-out
+    # of allowlisting because the tool legitimately fetches arbitrary hosts.
+    profile_path = write_permission_profile(server, runtime_dir)
+    if profile_path is not None:
+        argv += ["--permission-profile", str(profile_path)]
 
     # server_args from config are non-negotiable (e.g. kubernetes' --read-only);
     # configured params only ADD to them.
@@ -505,7 +628,7 @@ def kind_kubeconfig_stale(server: dict[str, Any], runtime_dir: Path) -> bool:
     return _ca_data(result.stdout) != _ca_data(dest.read_text(encoding="utf-8"))
 
 
-def server_spec_fingerprint(server: dict[str, Any]) -> str:
+def server_spec_fingerprint(server: dict[str, Any], runtime_dir: Path) -> str:
     """Hash the parts of a server's config entry that determine its running
     container: type/package-or-registry/transport/run_flags/server_args/env/
     secret TARGETS (never secret values — those live in `thv secret`, not this
@@ -513,6 +636,12 @@ def server_spec_fingerprint(server: dict[str, Any]) -> str:
     state and may reasonably change without forcing a rebuild here; params that
     must trigger a recreate, like a changed kubeconfig path, are already covered
     by `kind_kubeconfig_stale`).
+
+    Also hashes the *content* of the generated network permission profile —
+    unlike ordinary params, a change here (a new GitLab/Alertmanager/
+    Jira/Grafana hostname, or an edited allow_hosts list) must force a recreate,
+    since the profile is baked into the container at `thv run` time and a plain
+    `thv restart` would silently keep enforcing the OLD allowlist forever.
 
     Used to detect drift between what's currently running and what
     toolhive-servers.json now declares, so `start` can recreate a workload whose
@@ -533,6 +662,7 @@ def server_spec_fingerprint(server: dict[str, Any]) -> str:
             f"{sec['name']}->{sec['target']}" for sec in server.get("secrets", [])
         ),
         "param_names": sorted(p["name"] for p in server.get("params", [])),
+        "permission_profile": build_permission_profile(server, runtime_dir),
     }
     blob = json.dumps(fingerprint_input, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
@@ -564,7 +694,7 @@ def server_spec_changed(server: dict[str, Any], runtime_dir: Path) -> bool:
     recorded = load_server_fingerprints(runtime_dir).get(name)
     if recorded is None:
         return False
-    return recorded != server_spec_fingerprint(server)
+    return recorded != server_spec_fingerprint(server, runtime_dir)
 
 
 def ensure_group(group: str) -> None:
@@ -625,7 +755,7 @@ def _apply_workload(
         if result.returncode != 0:
             msgs.append((True, f"  warning: `thv restart {name}` failed: {result.stderr.strip()}"))
         else:
-            save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server))
+            save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server, runtime_dir))
         return msgs
     if action == "recreate":
         reasons = []
@@ -648,7 +778,7 @@ def _apply_workload(
     if result.returncode != 0:
         msgs.append((True, f"  warning: `thv run {name}` exited {result.returncode}: {result.stderr.strip()}"))
     else:
-        save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server))
+        save_server_fingerprint(runtime_dir, name, server_spec_fingerprint(server, runtime_dir))
     return msgs
 
 
@@ -1820,6 +1950,8 @@ __all__ = [
     "default_listen",
     "list_workloads",
     "build_thv_run_argv",
+    "build_permission_profile",
+    "write_permission_profile",
     "server_spec_fingerprint",
     "load_server_fingerprints",
     "save_server_fingerprint",

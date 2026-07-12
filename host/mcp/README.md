@@ -90,6 +90,58 @@ Doing tool selection here (rather than as a per-tool allowlist in agentgateway,
 which it also supports) keeps it a quick host-side edit for developers; a
 centralized corporate deployment would more likely enforce that allowlist at the gateway.
 
+### Network egress lockdown
+
+Every backend also carries a `network` block in `toolhive-servers.json`,
+enforced via ToolHive's native `--permission-profile` mechanism (network
+isolation is ToolHive's default since v0.30.1 — no `--isolate-network` flag
+needed to turn it on). `build_permission_profile()`/`write_permission_profile()`
+in `vicegerent_mcp.py` turn that config into a per-server JSON profile
+(`network.outbound.allow_host`/`allow_port`) written to the runtime dir and
+passed as `--permission-profile <path>` at `thv run` time, so each container's
+egress is locked to exactly the hosts it needs — anything else is denied by
+ToolHive's own egress proxy, independent of and in addition to the Cerbos/tool
+allowlisting above.
+
+`network` takes one of four shapes:
+
+- **`allow_hosts: [...]`** — static hostnames, safe to hardcode because they
+  don't vary across users/clusters (fixed cloud endpoints): `github`
+  (github.com, api.github.com), `notion` (mcp.notion.com — the official hosted
+  remote), `linear` (mcp.linear.app — the official hosted remote), `tavily`
+  (api.tavily.com), `firecrawl` (api.firecrawl.dev), `pagerduty`/`pagerduty_gov`
+  (api.pagerduty.com — the PagerDuty MCP server's own docs confirm this is the
+  only host used unless `PAGERDUTY_API_HOST` is overridden for an EU account,
+  which this config doesn't do for either workload).
+- **`host_from_param: "<param name>"`** — the hostname is parsed (via
+  `urllib.parse.urlparse`) out of a `params[]` entry's *resolved* value at `thv
+  run` time — never hardcoded, since it's per-operator/per-cluster. Covers
+  `gitlab` (its `api_url` param) and `alertmanager`/`alertmanager_gov` (their
+  `url` param). Raises a clear error (same pattern as the existing kubeconfig
+  check) if `./vicegerent mcp configure` hasn't set that param yet.
+- **`host_from_secret: "<thv secret name>"`** — same idea, but for a hostname
+  that lives in a top-level `secrets[]` entry instead of `params[]` (fetched
+  directly via `thv secret get`). Covers `jira` (`jira_url`) and
+  `grafana`/`grafana_gov` (`grafana_url`/`grafana_gov_url`).
+- **`exempt: true`** — out of scope for permission-profile allowlisting
+  entirely. Only `kubernetes`: it already opts out of ToolHive's network
+  isolation via `--isolate-network=false` (see "Kubernetes networking" below)
+  because it needs raw docker-network TCP to the kind API server, which the
+  egress proxy (HTTP/HTTPS only) can't front.
+
+There's deliberately no `network.broad` (unrestricted-egress) server in this
+config: `tavily` and `firecrawl` look at first glance like they'd need broad
+internet access (they fetch arbitrary user-supplied URLs), but both are SaaS
+products whose MCP servers proxy that fetching through their own API
+(`api.tavily.com`/`api.firecrawl.dev` do the actual outbound request
+server-side) — so a narrow static allowlist is correct and was verified
+against each package's source before being hardcoded.
+
+A change to `network` (a new allowlisted host, an edited hostname param) is
+folded into `server_spec_fingerprint()`'s drift-detection hash, so `start`
+recreates the affected workload instead of leaving a stale `--permission-profile`
+baked into an already-running container.
+
 Orthogonal argument-level authorization still lives in the cluster (the Cerbos
 guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
 
