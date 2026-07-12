@@ -1,8 +1,8 @@
-# available-tools.yaml — catalog of every tool exposed by the running
-# vicegerent MCP backends, with each tool's arguments (type, required,
-# description, enum). Reference for spotting missing tools and for writing
-# cerbos argument-level policies. GENERATED — do not edit by hand.
-# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py tavily --format yaml -o <this-file>
 group: vicegerent
 tool_count: 5
 servers:

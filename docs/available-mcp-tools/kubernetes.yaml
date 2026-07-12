@@ -1,13 +1,13 @@
-# available-tools.yaml — catalog of every tool exposed by the running
-# vicegerent MCP backends, with each tool's arguments (type, required,
-# description, enum). Reference for spotting missing tools and for writing
-# cerbos argument-level policies. GENERATED — do not edit by hand.
-# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py kubernetes --format yaml -o <this-file>
 group: vicegerent
-tool_count: 15
+tool_count: 16
 servers:
   kubernetes:
-    tool_count: 15
+    tool_count: 16
     tools:
       configuration_contexts_list:
         description: "List all available context names and associated server urls from the kubeconfig file"
@@ -25,7 +25,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -44,7 +44,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           namespace:
             type: "string"
             required: false
@@ -55,7 +55,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -66,7 +66,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           name:
             type: "string"
             required: true
@@ -85,7 +85,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           name:
             type: "string"
             required: true
@@ -96,7 +96,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           label_selector:
             type: "string"
             required: false
@@ -111,7 +111,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           name:
             type: "string"
             required: true
@@ -126,7 +126,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -141,7 +141,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -164,7 +164,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           name:
             type: "string"
             required: true
@@ -191,7 +191,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           label_selector:
             type: "string"
             required: false
@@ -204,8 +204,15 @@ servers:
             type: "string"
             required: false
             description: "Namespace to get the Pods resource consumption from (Optional, current namespace if not provided and all_namespaces is false)"
+      projects_list:
+        description: "List all the OpenShift projects in the current cluster"
+        arguments:
+          context:
+            type: "string"
+            required: false
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
       resources_get:
-        description: "Get a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress)"
+        description: "Get a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress, route.openshift.io/v1 Route)"
         arguments:
           apiVersion:
             type: "string"
@@ -214,7 +221,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           kind:
             type: "string"
             required: true
@@ -228,7 +235,7 @@ servers:
             required: false
             description: "Optional Namespace to retrieve the namespaced resource from (ignored in case of cluster scoped resources). If not provided, will get resource from configured namespace"
       resources_list:
-        description: "List Kubernetes resources and objects in the current cluster by providing their apiVersion and kind and optionally the namespace and label selector (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress)"
+        description: "List Kubernetes resources and objects in the current cluster by providing their apiVersion and kind and optionally the namespace and label selector (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress, route.openshift.io/v1 Route)"
         arguments:
           apiVersion:
             type: "string"
@@ -237,7 +244,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
           fieldSelector:
             type: "string"
             required: false
