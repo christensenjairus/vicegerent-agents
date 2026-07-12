@@ -97,7 +97,7 @@
       "description": "Tavily web search and content extraction. No write capability exists (search/extract/crawl/map/research against arbitrary public URLs, nothing that touches anything this platform owns), so the tools list below is the full live set pinned explicitly rather than a restriction.",
       "enabled": false,
       "type": "npx",
-      "package": "tavily-mcp@0.2.20",
+      "package": "tavily-mcp@0.2.21",
       "network": {
         "allow_hosts": ["api.tavily.com"]
       },
