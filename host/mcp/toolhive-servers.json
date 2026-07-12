@@ -7,7 +7,7 @@
       "description": "Read-only Kubernetes access (resources, pods, logs, Helm release listing). --read-only means only readOnlyHint=true tools are exposed at the source at all (write/exec tools aren't just blocked, they don't exist in this process); the tools list below just pins the exact live set explicitly so a future package bump can't silently add to it. helm_list is read-only (lists releases/metadata only, no values/manifest rendering). Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary'). configuration_view is deliberately excluded even though the source marks it readOnlyHint=true: unlike every other tool here, it returns the full kubeconfig including client-certificate-data/client-key-data in plaintext, handing the agent (and anything that can read its transcript) a usable cluster credential. configuration_contexts_list covers the 'what clusters/contexts exist' need with just names and server URLs, no key material.",
       "enabled": false,
       "type": "npx",
-      "package": "kubernetes-mcp-server@0.0.63",
+      "package": "kubernetes-mcp-server@0.0.64",
       "server_args": ["--read-only","--toolsets=config,core,helm"],
       "kind_cluster": "vicegerent",
       "run_flags": ["--network", "vicegerent", "--isolate-network=false"],
