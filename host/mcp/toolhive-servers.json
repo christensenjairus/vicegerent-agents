@@ -11,6 +11,9 @@
       "server_args": ["--read-only","--toolsets=config,core,helm"],
       "kind_cluster": "vicegerent",
       "run_flags": ["--network", "vicegerent", "--isolate-network=false"],
+      "network": {
+        "exempt": true
+      },
       "params": [
         {
           "name": "kubeconfig",
@@ -33,6 +36,9 @@
       "package": "@zereight/mcp-gitlab@2.1.30",
       "env": {"USE_PIPELINE": "true"},
       "secrets": [{"name": "gitlab_token", "target": "GITLAB_PERSONAL_ACCESS_TOKEN"}],
+      "network": {
+        "host_from_param": "api_url"
+      },
       "params": [
         {
           "name": "api_url",
@@ -75,6 +81,9 @@
         "GITHUB_TOOLS": "get_me,pull_request_read,create_pull_request,update_pull_request,list_pull_requests,search_pull_requests,request_copilot_review,update_pull_request_branch"
       },
       "secrets": [{"name": "github_token", "target": "GITHUB_PERSONAL_ACCESS_TOKEN"}],
+      "network": {
+        "allow_hosts": ["github.com", "api.github.com"]
+      },
       "tools": [
         "get_me",
         "pull_request_read",
@@ -89,6 +98,9 @@
       "enabled": false,
       "type": "npx",
       "package": "tavily-mcp@0.2.20",
+      "network": {
+        "allow_hosts": ["api.tavily.com"]
+      },
       "secrets": [{"name": "tavily_api_key", "target": "TAVILY_API_KEY"}],
       "tools": ["tavily_search", "tavily_extract", "tavily_crawl", "tavily_map", "tavily_research"]
     },
@@ -98,6 +110,9 @@
       "enabled": false,
       "type": "npx",
       "package": "firecrawl-mcp@3.22.3",
+      "network": {
+        "allow_hosts": ["api.firecrawl.dev"]
+      },
       "secrets": [{"name": "firecrawl_api_key", "target": "FIRECRAWL_API_KEY"}],
       "tools": [
         "firecrawl_scrape", "firecrawl_map", "firecrawl_search", "firecrawl_search_feedback",
@@ -116,6 +131,9 @@
       "enabled": false,
       "type": "remote",
       "registry": "notion-remote",
+      "network": {
+        "allow_hosts": ["mcp.notion.com"]
+      },
       "run_flags": ["--remote-auth-callback-port", "8777", "--remote-auth-timeout", "3m"],
       "tools": [
         "notion-search", "notion-fetch", "notion-get-comments", "notion-get-teams",
@@ -129,6 +147,9 @@
       "enabled": false,
       "type": "remote",
       "registry": "linear",
+      "network": {
+        "allow_hosts": ["mcp.linear.app"]
+      },
       "run_flags": ["--remote-auth-callback-port", "8778", "--remote-auth-timeout", "3m"],
       "tools": [
         "list_comments", "save_comment", "list_cycles", "get_document", "list_documents",
@@ -144,6 +165,9 @@
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/atlassian",
+      "network": {
+        "host_from_secret": "jira_url"
+      },
       "env": {
         "READ_ONLY_MODE": "false",
         "JIRA_PROJECTS_FILTER": "CHANGE",
@@ -168,6 +192,9 @@
       "type": "registry",
       "registry": "grafana",
       "server_args": ["--disable-write", "--disable-proxied"],
+      "network": {
+        "host_from_secret": "grafana_url"
+      },
       "tools": [
         "search_dashboards", "search_folders", "list_datasources", "get_datasource",
         "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",
@@ -188,6 +215,9 @@
       "type": "registry",
       "registry": "grafana",
       "server_args": ["--disable-write", "--disable-proxied"],
+      "network": {
+        "host_from_secret": "grafana_gov_url"
+      },
       "tools": [
         "search_dashboards", "search_folders", "list_datasources", "get_datasource",
         "check_datasources_health", "get_dashboard_by_uid", "get_dashboard_panel_queries",
@@ -207,6 +237,9 @@
       "enabled": false,
       "type": "npx",
       "package": "mcp-alertmanager@2.1.1",
+      "network": {
+        "host_from_param": "url"
+      },
       "params": [
         {
           "name": "url",
@@ -230,6 +263,9 @@
       "enabled": false,
       "type": "npx",
       "package": "mcp-alertmanager@2.1.1",
+      "network": {
+        "host_from_param": "url"
+      },
       "params": [
         {
           "name": "url",
@@ -254,6 +290,9 @@
       "type": "registry",
       "registry": "io.github.stacklok/pagerduty",
       "server_args": ["--enable-write-tools"],
+      "network": {
+        "allow_hosts": ["api.pagerduty.com"]
+      },
       "tools": [
         "get_incident", "list_incidents", "get_past_incidents", "get_related_incidents",
         "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
@@ -271,6 +310,9 @@
       "type": "registry",
       "registry": "io.github.stacklok/pagerduty",
       "server_args": ["--enable-write-tools"],
+      "network": {
+        "allow_hosts": ["api.pagerduty.com"]
+      },
       "tools": [
         "get_incident", "list_incidents", "get_past_incidents", "get_related_incidents",
         "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
