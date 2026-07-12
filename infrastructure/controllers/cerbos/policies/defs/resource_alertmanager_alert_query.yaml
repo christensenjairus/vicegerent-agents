@@ -1,0 +1,51 @@
+---
+# alertmanager_alert_query policy: getAlerts requires a non-empty filterLabel.
+# Calling getAlerts with no filter returns every active alert as
+# unaggregated JSON and reliably times out against
+# mcp-alertmanager's own hardcoded 30s HTTP client timeout -- confirmed live,
+# not theoretical (unfiltered getAlerts times out every time; the identical
+# call with filterLabel=severity=critical succeeds in seconds). This agent
+# only pages on critical severity and has no use for warning/info noise, so
+# requiring a filter isn't just a timeout workaround, it matches the actual
+# operating posture. Denying with no filterLabel at all forces the caller
+# (Cerbos's own tool, or the agent) toward the already-fast, purpose-built
+# getCriticalAlerts/getAlertingSummary tools instead of a call that will
+# never succeed unfiltered.
+#
+# Deliberately NOT scoped to require filterLabel == 'severity=critical'
+# specifically -- any non-empty filter is accepted, since a narrower ask
+# (e.g. a specific alertname or namespace during an active incident) is
+# equally valid and equally avoids the unfiltered-payload timeout. Other
+# Alertmanager read tools (getAlertGroups, getSilences, getAlertmanagerStatus,
+# getReceivers, investigateAlert, getAlertHistory, correlateAlerts) are
+# untouched by this policy: they either return small payloads already (status/
+# receivers/silences) or exist specifically to avoid the same bulk-payload
+# problem this rule targets (getCriticalAlerts, getAlertingSummary,
+# investigateAlert).
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: alertmanager_alert_query
+  rules:
+    - name: deny-getAlerts-missing-filter
+      actions: [read]
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            !has(request.resource.attr.filterLabel) ||
+            request.resource.attr.filterLabel == ""
+      output:
+        when:
+          ruleActivated: >-
+            "getAlerts requires filterLabel to be set -- calling it with no"
+            + " filter returns every active alert and will"
+            + " time out. This agent only cares about critical alerts (that's"
+            + " all it gets paged for), so use getCriticalAlerts, or pass"
+            + " filterLabel (e.g. 'severity=critical', or a specific"
+            + " alertname/namespace) to getAlerts directly."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']
