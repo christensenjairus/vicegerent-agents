@@ -7,8 +7,10 @@
 # OpenSearch-datasource reads, Jira WRITES targeting a project outside
 # ${jiraAllowedProjects} (reads are unrestricted), GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
-# DEVOPS, Alertmanager silences over the duration cap, out-of-scope
-# PagerDuty incident changes, Notion create-pages calls whose parent isn't
+# DEVOPS, Alertmanager silences over the duration cap, Alertmanager getAlerts
+# calls with no filterLabel (an unfiltered call returns every active alert
+# and reliably exceeds mcp-alertmanager's own hardcoded 30s client timeout),
+# out-of-scope PagerDuty incident changes, Notion create-pages calls whose parent isn't
 # the Scratchpad folder, and Tavily/Firecrawl crawl+map calls targeting an
 # internal-only host or exceeding the limit/depth/breadth caps. GitLab has no mapped tools or Cerbos resource at all
 # (see the GitLab tools comment below). A `force` block instead
@@ -316,6 +318,24 @@ backends:
       # reused verbatim -- the cap doesn't depend on which Alertmanager
       # instance the silence is created on.
       alertmanager_gov_createSilence: *alertmanager_create_silence
+      # getAlerts with no filterLabel returns every active alert as full
+      # unaggregated JSON, which reliably exceeds
+      # mcp-alertmanager's own hardcoded, unconfigurable 30s client timeout
+      # (confirmed live: unfiltered getAlerts times out; the same call with
+      # filterLabel=severity=critical succeeds in seconds). The operator only
+      # pages on critical severity and doesn't want warnings/info alerts at
+      # all, so this isn't just a performance guard -- an unfiltered call is
+      # never the right call here. No helper needed: filterLabel is already
+      # a plain string arg, nothing to parse/normalize.
+      alertmanager_getAlerts: &alertmanager_get_alerts
+        resourceType: alertmanager_alert_query
+        action: read
+        id: get(args,'filterLabel','')
+        attr:
+          filterLabel: get(args,'filterLabel','')
+      # alertmanager_gov backend: same timeout-avoidance reasoning, reused
+      # verbatim.
+      alertmanager_gov_getAlerts: *alertmanager_get_alerts
       # PagerDuty manage_incidents -> pagerduty_incident; Cerbos denies any
       # status other than acknowledged/resolved, and denies any call that sets
       # urgency/escalation_level/assignement (this MCP tool's actual

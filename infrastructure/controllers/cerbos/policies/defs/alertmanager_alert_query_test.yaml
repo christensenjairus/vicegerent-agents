@@ -1,0 +1,52 @@
+---
+name: alertmanager_alert_query_filter_required_test
+description: getAlerts calls with no filterLabel (or an empty one) are denied to prevent
+  the unfiltered-payload timeout; any non-empty filterLabel is allowed.
+options:
+  now: '2026-07-12T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  no_filter:
+    id: no-filter
+    kind: alertmanager_alert_query
+    attr: {filterLabel: ''}
+  missing_filter_attr:
+    id: missing-attr
+    kind: alertmanager_alert_query
+    attr: {}
+  critical_filter:
+    id: severity=critical
+    kind: alertmanager_alert_query
+    attr: {filterLabel: severity=critical}
+  other_filter:
+    id: alertname=HighMemoryUsage
+    kind: alertmanager_alert_query
+    attr: {filterLabel: alertname=HighMemoryUsage}
+tests:
+  - name: getAlerts with no filterLabel is denied
+    input:
+      principals: [hermes]
+      resources: [no_filter, missing_filter_attr]
+      actions: [read]
+    expected:
+      - principal: hermes
+        resource: no_filter
+        actions: {read: EFFECT_DENY}
+      - principal: hermes
+        resource: missing_filter_attr
+        actions: {read: EFFECT_DENY}
+  - name: getAlerts with any non-empty filterLabel is allowed
+    input:
+      principals: [hermes]
+      resources: [critical_filter, other_filter]
+      actions: [read]
+    expected:
+      - principal: hermes
+        resource: critical_filter
+        actions: {read: EFFECT_ALLOW}
+      - principal: hermes
+        resource: other_filter
+        actions: {read: EFFECT_ALLOW}
