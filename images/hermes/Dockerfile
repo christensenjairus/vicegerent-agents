@@ -453,6 +453,22 @@ COPY patches/0016-credential-pool-anthropic-base-url.py /tmp/0016-credential-poo
 RUN /opt/hermes/.venv/bin/python /tmp/0016-credential-pool-anthropic-base-url.py
 RUN rm -f /tmp/0016-credential-pool-anthropic-base-url.py
 
+# Patch hermes_cli/runtime_provider.py's native-Anthropic branch so a
+# gateway-routed placeholder token (this platform's ANTHROPIC_API_KEY="none",  # pragma: allowlist secret
+# needed to keep the canonical anthropic/openai-api providers from falsely
+# appearing "configured" per the HAH-112 fix) doesn't make the desktop's
+# setup.runtime_check RPC report "No usable credentials found for anthropic"
+# even though real requests work fine (agentgateway supplies the actual key
+# downstream). Normalizes such tokens to the existing "no-key-required"
+# sentinel setup.runtime_check already allowlists. Depends on 0014 (needs
+# cfg_base_url / _anthropic_base_url_override_ok already in place). Remove
+# once upstream either does this normalization itself or teaches
+# setup.runtime_check that a trusted gateway override doesn't need a
+# locally-usable secret.
+COPY patches/0020-anthropic-gateway-placeholder-credential.py /tmp/0020-anthropic-gateway-placeholder-credential.py
+RUN /opt/hermes/.venv/bin/python /tmp/0020-anthropic-gateway-placeholder-credential.py
+RUN rm -f /tmp/0020-anthropic-gateway-placeholder-credential.py
+
 # Patch tools/mcp_tool.py so a parked MCP server (reconnect budget exhausted)
 # keeps retrying forever on a fixed cadence (default 30s, floored at 10s,
 # configurable per server via mcp_servers.<name>.parked_retry_interval)
