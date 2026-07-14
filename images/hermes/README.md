@@ -86,7 +86,7 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
   dependency cache; this bake only guarantees the `bazel`/`buildozer`/`buildifier`
   binaries themselves are present and the pinned Bazel version runs offline.
   Note: `BUILDIFIER_VERSION`/`BUILDOZER_VERSION` here are bumped independently of
-  any one target repo's own pinned linter version (e.g. moveworks's
+  any one target repo's own pinned linter version (e.g. a target repo's
   `tools/onboarding/versions.sh` pins `8.2.1` and its `linter_verify` pre-commit hook
   does an exact-string version check) — a mismatch there fails that repo's own
   pre-commit hook on version grounds even when formatting itself is correct. Not

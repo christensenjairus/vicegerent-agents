@@ -134,10 +134,10 @@ func TestLinearIssueAttrEval(t *testing.T) {
 	}{
 		{
 			name:         "create with team and assignee",
-			args:         map[string]any{"title": "New issue", "team": "DEVOPS", "assignee": "jchristensen@moveworks.ai"},
+			args:         map[string]any{"title": "New issue", "team": "DEVOPS", "assignee": "user@example.com"},
 			wantIsCreate: "true",
 			wantTeamID:   strPtr("DEVOPS"),
-			wantAssignee: strPtr("jchristensen@moveworks.ai"),
+			wantAssignee: strPtr("user@example.com"),
 		},
 		{
 			name:         "create with no assignee at all",

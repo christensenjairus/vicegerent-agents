@@ -109,7 +109,13 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   choice, kept in ToolHive here for developer flexibility. Argument-level authz is the `mcp-cerbos-shim`
   + Cerbos guardrail on the `vmcp` backend, a deny-by-resource guardrail (FailClosed on `tools/call`)
   that currently blocks: reading Kubernetes **Secrets**; reading the OpenSearch Grafana
-  datasources; any **Jira** WRITE (create/update/transition/comment/link) targeting a project
+  datasources; any **Elastic** (Kibana Agent Builder) data-access call whose target
+  index/datastream matches a blocked token in `${elasticDeniedIndexPatterns}` (matched by
+  substring against every index-bearing arg — `index`/`indices`/`pattern`/`indexPattern`/
+  stream `name` — plus the `execute_esql` query text, surfaced as a `targets` list by the
+  `elasticTargetsAttr` shim helper; reads that never name a blocked index are unrestricted,
+  and an index-less/wildcard search that dodges the token is a documented residual gap best
+  closed by scoping the Elastic API key's own role); any **Jira** WRITE (create/update/transition/comment/link) targeting a project
   outside `${jiraAllowedProjects}` (by `project_key`, the project prefix of an
   issue/epic key, or an `epicKey`/`parent` reference smuggled inside
   `additional_fields`/`fields`' raw JSON — parsed by the `jiraFieldsAttr` helper,

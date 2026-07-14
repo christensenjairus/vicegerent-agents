@@ -4,7 +4,7 @@
   "servers": [
     {
       "name": "kubernetes",
-      "description": "Read-only Kubernetes access (resources, pods, logs, Helm release listing). --read-only means only readOnlyHint=true tools are exposed at the source at all (write/exec tools aren't just blocked, they don't exist in this process); the tools list below just pins the exact live set explicitly so a future package bump can't silently add to it. helm_list is read-only (lists releases/metadata only, no values/manifest rendering). Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README 'Security & trust boundary'). configuration_view is deliberately excluded even though the source marks it readOnlyHint=true: unlike every other tool here, it returns the full kubeconfig including client-certificate-data/client-key-data in plaintext, handing the agent (and anything that can read its transcript) a usable cluster credential. configuration_contexts_list covers the 'what clusters/contexts exist' need with just names and server URLs, no key material.",
+      "description": "Read-only Kubernetes access (resources, pods, logs, Helm release listing). --read-only exposes only readOnlyHint tools at the source; the allowlist pins the exact set. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README). configuration_view is excluded despite being read-only: it returns the full kubeconfig with client cert/key in plaintext (a usable cluster credential); configuration_contexts_list covers context discovery without key material.",
       "enabled": false,
       "type": "npx",
       "package": "kubernetes-mcp-server@0.0.64",
@@ -30,7 +30,7 @@
     },
     {
       "name": "gitlab",
-      "description": "GitLab MCP, scoped to issue read+write and the merge-request lifecycle short of merging or approving (create/update/review/comment) plus label lookups, plus read-only pipeline status/log tools. No generic git file/branch-write tools (create_or_update_file/push_files/create_branch): the bot has direct SSH access to gitlab.hahomelabs.com (charts/agent/templates/networkpolicy.yaml), so routine git operations should go through git itself, not a GitLab-API tool -- the operator uses this for their own GitLab instance and only wants MCP tools for things git itself cannot do (opening/commenting on/reviewing the MR object). approve_merge_request/unapprove_merge_request are excluded (HAH-64) so the bot can never rubber-stamp its own or anyone else's MR. No repo/group/project allowlist -- the operator controls the bot token's own project scope on gitlab.hahomelabs.com directly, unlike GitHub's broader-scoped token. merge_merge_request, create_repository/create_group/fork_repository, create_pipeline/retry_pipeline/cancel_pipeline (the mutating pipeline tools USE_PIPELINE also unlocks -- only the 5 read ones are allowlisted below), all CI/CD variable tools, execute_graphql (arbitrary API access -- would bypass every other exclusion here), wiki/release/tag/milestone/webhook management, and general repo/code browsing are excluded.",
+      "description": "GitLab MCP scoped to issues (read+write) and the merge-request lifecycle short of merging or approving (create/update/review/comment/labels), plus read-only pipeline status/logs. No generic git file/branch-write tools and no repo/project allowlist: the bot has direct SSH to gitlab.hahomelabs.com, so routine git goes through git itself and MCP is only for MR-object actions git can't do. approve/unapprove and merge are excluded (HAH-64) so the bot can't rubber-stamp or merge any MR. execute_graphql is excluded (arbitrary API access would bypass every other exclusion).",
       "enabled": false,
       "type": "npx",
       "package": "@zereight/mcp-gitlab@2.1.30",
@@ -73,7 +73,7 @@
     },
     {
       "name": "github",
-      "description": "GitHub MCP, scoped to PRs only — no issue tools at all (this operator does not use GitHub issues at work), and no generic git file/branch-write tools since the bot has direct SSH access to github.com and should do routine git operations (branch creation, file edits, pushes) with git itself, not an MCP tool. Remaining surface: get_me, the pull-request lifecycle short of merging or leaving any review/comment text (create/update, get PR status/diff/files/commits/checks), and update_pull_request_branch. create_repository, fork_repository, delete_file, merge_pull_request, and general repo/code browsing (get_file_contents, search_code, etc.) are excluded. add_reply_to_pull_request_comment is excluded: the PR-comment-reply tool carries no author/ownership info the shim could use to distinguish 'reply to a human's comment' from 'reply to the bot's own', so the whole comment-reply surface is removed rather than partially enforced. pull_request_review_write and add_comment_to_pending_review are excluded for the same reason, on operator instruction: the operator does not want the bot leaving ANY comment/review text on a PR — not just replies, but inline pending-review comments (add_comment_to_pending_review) and review-verdict submissions carrying free-text bodies (pull_request_review_write's COMMENT and REQUEST_CHANGES events; APPROVE was already Cerbos-denied before this, but a partial enforcement of 'no APPROVE' left COMMENT/REQUEST_CHANGES text fully open, which is exactly the gap being closed here). There is no argument-level signal that distinguishes an acceptable review call from an unacceptable one — the honest fallback, same pattern as add_reply_to_pull_request_comment, is to remove the whole capability rather than partially enforce it. Scoped at the source via GITHUB_TOOLS and again via the vMCP tools allowlist. The Cerbos guardrail (defs/resource_github.yaml) additionally hard-enforces which owner/repo and branch the mapped tools may target, regardless of what the token itself can reach, and forces every create/update_pull_request to draft: true.",
+      "description": "GitHub MCP scoped to PRs only — no issue tools (this operator doesn't use GitHub issues at work) and no generic git file/branch-write tools, since the bot has direct SSH to github.com and does routine git with git itself. Surface: get_me and the PR lifecycle short of merging or leaving any review/comment text. All comment-reply and review-write tools (add_reply_to_pull_request_comment, add_comment_to_pending_review, pull_request_review_write) are excluded on operator instruction — the bot leaves NO comment/review text on PRs, and there's no argument-level signal to distinguish acceptable from not, so the capability is removed rather than partially enforced. Cerbos (defs/resource_github.yaml) hard-enforces the target owner/repo and branch regardless of token scope, and forces every create/update_pull_request to draft:true.",
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/github",
@@ -127,7 +127,7 @@
     },
     {
       "name": "notion",
-      "description": "Notion workspace (official remote MCP; OAuth, browser consent on first start), shared broadly for read. The vMCP allowlist exposes 5 read tools (search, fetch, comments, teams, users — users takes an optional user_id, including \"self\" for the current user, which replaced Notion's old dedicated get-user/get-self tools) plus 3 content-write tools (create-pages, update-page, create-comment); database/move/duplicate mutations excluded. create-pages is folder-pinned by a Cerbos deny rule (defs/resource_notion.yaml): any parent other than the Scratchpad page is denied outright, with a message naming the correct page_id. update-page and create-comment target an EXISTING page by id and are gated by a live mcp-cerbos-shim ancestry lookup (it calls notion-fetch back through vMCP -- Cerbos has no I/O) against a per-machine allowlist of parent folders (Scratchpad always implicit, plus ${notionAllowedParentPageIds} from cluster-vars.yaml, e.g. DEVOPS/DevSecOps team folders but not Finance); update-page additionally has Cerbos deny replace_content/allow_deleting_content on the pages that do pass. A hard separate-integration split (read broad / write narrow) was infeasible — the org blocks creating internal-integration tokens.",
+      "description": "Notion workspace (official remote MCP; OAuth, browser consent on first start). Read broad (search/fetch/comments/teams/users); write narrow (create-pages/update-page/create-comment; no database/move/duplicate). Cerbos (defs/resource_notion.yaml) pins create-pages to the Scratchpad folder, and gates update-page/create-comment via a live shim ancestry lookup against ${notionAllowedParentPageIds} (Scratchpad always implicit), additionally denying replace_content/allow_deleting_content on pages that pass. A read-broad/write-narrow integration split was infeasible — the org blocks internal-integration tokens.",
       "enabled": false,
       "type": "remote",
       "registry": "notion-remote",
@@ -143,7 +143,7 @@
     },
     {
       "name": "linear",
-      "description": "Linear issues and projects (OAuth; browser consent on first start). Linear's official remote MCP server has grown to a 55-tool surface, including 5 destructive delete_* tools (attachments/comments/customers/status-updates) and newer feature categories (attachments, agent skills, releases, milestones, customers, initiatives, status updates). This allowlist keeps the platform's original functional scope instead: issues/comments/projects/labels/statuses/teams/users/docs, read+write, no deletes. Linear merged its old create_issue/update_issue, create_comment, and create_project/update_project pairs into single save_issue/save_comment/save_project tools (an `id` arg picks update vs create) — those are the names below. The Cerbos guardrail (defs/resource_linear.yaml) confines save_issue calls that supply a team to the DEVOPS team; save_comment/save_project target an existing entity by id and carry no team the shim can verify, so they're unmapped. The newer feature categories and destructive deletes are deliberately excluded pending a follow-up decision on whether to expose them.",
+      "description": "Linear issues and projects (OAuth; browser consent on first start). Scoped to the platform's original functional set — issues/comments/projects/labels/statuses/teams/users/docs, read+write, no deletes — out of Linear's full 55-tool surface. save_issue/save_comment/save_project are Linear's merged create+update tools (an `id` arg picks which). Cerbos (defs/resource_linear.yaml) confines save_issue calls that supply a team to DEVOPS. Newer feature categories and destructive deletes are excluded pending a follow-up decision.",
       "enabled": false,
       "type": "remote",
       "registry": "linear",
@@ -161,7 +161,7 @@
     },
     {
       "name": "jira",
-      "description": "Jira (sooperset/mcp-atlassian container), confined to the CHANGE (Change Management) project. Jira-only: only JIRA_* creds are supplied so Confluence tools stay disabled. JIRA_PROJECTS_FILTER=CHANGE scopes search/discovery to that project; jira_get_all_projects and jira_get_project_versions are dropped to remove cross-project enumeration. Read+write (issues, JQL search, transitions, comments) scoped at the source via ENABLED_TOOLS and again via the vMCP tools allowlist; destructive deletes are excluded. The CHANGE boundary is hard-enforced by the Cerbos guardrail (defs/resource_jira.yaml): the mcp-cerbos-shim maps every project/issue-bearing tool and Cerbos denies any call whose project_key — or the project prefix of an issue/epic key — isn't CHANGE; JIRA_PROJECTS_FILTER additionally confines free-form search server-side. jira_batch_get_changelogs is dropped because its list-of-keys arg can't be shim-inspected. NB the official remote (io.github.stacklok/atlassian-remote) does NOT work through our vMCP — it advertises the resources capability but returns method-not-found for resources/list, so the vMCP health probe drops it from aggregation.",
+      "description": "Jira (sooperset/mcp-atlassian container), confined to the CHANGE project. Jira-only (no Confluence creds). JIRA_PROJECTS_FILTER=CHANGE scopes search server-side; cross-project enumeration tools are dropped. Read+write (issues, JQL, transitions, comments), no deletes. Cerbos (defs/resource_jira.yaml) hard-enforces the CHANGE boundary by project_key or issue/epic-key prefix. NB the official remote (io.github.stacklok/atlassian-remote) does NOT work through our vMCP — it advertises the resources capability but returns method-not-found for resources/list, so the health probe drops it from aggregation.",
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/atlassian",
@@ -187,7 +187,7 @@
     },
     {
       "name": "grafana",
-      "description": "Grafana observability, read-only. Exposed tools scoped via the vMCP tools allowlist (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads); --disable-write is the fail-closed write kill-switch; --disable-proxied turns off Tempo-datasource MCP discovery (unused here) which otherwise blocks every new session on a live call to the real Grafana instance -- without it, being off-VPN makes ALL sessions across every vMCP backend hang, not just this one; Cerbos additionally blocks reads of OpenSearch datasources.",
+      "description": "Grafana observability, read-only (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads). --disable-write is the fail-closed write kill-switch. --disable-proxied turns off Tempo-datasource MCP discovery (unused): without it, being off-VPN makes every session across ALL vMCP backends hang on a live call to Grafana, not just this one. Cerbos additionally blocks reads of OpenSearch datasources.",
       "enabled": false,
       "type": "registry",
       "registry": "grafana",
@@ -285,7 +285,7 @@
     },
     {
       "name": "pagerduty",
-      "description": "PagerDuty, trimmed to read-only incident/schedule/on-call/service/team/user lookups plus ack/resolve/note on existing incidents (manage_incidents, add_note_to_incident) via --tools. create_incident, add_responders, and start_incident_workflow are intentionally NOT exposed — the operator only wants triage actions on incidents PagerDuty already created, not incident creation or responder escalation from the agent. manage_incidents is further scoped by Cerbos (defs/resource_pagerduty.yaml) to ack/resolve-only field changes (no bulk-count cap — a field allowlist makes batch size irrelevant to the risk); PagerDuty's own manage_incidents body has no service_id field, so true per-service scoping isn't mechanically available here.",
+      "description": "PagerDuty, read-only incident/schedule/on-call/service/team/user lookups plus ack/resolve/note on existing incidents (manage_incidents, add_note_to_incident). create_incident, add_responders, and start_incident_workflow are NOT exposed — triage only, no incident creation or responder escalation from the agent. Cerbos (defs/resource_pagerduty.yaml) scopes manage_incidents to ack/resolve-only field changes.",
       "enabled": false,
       "type": "registry",
       "registry": "io.github.stacklok/pagerduty",
@@ -322,6 +322,49 @@
         "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
       ],
       "secrets": [{"name": "pagerduty_gov_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
+    },
+    {
+      "name": "elastic",
+      "description": "Elastic Agent Builder (Kibana) via ToolHive's native `remote` streamable-http transport, pointed at /api/agent_builder/mcp and authed by a static `Authorization: ApiKey <key>` header injected from the thv secret store (--remote-forward-headers-secret, api_key's apply:remote_header) so the credential never enters argv. Uses the native remote transport, NOT the mcp-remote npx bridge: mcp-remote's mandatory MCP-SDK OAuth discovery GETs /.well-known/oauth-* which this Kibana 302-redirects to an HTML login page, crashing its JSON parser; ToolHive's transport only runs discovery under --remote-auth (never passed here), so plain header auth connects directly. kibana_url is both the run positional (registry_from_param) and the egress allow_host; the api_key secret is injected verbatim as the Authorization header, so it must carry the 'ApiKey ' scheme prefix -- `configure` prepends that automatically (the param's value_prefix), so the operator pastes just the bare key. Kibana serves on 443. Read/search/analysis tools only — the 3 write tools (platform_core_create_visualization, security_create_detection_rule, platform_core_resume_workflow_execution) are excluded, so no Cerbos guardrail is needed yet.",
+      "enabled": false,
+      "type": "remote",
+      "registry_from_param": "kibana_url",
+      "transport": "streamable-http",
+      "network": {
+        "host_from_param": "kibana_url",
+        "allow_ports": [443]
+      },
+      "params": [
+        {
+          "name": "kibana_url",
+          "prompt": "Elastic Kibana Agent Builder MCP URL, e.g. https://<your-kibana-host>/api/agent_builder/mcp (no port suffix -- Kibana serves this on the HTTPS default 443)",
+          "required": true,
+          "secret": true
+        },
+        {
+          "name": "api_key",
+          "prompt": "Elastic API key -- paste just the encoded key from Kibana Stack Management > Security > API keys (read-only Agent Builder role). The 'ApiKey ' Authorization scheme prefix is added automatically.",
+          "apply": "remote_header",
+          "header": "Authorization",
+          "required": true,
+          "secret": true,
+          "sensitive": true,
+          "value_prefix": "ApiKey "
+        }
+      ],
+      "tools": [
+        "platform_streams_list_streams", "platform_streams_get_stream", "platform_streams_get_schema",
+        "platform_streams_get_data_quality", "platform_streams_get_lifecycle_stats",
+        "platform_streams_query_documents", "platform_streams_get_failed_documents",
+        "platform_core_search", "platform_core_get_document_by_id", "platform_core_execute_esql",
+        "platform_core_generate_esql", "platform_core_get_index_mapping", "platform_core_list_indices",
+        "platform_core_index_explorer", "platform_core_product_documentation",
+        "platform_core_integration_knowledge", "platform_core_cases",
+        "platform_core_get_workflow_execution_status",
+        "security_attack_discovery_search", "security_security_labs_search", "security_alerts",
+        "security_get_entity", "security_search_entities",
+        "observability_get_trace_change_points"
+      ]
     }
   ]
 }

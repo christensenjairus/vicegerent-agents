@@ -1,0 +1,44 @@
+---
+# elastic policy: deny any data-access call whose target index/datastream
+# matches a denied token (${elasticDeniedIndexPatterns}, from
+# clusters/*/cluster-vars.yaml — lowercased substrings, CEL-list-ready same as
+# grafanaDeniedDatasourceNames); allow everything else. The shim's
+# elasticTargetsAttr helper (mapping.yaml) surfaces every index-bearing arg
+# (index / indices[] / pattern / indexPattern / stream name) plus the
+# execute_esql query text as one lowercased `targets` list. A substring match
+# (not the exact `in [list]` grafana uses) is deliberate: a single token covers
+# a whole datastream family and its rollover backing indices, which share a
+# common name fragment, without enumerating each one or breaking when a new one
+# is created.
+#
+# Residual gap (documented, not closed here): a data-access call with NO target
+# arg and a query that never names the denied data (e.g. an index-less
+# platform_core_search) searches across all indices and can still surface it —
+# arg inspection cannot see that. The airtight complement is scoping the
+# Elastic API key's own role to exclude those indices at the source. Do NOT add
+# tools/kinds here to permit them; tool exposure belongs in the gateway
+# allowlist (toolhive-servers.json).
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: elastic
+  rules:
+    - name: deny-blocked-index
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.targets)
+            && request.resource.attr.targets.exists(t,
+            [${elasticDeniedIndexPatterns}].exists(p, t.contains(p)))
+      output:
+        when:
+          ruleActivated: >-
+            "This agent is not allowed to access that Elasticsearch data. The"
+            + " requested index or datastream is off-limits."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

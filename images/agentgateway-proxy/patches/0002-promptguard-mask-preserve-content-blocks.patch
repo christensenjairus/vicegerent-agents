@@ -1,5 +1,5 @@
 From 716899ef1ec771e4334010bd0bd907d37dc07de0 Mon Sep 17 00:00:00 2001
-From: jchristensen_movester <jchristensen@moveworks.ai>
+From: Vicegerent Maintainers <noreply@example.com>
 Date: Sat, 11 Jul 2026 17:49:52 +0000
 Subject: [PATCH] llm: mask promptGuard text in place, never round-trip through
  get_messages/set_messages
