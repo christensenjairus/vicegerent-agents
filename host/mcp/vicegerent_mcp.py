@@ -3,9 +3,10 @@
 
 Owns the full local ToolHive stack that backs the cluster's MCP access:
 
-  ToolHive workloads   11 MCP backends (kubernetes, gitlab, github, tavily,
+  ToolHive workloads   12 MCP backends (kubernetes, gitlab, github, tavily,
                        firecrawl, notion, linear, jira, grafana, alertmanager,
-                       pagerduty) run by `thv run` into the group `vicegerent`.
+                       pagerduty, elastic) run by `thv run` into
+                       the group `vicegerent`.
                        Managed by ToolHive's own daemon (Docker containers),
                        NOT by supervisord — they persist across stack restarts
                        so OAuth tokens are not re-prompted.
@@ -31,6 +32,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import fcntl
+import getpass
 import hashlib
 import json
 import os
@@ -508,7 +510,19 @@ def build_thv_run_argv(
     if stype == "npx":
         positional = f"npx://{server['package']}"
     elif stype in ("remote", "registry"):
-        positional = server["registry"]
+        # A registry name (notion/linear) is a static positional; a bare remote
+        # URL that's per-operator (elastic's Kibana host) comes from a configured
+        # param instead — ToolHive accepts either as the `thv run` positional.
+        positional = server.get("registry")
+        if not positional and server.get("registry_from_param"):
+            positional = _resolve_param_value(
+                server, server["registry_from_param"], runtime_dir
+            )
+        if not positional:
+            raise SystemExit(
+                f"server {name!r}: remote type needs 'registry' or a resolvable "
+                "'registry_from_param' — run `vicegerent mcp configure` to set it"
+            )
     else:
         raise SystemExit(f"server {name!r}: unknown type {stype!r}")
 
@@ -568,6 +582,21 @@ def build_thv_run_argv(
             argv += ["-v", f"{kubeconfig}:{KUBECONFIG_CONTAINER_PATH}:ro"]
             argv += ["-e", f"KUBECONFIG={KUBECONFIG_CONTAINER_PATH}"]
             server_args += ["--kubeconfig", KUBECONFIG_CONTAINER_PATH]
+        elif apply == "remote_header":
+            # Inject a static auth header into a `remote` server by NAME reference
+            # so the credential stays in the `thv` secret store — never argv, never
+            # read into this process. ToolHive resolves it and does NO OAuth flow
+            # (that only runs under --remote-auth, which we never pass), so header
+            # auth works directly against endpoints whose OAuth-discovery paths
+            # would otherwise redirect an SDK client into an HTML login shell.
+            argv += [
+                "--remote-forward-headers-secret",
+                f"{param['header']}={param_secret_name(name, pname)}",
+            ]
+        elif apply is None:
+            # Value is consumed elsewhere (registry_from_param / network
+            # host_from_param), not injected as an arg here.
+            pass
         else:
             raise SystemExit(f"{name}: param {pname!r} has unknown apply {apply!r}")
 
@@ -575,6 +604,12 @@ def build_thv_run_argv(
         argv += ["-e", f"{key}={val}"]
     for sec in server.get("secrets", []):
         argv += ["--secret", f"{sec['name']},target={sec['target']}"]
+
+    # Some CLIs (mcp-remote) treat their first bare arg as positional (the URL)
+    # rather than doing real flag-aware parsing, so a flag placed ahead of it
+    # gets swallowed as the URL itself. server_args_after lets config put
+    # trailing flags (e.g. --transport http-only) AFTER the params loop above.
+    server_args += list(server.get("server_args_after", []))
 
     if server_args:
         argv += ["--", *server_args]
@@ -630,7 +665,8 @@ def kind_kubeconfig_stale(server: dict[str, Any], runtime_dir: Path) -> bool:
 
 def server_spec_fingerprint(server: dict[str, Any], runtime_dir: Path) -> str:
     """Hash the parts of a server's config entry that determine its running
-    container: type/package-or-registry/transport/run_flags/server_args/env/
+    container: type/package-or-registry/transport/run_flags/server_args/
+    server_args_after/env/
     secret TARGETS (never secret values — those live in `thv secret`, not this
     repo) and configured PARAM NAMES (not their values, which come from runtime
     state and may reasonably change without forcing a rebuild here; params that
@@ -657,6 +693,7 @@ def server_spec_fingerprint(server: dict[str, Any], runtime_dir: Path) -> str:
         "transport": server.get("transport"),
         "run_flags": list(server.get("run_flags", [])),
         "server_args": list(server.get("server_args", [])),
+        "server_args_after": list(server.get("server_args_after", [])),
         "env": dict(sorted(server.get("env", {}).items())),
         "secret_targets": sorted(
             f"{sec['name']}->{sec['target']}" for sec in server.get("secrets", [])
@@ -1689,14 +1726,63 @@ def configure(
         # way the value is typed and shown here in the clear -- these aren't
         # sensitive, `thv secret` is just durable storage, so we do our own visible
         # prompt and pipe it into `thv secret set` rather than let it hide the input.
+        #
+        # A param can additionally set "sensitive": true (only meaningful alongside
+        # "secret": true) for genuinely confidential values that must still be
+        # templated into argv via apply:server_arg -- e.g. an API key baked into a
+        # --header flag, which can't go through the top-level secrets[]/--secret
+        # mechanism below since that only injects container env vars, not CLI args.
+        # Such a param skips the visible echo-prompt entirely and instead follows
+        # the exact same hidden-input model as the secrets[] loop further down:
+        # `thv secret set <name>` is invoked directly with no captured input/output,
+        # so thv's own hidden terminal prompt handles it and the value never passes
+        # through Python (never printed, never echoed back on a later run). The one
+        # exception is a param with "value_prefix": the value is read hidden via
+        # getpass and that fixed prefix prepended before storing (idempotently), so
+        # the operator pastes just the bare secret and can't forget a required
+        # scheme (e.g. the "ApiKey " that elastic's Authorization header must carry).
         for param in server.get("params", []):
             pname = param["name"]
             prompt = param.get("prompt", pname)
             use_secret = bool(param.get("secret"))
+            sensitive = bool(param.get("sensitive"))
             if use_secret and not have_provider:
                 print(f"   ! {prompt} needs a secrets provider — set it after `thv secret setup`.")
                 continue
             sname = param_secret_name(name, pname) if use_secret else None
+
+            if sname and sensitive:
+                prefix = param.get("value_prefix", "")
+                exists = thv("secret", "get", sname).returncode == 0
+                if exists and not _prompt_yn(f"   secret '{sname}' is already set — replace it?", default=False):
+                    print(f"   keeping existing '{sname}'.")
+                elif prefix:
+                    # value_prefix is a fixed scheme the stored secret MUST carry
+                    # (e.g. "ApiKey " for an Authorization header injected verbatim
+                    # by --remote-forward-headers-secret). Read the value hidden via
+                    # getpass so it still never echoes, prepend the prefix
+                    # idempotently, and pipe it in — the operator pastes just the
+                    # bare secret and can't forget the scheme. The value passes
+                    # through Python only in memory here (never printed), the one
+                    # deviation from the no-capture path below, required to prepend.
+                    entered = getpass.getpass(f"   {prompt} (input hidden): ").strip()
+                    if entered:
+                        value = entered if entered.startswith(prefix) else prefix + entered
+                        rc = subprocess.run(
+                            [_thv_path(), "secret", "set", sname],
+                            input=value, text=True, capture_output=True,
+                        ).returncode
+                        if rc != 0:
+                            print(f"   warning: saving {pname} failed (rc={rc}); {name} may not work.")
+                else:
+                    print(f"   setting '{sname}' (input hidden):")
+                    rc = subprocess.run([_thv_path(), "secret", "set", sname]).returncode
+                    if rc != 0:
+                        print(f"   warning: saving {pname} failed (rc={rc}); {name} may not work.")
+                if param.get("required") and thv("secret", "get", sname).returncode != 0:
+                    print(f"   ! {pname} is required — {name} won't work until it's set.")
+                continue
+
             current = (
                 read_secret_value(sname) if sname
                 else params_all.get(name, {}).get(pname) or str(param.get("default") or "")

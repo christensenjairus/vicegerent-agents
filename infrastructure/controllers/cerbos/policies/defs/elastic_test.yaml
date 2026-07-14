@@ -1,0 +1,81 @@
+---
+# Fixtures use the literal denied token matching cluster-vars.yaml's
+# elasticDeniedIndexPatterns ("snowflake") — validate.sh compiles the
+# substituted policy against them, so keep the two in sync.
+name: elastic_denied_index_block_test
+description: Data-access calls targeting a denied index/datastream token are denied
+  (by name, rollover backing index, or ES|QL query text); other data is allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  denied_datastream:
+    id: logs-snowflake-alpha-default
+    kind: elastic
+    attr:
+      targets: [logs-snowflake-alpha-default]
+  denied_rollover_index:
+    id: '*'
+    kind: elastic
+    attr:
+      targets:
+        - partial-restored-.ds-logs-snowflake-alpha-default-2024.01.01-000001
+  denied_via_esql:
+    id: '*'
+    kind: elastic
+    attr:
+      targets: [from logs-snowflake-beta-default | limit 10]
+  allowed_index:
+    id: logs-nginx
+    kind: elastic
+    attr:
+      targets: [logs-nginx]
+  no_target:
+    id: '*'
+    kind: elastic
+    attr: {}
+tests:
+  - name: targeting the denied datastream / its backing index / via ES|QL is denied
+    input:
+      principals: [hermes]
+      resources: [denied_datastream, denied_rollover_index, denied_via_esql]
+      actions:
+        - platform_core_search
+        - platform_core_execute_esql
+        - platform_streams_query_documents
+    expected:
+      - principal: hermes
+        resource: denied_datastream
+        actions:
+          platform_core_search: EFFECT_DENY
+          platform_core_execute_esql: EFFECT_DENY
+          platform_streams_query_documents: EFFECT_DENY
+      - principal: hermes
+        resource: denied_rollover_index
+        actions:
+          platform_core_search: EFFECT_DENY
+          platform_core_execute_esql: EFFECT_DENY
+          platform_streams_query_documents: EFFECT_DENY
+      - principal: hermes
+        resource: denied_via_esql
+        actions:
+          platform_core_search: EFFECT_DENY
+          platform_core_execute_esql: EFFECT_DENY
+          platform_streams_query_documents: EFFECT_DENY
+  - name: a non-denied index and a call with no target arg are allowed
+    input:
+      principals: [hermes]
+      resources: [allowed_index, no_target]
+      actions: [platform_core_search]
+    expected:
+      - principal: hermes
+        resource: allowed_index
+        actions:
+          platform_core_search: EFFECT_ALLOW
+      - principal: hermes
+        resource: no_target
+        actions:
+          platform_core_search: EFFECT_ALLOW

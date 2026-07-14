@@ -46,6 +46,7 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 | `grafana` | registry `grafana` (container) | `grafana_url` + `grafana_service_account_token` secrets |
 | `alertmanager` | npx `mcp-alertmanager` | `url` param (`--url`), no secret |
 | `pagerduty` | registry `io.github.stacklok/pagerduty` (container) | `pagerduty_user_api_key` secret |
+| `elastic` | remote transport to Kibana Agent Builder (URL param) | `elastic_kibana_url` + `elastic_api_key` secrets |
 
 Tool scoping uses the vMCP's native `aggregation.tools` primitive: a server
 with a `tools` allowlist in `toolhive-servers.json` emits a `{workload, filter}`
@@ -56,7 +57,8 @@ capability against anything this platform owns; pinning just stops a future
 package bump from silently adding to what's exposed), for `alertmanager` it's
 the full 12-tool set including `createSilence`/`deleteSilence` (an explicit
 choice, not an oversight — the operator wants the agent able to manage
-silences). The rest genuinely restrict:
+silences), and for `elastic` it's the 24 read/analysis tools (the 3 write
+tools are excluded). The rest genuinely restrict:
 
 - `kubernetes` — read-only at the source (`--read-only` makes writes
   impossible regardless of allowlist), and the allowlist additionally excludes
@@ -85,6 +87,11 @@ silences). The rest genuinely restrict:
   tools, and excludes the rest pending a deliberate follow-up. The Cerbos
   guardrail below confines save_issue's team to one team instead.
 - `notion` — 7 read tools plus create-pages/update-page/create-comment.
+- `elastic` — the 24 read/analysis tools (streams, core search/ES|QL/index,
+  security, observability); the 3 write tools (create-visualization,
+  create-detection-rule, resume-workflow-execution) are excluded. The Cerbos
+  guardrail below additionally denies any data-access call targeting a blocked
+  index/datastream token.
 
 Doing tool selection here (rather than as a per-tool allowlist in agentgateway,
 which it also supports) keeps it a quick host-side edit for developers; a
@@ -117,8 +124,9 @@ allowlisting above.
   `urllib.parse.urlparse`) out of a `params[]` entry's *resolved* value at `thv
   run` time — never hardcoded, since it's per-operator/per-cluster. Covers
   `gitlab` (its `api_url` param) and `alertmanager`/`alertmanager_gov` (their
-  `url` param). Raises a clear error (same pattern as the existing kubeconfig
-  check) if `./vicegerent mcp configure` hasn't set that param yet.
+  `url` param), and `elastic` (its `kibana_url` param). Raises a
+  clear error (same pattern as the existing kubeconfig check) if
+  `./vicegerent mcp configure` hasn't set that param yet.
 - **`host_from_secret: "<thv secret name>"`** — same idea, but for a hostname
   that lives in a top-level `secrets[]` entry instead of `params[]` (fetched
   directly via `thv secret get`). Covers `jira` (`jira_url`) and
@@ -270,6 +278,8 @@ thv secret set grafana_service_account_token     # Grafana service-account token
 thv secret set jira_url                          # e.g. https://your-domain.atlassian.net
 thv secret set jira_username                      # Jira account email (Cloud)
 thv secret set jira_api_token                     # Jira API token (id.atlassian.com/manage-profile/security/api-tokens)
+thv secret set elastic_kibana_url    # Kibana Agent Builder MCP URL, e.g. https://<your-kibana-host>/api/agent_builder/mcp
+thv secret set elastic_api_key       # read-only Elastic API key (Stack Management > Security > API keys)
 ```
 
 `notion` `create-pages` is pinned to the **Scratchpad** page by the shim's `force`

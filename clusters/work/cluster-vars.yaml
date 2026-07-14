@@ -110,6 +110,10 @@ data:
   grafanaDeniedDatasourceNames: >-
     "dev-opensearch-datasource"
 
+  # Elastic index/datastream tokens agents on this machine may not access (resource_elastic.yaml).
+  elasticDeniedIndexPatterns: >-
+    "snowflake"
+
   # Notion page id notion-create-pages is pinned to (Cerbos denies any create
   # call whose parent isn't this page, defs/resource_notion.yaml) — your
   # "Scratchpad" page. Also always implicitly included in

@@ -16,5 +16,6 @@ configMapGenerator:
       - defs/resource_pagerduty.yaml
       - defs/resource_firecrawl.yaml
       - defs/resource_webcrawl.yaml
+      - defs/resource_elastic.yaml
 generatorOptions:
   disableNameSuffixHash: true

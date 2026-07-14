@@ -21,7 +21,8 @@ flexibility.
 
 This shim + Cerbos are an orthogonal layer: argument-level authorization that denies by
 *resource* whatever the exposed tool set is — currently Kubernetes Secret reads,
-OpenSearch Grafana datasource reads, Jira calls targeting a project other than CHANGE,
+OpenSearch Grafana datasource reads, Elastic data-access calls targeting a blocked
+index/datastream token, Jira calls targeting a project other than CHANGE,
 GitHub calls targeting a repo outside an allowlist or writing directly to a protected
 branch, Linear `save_issue` calls (create or update) targeting a team other than DEVOPS,
 Alertmanager `createSilence` calls over the configured duration cap (`deleteSilence` has
@@ -40,8 +41,8 @@ dropped from the allowlist instead). (Notion `create-pages` is also mapped; see
 | Layer | Job |
 | --- | --- |
 | **agentgateway** | MCP ingress gate: routing and mTLS to the host vMCP. Can also enforce a per-tool allowlist centrally; in this setup that's left to ToolHive. |
-| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, a Jira project/issue key, a GitHub owner/repo/branch, a Linear teamId, an Alertmanager silence duration, a PagerDuty manage_incidents change, a Notion update-page command, or a Firecrawl interact code payload) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
-| **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a non-DEVOPS Linear team, an over-cap Alertmanager silence, an out-of-scope PagerDuty change, a destructive Notion update-page command, or a code-carrying Firecrawl interact call, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
+| **mcp-cerbos-shim** (this) | Extract the resource a *resource-bearing* tool targets (a k8s kind, a Grafana datasource id, an Elastic index/datastream target, a Jira project/issue key, a GitHub owner/repo/branch, a Linear teamId, an Alertmanager silence duration, a PagerDuty manage_incidents change, a Notion update-page command, or a Firecrawl interact code payload) and ask Cerbos about it; apply any `force` arg-rewrite on allow. |
+| **Cerbos policy** | Make the deny decision: block calls that touch Secrets, OpenSearch datasources, a blocked Elastic index/datastream, a non-CHANGE Jira project, a GitHub repo outside the allowlist or a protected-branch write, a non-DEVOPS Linear team, an over-cap Alertmanager silence, an out-of-scope PagerDuty change, a destructive Notion update-page command, or a code-carrying Firecrawl interact call, and reject a kind-bearing call whose kind can't be resolved. Allow-all for all roles + deny overrides for the protected resources and empty-kind. |
 
 Consequences:
 - A new tool exposed by the vMCP needs **no** shim/Cerbos change unless it can name a
@@ -88,7 +89,20 @@ Consequences:
   ancestry gate that denies updates to any page not under the
   Scratchpad tree. `notion_notion-create-comment` shares that same live
   ancestry gate (it targets an existing page by id too, with no
-  destructive-command surface of its own). Everything else passes untouched.
+  destructive-command surface of its own). And the Elastic (Kibana Agent
+  Builder) data-access tools (`elastic_platform_core_search`,
+  `elastic_platform_core_execute_esql`, `elastic_platform_core_get_document_by_id`,
+  `elastic_platform_core_get_index_mapping`, `elastic_platform_core_list_indices`,
+  `elastic_platform_core_index_explorer`, the `elastic_platform_streams_*` tools,
+  and `elastic_security_alerts`) map to the `elastic` resource carrying a
+  `targets` list (every index-bearing arg plus the `execute_esql` query text,
+  built by the `elasticTargetsAttr` helper); Cerbos denies any call whose target
+  matches a blocked index/datastream token (`${elasticDeniedIndexPatterns}`).
+  The discovery/doc/entity/trace tools that name a source without reading its
+  data (`product_documentation`, `integration_knowledge`, `security_labs_search`,
+  `cases`, `get_entity`, `search_entities`, `get_trace_change_points`,
+  `generate_esql`) and the arg-less `platform_streams_list_streams` are unmapped.
+  Everything else passes untouched.
 
 The shim mapping and Cerbos rules exist to *deny* protected resources, not to permit
 tools. To allow or disallow a tool outright, change the exposed tool set (ToolHive's

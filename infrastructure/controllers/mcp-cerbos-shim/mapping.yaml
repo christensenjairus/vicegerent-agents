@@ -4,7 +4,8 @@
 # Jira project/issue key, a GitHub owner/repo[/branch], a Linear teamId, an
 # Alertmanager silence duration, or a PagerDuty manage_incidents change);
 # unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads,
-# OpenSearch-datasource reads, Jira WRITES targeting a project outside
+# OpenSearch-datasource reads, Elastic data-access calls targeting a denied
+# index/datastream token (${elasticDeniedIndexPatterns}), Jira WRITES targeting a project outside
 # ${jiraAllowedProjects} (reads are unrestricted), GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
 # DEVOPS, Alertmanager silences over the duration cap, Alertmanager getAlerts
@@ -31,6 +32,7 @@ backends:
       - notionCreateAttr
       - jiraFieldsAttr
       - githubReviewersAttr
+      - elasticTargetsAttr
       - webCrawlAttr
       - webFetchAttr
       - webMonitorAttr
@@ -88,6 +90,36 @@ backends:
       grafana_gov_list_prometheus_metric_names: *grafana_ds
       grafana_gov_list_prometheus_label_names: *grafana_ds
       grafana_gov_list_prometheus_label_values: *grafana_ds
+      # Elastic (Kibana Agent Builder) data-access tools -> elastic; Cerbos
+      # denies any call whose target index/datastream matches a denied token
+      # (${elasticDeniedIndexPatterns}, resource_elastic.yaml), same
+      # deny-by-resource shape as grafana_datasource. Same body for every tool:
+      # the elasticTargetsAttr helper collects whatever index-bearing arg it
+      # carries (index / indices[] / pattern / indexPattern / stream name) plus
+      # the execute_esql query text into one lowercased `targets` list. Only
+      # data-access tools are mapped — discovery/doc/entity/trace tools
+      # (product_documentation, integration_knowledge, security_labs_search,
+      # cases, get_entity, search_entities, get_trace_change_points, generate_esql)
+      # legitimately mention a data source by name without reading its data, so
+      # they stay unmapped (fall through to allow). platform_streams_list_streams
+      # takes no arg and so can't be scoped — an unavoidable gap, same class as
+      # a no-pattern list_indices.
+      elastic_platform_core_search: &elastic_data
+        resourceType: elastic
+        id: get(args,'index', get(args,'name', get(args,'pattern', get(args,'indexPattern','*'))))
+        attrFrom: elasticTargetsAttr(args)
+      elastic_platform_core_execute_esql: *elastic_data
+      elastic_platform_core_get_document_by_id: *elastic_data
+      elastic_platform_core_get_index_mapping: *elastic_data
+      elastic_platform_core_list_indices: *elastic_data
+      elastic_platform_core_index_explorer: *elastic_data
+      elastic_platform_streams_get_stream: *elastic_data
+      elastic_platform_streams_get_schema: *elastic_data
+      elastic_platform_streams_get_data_quality: *elastic_data
+      elastic_platform_streams_get_lifecycle_stats: *elastic_data
+      elastic_platform_streams_get_failed_documents: *elastic_data
+      elastic_platform_streams_query_documents: *elastic_data
+      elastic_security_alerts: *elastic_data
       # Jira project/issue-bearing tools -> jira_project, mirroring Notion's
       # read-everywhere/write-scoped model: reads (get_issue/get_project_issues/
       # get_transitions) are allowed against ANY project, since there's nothing

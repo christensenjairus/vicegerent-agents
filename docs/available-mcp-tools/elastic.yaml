@@ -1,0 +1,466 @@
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py elastic --format yaml -o <this-file>
+group: vicegerent
+tool_count: 27
+servers:
+  elastic:
+    tool_count: 27
+    tools:
+      platform_streams_list_streams:
+        description: "Lists all streams the current user has access to, returning each stream's name, type (wired, classic, or query), and description. **When to use:** - User asks \"what streams do I have?\" or \"show me my streams\" - You need to resolve a partial stream name (e.g. \"nginx\") to an exact name (e.g. \"logs.nginx\") - Comparing storage or quality across multiple streams (combine with get_lifecycle_stats or get_data_quality) - Discovering available streams before drilling into one **When NOT to use:** - User already named an exact stream and wants details \u2014 use platform.streams.get_stream instead"
+        arguments: {}
+      platform_streams_get_stream:
+        description: "Returns the full definition of a single stream: type, description, retention policy, processing rules, field mappings, routing/partitions, and parent-child hierarchy. **When to use:** - User asks for a general overview of a stream - User asks about multiple aspects at once (schema + retention + routing) - User asks \"tell me about stream X\" **When NOT to use:** - User only asks about one specific aspect (schema, quality, lifecycle, or documents) \u2014 use the focused tool instead"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+      platform_streams_get_schema:
+        description: "Returns the schema of a stream: mapped fields (own and inherited) with their types, and unmapped fields detected from recent documents. **When to use:** - User asks \"what fields does stream X have?\" - User asks about field types, unmapped fields, or inherited mappings - Before querying documents, to understand available fields **When NOT to use:** - User wants a general stream overview \u2014 use platform.streams.get_stream - User wants data quality or lifecycle info \u2014 use the focused tool"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+      platform_streams_get_data_quality:
+        description: "Returns data quality metrics for a stream: degraded document percentage, failed document percentage, an overall quality indicator (good, degraded, or poor), and failure store status. **When to use:** - User asks about data quality, degraded documents, or mapping issues - User asks \"are there any problems with stream X?\" - User asks about failure store status **When NOT to use:** - User wants field-level schema info \u2014 use platform.streams.get_schema - User wants storage or retention info \u2014 use platform.streams.get_lifecycle_stats"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+          start:
+            type: "string"
+            required: false
+            description: "Start of time range for failed doc counts (ES date math). Total and degraded counts cover the full index lifecycle. Default: \"now-24h\""
+          end:
+            type: "string"
+            required: false
+            description: "End of time range for failed doc counts (ES date math). Total and degraded counts cover the full index lifecycle. Default: \"now\""
+      platform_streams_get_lifecycle_stats:
+        description: "Returns lifecycle and storage statistics for a stream: effective retention policy and its source, total storage size, document count, and ILM tier breakdown (when applicable). **When to use:** - User asks about retention, storage size, or disk usage - User asks \"how much data is in stream X?\" - Comparing storage across streams (call once per stream) **When NOT to use:** - User wants data quality info \u2014 use platform.streams.get_data_quality - User wants field mappings \u2014 use platform.streams.get_schema"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+      platform_streams_query_documents:
+        description: "Queries or aggregates data from a stream using a natural language description. The tool translates the description into an Elasticsearch query internally. Returns documents in flat dot-notation format and/or aggregation results. **When to use:** - User asks to \"show me recent documents\" or \"what does the data look like?\" - User asks about specific field values or patterns in the data - User wants aggregated metrics (counts, top values, histograms, etc.) - Any query or aggregation against stream data **When NOT to use:** - User wants pre-computed quality/lifecycle metrics \u2014 use the focused tool - User wants field definitions \u2014 use platform.streams.get_schema"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+          query:
+            type: "string"
+            required: true
+            description: "Natural language description of what to search or aggregate. Include field names when known. Examples: - \"show me 10 recent documents\" - \"top 5 values of host.name\" - \"count documents by log.level\" - \"errors from the last hour\" - \"average event.duration where http.response.status_code >= 500\""
+      platform_streams_get_failed_documents:
+        description: "Retrieves documents from a stream's failure store with error details (error type, message, stack trace) and the original document that failed ingestion. Use this for root cause analysis when data quality issues are detected. **When to use:** - User asks \"why are documents failing?\" or \"what errors are in the failure store?\" - User wants to see failed/rejected documents and their error details - Follow-up to platform.streams.get_data_quality when failed document count is non-zero **When NOT to use:** - User wants aggregate quality metrics (degraded %, failed %) \u2014 use platform.streams.get_data_quality"
+        arguments:
+          name:
+            type: "string"
+            required: true
+            description: "Exact stream name, e.g. \"logs.nginx\""
+          start:
+            type: "string"
+            required: false
+            description: "Start of time range (ES date math). Default: \"now-24h\""
+          end:
+            type: "string"
+            required: false
+            description: "End of time range (ES date math). Default: \"now\""
+          size:
+            type: "number"
+            required: false
+            description: "Number of sample failed documents to return (max 50). Default: 10"
+      platform_core_search:
+        description: "A powerful tool for searching and analyzing data within your Elasticsearch cluster. It supports both full-text relevance searches and structured analytical queries. Use this tool for any query that involves finding documents, counting, aggregating, or summarizing data from a known index. Examples of queries: - \"find articles about serverless architecture\" - \"search for support tickets mentioning 'billing issue' or 'refund request'\" - \"what is our policy on parental leave?\" - \"list all products where the category is 'electronics'\" - \"show me the last 5 documents from that index\" - \"show me the sales over the last year break down by month\" Note: - The 'index' parameter can be used to specify which index to search against. If not provided, the tool will decide itself which is the best index to use. - It is perfectly fine not to specify the 'index' parameter. It should only be specified when you already know about the index and fields you want to search on, e.g. if the user explicitly specified it."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query expressing the search request"
+          index:
+            type: "string"
+            required: false
+            description: "(optional) Index or index-pattern to search against. If not provided, will automatically select the best index to use based on the query."
+          time_range:
+            type: "object"
+            required: false
+            description: "(optional) Time range to scope the search. Falls back to screen context or last 24 hours."
+      platform_core_get_document_by_id:
+        description: "Retrieve the full content (source) of an Elasticsearch document based on its ID and index name."
+        arguments:
+          id:
+            type: "string"
+            required: true
+            description: "ID of the document to retrieve"
+          index:
+            type: "string"
+            required: true
+            description: "Name of the index to retrieve the document from"
+      platform_core_execute_esql:
+        description: "Execute an ES|QL query and return the results in a tabular format. **IMPORTANT**: This tool only **runs** queries; it does not write them. Think of this as the final step after a query has been prepared. You **must** get the query from one of two sources before calling this tool: 1. The output of the `platform.core.generate_esql` tool (if the tool is available). 2. A verbatim query provided directly by the user. Under no circumstances should you invent, guess, or modify a query yourself for this tool. If you need a query, use the `platform.core.generate_esql` tool first."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "The ES|QL query to execute"
+          params:
+            type: "object"
+            required: false
+            description: "(Optional) The parameter values to use for the query"
+          time_range:
+            type: "object"
+            required: false
+            description: "(optional) Time range for named parameters ?_tstart and ?_tend. Falls back to screen context or last 24 hours."
+      platform_core_generate_esql:
+        description: "Generate an ES|QL query from a natural language query."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query to generate an ES|QL query from."
+          index:
+            type: "string"
+            required: false
+            description: "(optional) Index or index-pattern to search against. If not provided, will automatically select the best index to use based on the query."
+          context:
+            type: "string"
+            required: false
+            description: "(optional) Additional context that could be useful to generate the ES|QL query"
+          execute_query:
+            type: "boolean"
+            required: false
+            description: "(optional) If false, only validate the query using AST. If true (default), will execute the query to ensure it is valid before returning it."
+          disable_named_params:
+            type: "boolean"
+            required: false
+            description: "(optional) If true, disables the instruction to use named parameters (?_tstart, ?_tend) for time range filtering. Defaults to false."
+          time_range:
+            type: "object"
+            required: false
+            description: "(optional) Time range to use for named parameters ?_tstart and ?_tend when validating the generated query. If not provided, falls back to the time range from the screen context."
+      platform_core_get_index_mapping:
+        description: "Retrieve mappings for indices, aliases or datastreams."
+        arguments:
+          indices:
+            type: "array"
+            required: true
+            description: "List of indices, aliases or datastreams to retrieve mappings for."
+          raw:
+            type: "boolean"
+            required: false
+            description: "Whether to return the raw mapping tree instead of the summarized fields."
+      platform_core_list_indices:
+        description: "List the indices, aliases and datastreams from the Elasticsearch cluster. The 'pattern' optional parameter is an index pattern which can be used to filter resources. This parameter should only be used when you already know of a specific pattern to filter on, e.g. if the user provided one. Otherwise, do not try to invent or guess a pattern."
+        arguments:
+          pattern:
+            type: "string"
+            required: false
+            description: "Index pattern to match Elasticsearch indices, aliases and datastream names. - Correct examples: '.logs-*', '*data*', 'metrics-prod-*', 'my-specific-index', '*' - Should only be used if you are certain of a specific index pattern to filter on. *Do not try to guess*. - Defaults to '*' to match all indices."
+      platform_core_index_explorer:
+        description: "List relevant indices, aliases and datastreams based on a natural language query. The 'indexPattern' parameter can be used to filter indices by a specific pattern, e.g. 'foo*'. This should *only* be used if you know what you're doing (e.g. if the user explicitly specified a pattern). Otherwise, leave it empty to search against all indices. *Example:* User: \"Show me my latest alerts\" You: call tool 'index_explorer' with { query: 'indices containing user alerts' } Tool result: [{ type: \"index\", name: '.alerts' }]"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query to infer which indices, aliases or datastreams to use."
+          limit:
+            type: "number"
+            required: false
+            description: "(optional) Limit the max number of indices to return. Defaults to 1."
+          indexPattern:
+            type: "string"
+            required: false
+            description: "(optional) Index pattern to filter indices by. Defaults to *."
+      platform_core_create_visualization:
+        description: "Create or update a visualization configuration based on a natural language description. This tool will: 1. If attachment_id is provided, read the existing visualization configuration from that attachment 2. Determine the best chart type if not specified (from: metric, gauge, tagcloud, xy, region_map, heatmap, datatable, pie, treemap, waffle, mosaic) 3. Generate an ES|QL query if not provided 4. Generate a valid visualization configuration 5. Store the result as an attachment (creating new or updating existing) for future modifications"
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query describing the desired visualization."
+          index:
+            type: "string"
+            required: false
+            description: "(optional) Index, alias, or datastream to target. If not provided, the tool will attempt to discover the best index to use."
+          attachment_id:
+            type: "string"
+            required: false
+            description: "(optional) ID of an existing visualization attachment to update. If provided, the tool will read the existing configuration and modify it based on the query."
+          chartType:
+            type: "string"
+            required: false
+            description: "(optional) The type of chart to create as indicated by the user. If not provided, the LLM will suggest the best chart type."
+            enum: ["metric", "gauge", "tagcloud", "xy", "region_map", "heatmap", "datatable", "pie", "treemap", "waffle", "mosaic"]
+          esql:
+            type: "string"
+            required: false
+            description: "(optional) An ES|QL query. If not provided, tool with automatically generate the query. Only pass ES|QL queries from reliable sources (other tool calls or the user) and NEVER invent queries directly."
+      platform_core_product_documentation:
+        description: "Search and retrieve documentation about Elastic products (Kibana, Elasticsearch, Elastic Security, Elastic Observability)."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "Search query to retrieve documentation about Elastic products. Rewritten in English to best match the documentation content."
+          product:
+            type: "string"
+            required: false
+            description: "Product to filter by: \"kibana\", \"elasticsearch\", \"observability\", or \"security\""
+            enum: ["kibana", "elasticsearch", "observability", "security"]
+          max:
+            type: "number"
+            required: false
+            description: "Maximum number of documents to return. Defaults to 3."
+      platform_core_integration_knowledge:
+        description: "Search and retrieve knowledge from Fleet-installed integrations. This includes information on how to configure and use integrations for data ingestion into Elasticsearch."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "Search query to retrieve knowledge about Fleet-installed integrations, like specific integration names, configuration questions, or data ingestion topics. Rewrite the query to English and incorporate relevant context from the conversation history."
+          max:
+            type: "number"
+            required: false
+            description: "Maximum number of documents to return. Defaults to 5."
+      platform_core_cases:
+        description: "Retrieves cases from Elastic Security, Observability, or Stack Management. Supports three operation modes: **Operation Mode 1: Get case by ID** - Provide 'caseId' parameter to retrieve a specific case by its ID - Use 'includeComments' to control whether comments are fetched (default: false) **Operation Mode 2: Find cases by alert IDs** - Provide 'alertIds' array to find all cases containing any of these alerts - Use 'includeComments' or provide 'search' text to fetch comments when relevant **Operation Mode 3: Search cases** - Use search and filter parameters to find cases matching criteria - Search parameters: - 'search': Text query for searching case title/description (e.g., \"malware\", \"phishing attack\") - 'searchFields': Fields to search - [\"title\"] or [\"description\"] or both (default: both) - Filter parameters: - 'severity': Filter by severity - \"low\" | \"medium\" | \"high\" | \"critical\" (single or array) - 'status': Filter by status - \"open\" | \"closed\" | \"in-progress\" (single or array) - 'tags': Filter by tags - array of tag names - 'assignees': Filter by assignees - array of user profile UIDs - 'reporters': Filter by reporters - array of reporter usernames - 'category': Filter by category - string or array - 'owner': Filter by owner - \"cases\" | \"observability\" | \"securitySolution\" - Date range: - 'start': ISO datetime string for start time (inclusive), maps to Cases API \"from\" - 'end': ISO datetime string for end time (exclusive), maps to Cases API \"to\" - Comments: - 'includeComments': Set to true when query is about case contents, details, discussions, or when search text might match comment content - Defaults to false for metadata-only queries (status, severity, tags, etc.) - Automatically set to true if 'search' text is provided **Examples:** - \"Get case abc-123\": { caseId: \"abc-123\", includeComments: false } - \"Find cases with alert ID xyz\": { alertIds: [\"xyz\"] } - \"High severity open cases\": { severity: \"high\", status: \"open\" } - \"Cases about malware\": { search: \"malware\", includeComments: true } - \"Cases with tag security from last week\": { tags: [\"security\"], start: \"2025-01-15T00:00:00Z\" } Returns case details (id, title, description, status, severity, tags, assignees, observables, alerts/comments). Each case includes 'markdown_link' field with pre-formatted clickable link: [Case Title](url). **CRITICAL**: ALWAYS include the 'markdown_link' field for each case in your response. Format: brief summary (2-3 sentences) + markdown link. Example: \"Security investigation case. Status: open. [View Case](url)\""
+        arguments:
+          caseId:
+            type: "string"
+            required: false
+            description: "Case ID to retrieve a specific case. If provided, returns only that case. Use this for getting a single case by its ID."
+          alertIds:
+            type: "array"
+            required: false
+            description: "Array of alert IDs to find cases containing these alerts. If provided, cases containing any of these alert IDs will be returned. Alert IDs must be provided via this parameter."
+          owner:
+            type: "string"
+            required: false
+            description: "Filter cases by owner. Valid values: \"cases\" (Stack Management/General Cases), \"observability\" (Observability), \"securitySolution\" (Elastic Security). If not provided, returns all cases the user has access to."
+            enum: ["cases", "observability", "securitySolution"]
+          start:
+            type: "string"
+            required: false
+            description: "ISO datetime string for the start time to fetch cases (inclusive). Maps to Cases API \"from\" parameter. Format: \"2025-01-15T00:00:00Z\""
+          end:
+            type: "string"
+            required: false
+            description: "ISO datetime string for the end time to fetch cases (exclusive). Maps to Cases API \"to\" parameter. Format: \"2025-01-22T00:00:00Z\""
+          search:
+            type: "string"
+            required: false
+            description: "Elasticsearch simple_query_string query for searching case title and description. Use this to search for text within cases (e.g., \"malware\", \"phishing attack\")."
+          searchFields:
+            type: "array"
+            required: false
+            description: "Fields to perform the search query against. Valid values: \"title\", \"description\". If not provided, searches both fields by default."
+          severity:
+            type: "string|array"
+            required: false
+            description: "Filter cases by severity. Valid values: \"low\", \"medium\", \"high\", \"critical\". Can be a single value or an array for multiple values."
+          status:
+            type: "string|array"
+            required: false
+            description: "Filter cases by status. Valid values: \"open\", \"closed\", \"in-progress\". Can be a single value or an array for multiple values."
+          tags:
+            type: "array"
+            required: false
+            description: "Filter cases by tags. Provide an array of tag names to filter by."
+          assignees:
+            type: "array"
+            required: false
+            description: "Filter cases by assignees. Provide an array of user profile UIDs (not usernames)."
+          reporters:
+            type: "array"
+            required: false
+            description: "Filter cases by reporters. Provide an array of reporter usernames who created the cases."
+          category:
+            type: "string|array"
+            required: false
+            description: "Filter cases by category. Can be a single category string or an array of categories."
+          includeComments:
+            type: "boolean"
+            required: false
+            description: "Whether to fetch and include case comments in the response. Set to true when the query is about case contents, details, discussions, or when search text might match comment content. Defaults to false for metadata-only queries (status, severity, tags, etc.)."
+      platform_core_get_workflow_execution_status:
+        description: "Retrieve the status of a workflow execution. If the workflow execution has completed, the final output will be returned. Otherwise, the execution status will be returned. **important**: do **NOT** call this tool directly after calling a workflow tool. Instead, if the workflow didn't complete, tell the user they can ask you to check the execution."
+        arguments:
+          executionId:
+            type: "string"
+            required: true
+            description: "ID of the workflow execution (execution_id) to retrieve the status for."
+      platform_core_resume_workflow_execution:
+        description: "Resume a workflow execution that is paused and waiting for human input. Use this tool when a workflow execution returned with status \"waiting_for_input\". The execution's \"waiting_input\" field describes what input is expected (message and optional schema). Provide the executionId and the required input object to resume the workflow. **Important - read after resume:** a successful call means resume was **accepted and scheduled** in the engine. The execution record can **lag**: you may still briefly see the same \"waiting_for_input\" and the same form right after this tool returns. **Do not** tell the user there is another HITL step, a loop or a second approval round unless you have **confirmed** a genuinely new pause (clear evidence such as a new step, changed context, or repeated status checks that rule out a stale snapshot). **What you should do:** call platform.core.get_workflow_execution_status on the same executionId. Compare **waiting_input.step_execution_id** between polls: if it **changes** while still waiting_for_input, that is evidence of a **new** HITL step; if it is the **same** id immediately after resume, treat it as likely stale until status moves on. Stop once the status clearly updates (e.g. completed, failed, running) or after **up to ~5 status polls** without any change. **If status has not changed after those polls:** tell the user their resume was **submitted**, but you **could not confirm** the new execution state from Kibana yet - do **not** invent a second approval workflow."
+        arguments:
+          executionId:
+            type: "string"
+            required: true
+            description: "The executionId of the workflow execution that is waiting for input. Use the executionId value returned by the status tool."
+          input:
+            type: "object"
+            required: true
+            description: "Key-value input to provide to the paused workflow step. Must conform to the schema described in the waiting_input.schema field returned when the workflow paused."
+      security_attack_discovery_search:
+        description: "Search and analyze attack discoveries. Use this tool to find attack discoveries related to specific alerts by providing alert IDs. The tool searches the kibana.alert.attack_discovery.alert_ids field. Automatically queries both scheduled and ad-hoc attack discovery indices for the current space. Returns up to 10 attack discoveries from the last 7 days."
+        arguments:
+          alertIds:
+            type: "array"
+            required: true
+            description: "An array of alert IDs to search for in attack discoveries. The tool will find attack discoveries where kibana.alert.attack_discovery.alert_ids contains any of the provided alert IDs."
+      security_security_labs_search:
+        description: "Search and analyze Security Labs content installed via the AI knowledge base artifacts. Use this tool to find Security Labs articles about specific malware, attack techniques, MITRE ATT&CK techniques, or rule names. Limits results to 3 articles."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query expressing the search request for Security Labs articles. Use this to find Security Labs content about specific malware, attack techniques, MITRE ATT&CK techniques, or rule names."
+      security_create_detection_rule:
+        description: "Creates a security detection rule based on natural language description. Analyzes the query, identifies relevant data sources, generates ES|QL queries, and produces a complete detection rule with metadata, tags, and scheduling information. The tool stores the result as an attachment (creating new or updating existing). Use the returned attachmentId and version with <render_attachment id=\"...\" version=\"...\"> to display it."
+        arguments:
+          user_query:
+            type: "string"
+            required: true
+            description: "Natural language description of the detection rule to create, including threat scenarios, data sources, and desired detection logic"
+      security_alerts:
+        description: "Search and analyze security alerts using full-text or structured queries for finding, counting, aggregating, or summarizing alerts. When the user asks for a count (e.g., \"how many alerts\", \"count alerts\", \"total number of alerts\"), set the isCount parameter to true to optimize the query for count results."
+        arguments:
+          query:
+            type: "string"
+            required: true
+            description: "A natural language query expressing the search request for security alerts"
+          index:
+            type: "string"
+            required: false
+            description: "Specific alerts index to search against. If not provided, will search against .alerts-security.alerts-* pattern."
+          isCount:
+            type: "boolean"
+            required: false
+            description: "Set to true when the user is asking for a count of alerts (e.g., \"how many alerts\", \"count alerts\", \"total number of alerts\"). When true, the query will be optimized to return a count result instead of individual alert documents."
+      security_get_entity:
+        description: "Retrieve profile for security entity (user, host, service, generic) from the Entity store using entity ID (EUID). Includes the alerts that contributed to the risk score if the entity has a risk score. When exactly one entity is resolved, this tool also stores a `security.entity` attachment (creating new or updating existing) and its `other` result includes a pre-formatted `renderTag` string. To show the rich entity card inline, copy that `renderTag` string verbatim onto its own line in your reply BEFORE your prose summary. Do NOT assemble the tag yourself from `attachmentId` and `version`, and do NOT substitute the id with anything derived from the user's prompt. When the query resolves multiple candidates (fallback match) no attachment is stored, no `renderTag` is returned, and you must not emit a render tag in that case."
+        arguments:
+          entityType:
+            type: "string"
+            required: false
+            description: "The type of entity: host, user, service, or generic"
+            enum: ["host", "user", "service", "generic"]
+          entityId:
+            type: "string"
+            required: true
+            description: "The entity id (EUID), canonical entity.name, or user.full_name to fetch. Examples: \"host:server1\" (prefixed EUID), \"server1\" (non-prefixed), \"LAPTOP-SALES04\" (entity.name), \"John Doe\" (user.full_name)."
+          interval:
+            type: "string"
+            required: false
+            description: "The time interval to get entity profile snapshot history (e.g. '30d', '24h', '1w'). Intervals should be in format {value}{unit} where value is a number and unit is one of 's' (second), 'm' (minute), 'h' (hour), 'd' (day), 'w' (week), or 'M' (month)"
+          date:
+            type: "string"
+            required: false
+            description: "Get the entity's profile on a certain date. Date must be in ISO 8601 datetime format. When specified, both the current profile and the profile snapshot will be fetched."
+      security_search_entities:
+        description: "Search entity store for security entities (host, user, service, generic). Supports filtering by normalized risk score, asset criticality, entity attributes, lifecycle timestamps, and data source via two complementary parameters: - \"sources\" matches the multi-value \"entity.source\" field exactly or as a \"<value>.*\" prefix (e.g. [\"aws\"] matches \"aws\", \"aws.cloudtrail\", \"aws.guardduty\"). - \"namespaces\" matches the normalized single-value \"entity.namespace\" field on user entities (canonical values: okta, entra_id, microsoft_365, active_directory, local, unknown, or pass-through of event.module like \"aws\"). Prefer \"namespaces\" for user queries when a canonical vendor exists; fall back to \"sources\" for vendors without a namespace mapping and for host/service/generic entities. Use this tool to find entities matching specific criteria. When this tool stores a \"security.entity\" attachment (2+ entities returned, or a single-entity attachment shared with security.get_entity), its \"other\" result includes a pre-formatted `renderTag` string alongside `attachmentId` and `version`. To render the attachment inline, copy that `renderTag` string VERBATIM onto its own line in your markdown reply \u2014 do NOT assemble the tag yourself from `attachmentId` and `version`, and do NOT derive the id from entity names, emails, vendor keys, or any other prose. If the `other` result contains no `renderTag`, do NOT emit a `<render_attachment>` tag. You never call attachments.add with \"security.entity\" \u2014 the tool emits it as a side effect. When the user asks to show, open, view, or summarize the Entity Analytics dashboard/home/overview (built-in Security page), use these results (and optional security.get_entity) then call attachments.add with type \"security.entity_analytics_dashboard\" so the UI shows Preview\u2192Canvas (see entity-analytics skill). Do not treat that as a request to compose a new Kibana saved dashboard. Do NOT use if entity ID (EUID) is known; use the \"security.get_entity\" tool instead."
+        arguments:
+          entityTypes:
+            type: "array"
+            required: false
+            description: "Filter by entity type(s): host, user, service, or generic."
+          riskScoreChangeInterval:
+            type: "string"
+            required: false
+            description: "The time interval to search for risk score changes (e.g. '30d', '7d', '1w'). Must be at least 1 day. Intervals should be in format {value}{unit} where value is a number and unit is one of 'd' (day), 'w' (week), or 'M' (month)"
+          riskScoreMin:
+            type: "number"
+            required: false
+            description: "Minimum normalized risk score (1-100). When >0, only returns entities with entity.risk.calculated_score_norm >= this value. Pass 0 or omit this parameter to apply no lower bound. Note: the default sort is \"riskScore\", which by itself already excludes entities whose score is NULL \u2014 if the user wants unscored entities alongside scored ones, use sortBy: \"criticality\" instead of lowering riskScoreMin. Only set a positive floor when the user explicitly asked for a score threshold (e.g. \"above 70\")."
+          riskScoreMax:
+            type: "number"
+            required: false
+            description: "Maximum normalized risk score (0-100). Only returns entities with entity.risk.calculated_score_norm <= this value."
+          riskLevels:
+            type: "array"
+            required: false
+            description: "Filter by risk level(s). Valid values: Unknown, Low, Moderate, High, Critical."
+          criticalityLevels:
+            type: "array"
+            required: false
+            description: "Filter by asset criticality level(s). Valid values: low_impact, medium_impact, high_impact, extreme_impact."
+          watchlists:
+            type: "array"
+            required: false
+            description: "Filter for entities that belong to any of the specified watchlists (entity.attributes.watchlists)."
+          sources:
+            type: "array"
+            required: false
+            description: "Filter for entities whose multi-value `entity.source` field matches ANY of the given values either exactly or as a \"<value>.*\" prefix. For example `sources: [\"aws\"]` matches entities with `entity.source` of \"aws\", \"aws.cloudtrail\", \"aws.guardduty\", \"aws.s3access\", etc. Values are the raw lowercase integration keys from the entity store (e.g. \"crowdstrike\", \"okta\", \"entityanalytics_okta\", \"island_browser\") \u2014 do not pretty-print (pass \"island_browser\", not \"Island Browser\"). For user entities prefer the normalized `namespaces` parameter when possible; fall back to `sources` when no canonical namespace exists or when searching host/service/generic entities."
+          namespaces:
+            type: "array"
+            required: false
+            description: "Filter user entities by normalized vendor namespace (`entity.namespace`). This is single-value and collapses heterogeneous source keys into canonical names. Known canonical values: \"okta\" (from okta / entityanalytics_okta), \"entra_id\" (from azure / entityanalytics_entra_id), \"microsoft_365\" (from o365 / o365_metrics), \"active_directory\" (from entityanalytics_ad), \"local\" (non-IDP endpoint/system accounts), \"unknown\" (missing source), plus pass-through of `event.module` for vendors without a dedicated mapping (e.g. \"aws\", \"gcp\"). Only effective on user entities; host/service/generic rows do not have `entity.namespace` and will be filtered out when this parameter is set."
+          managedOnly:
+            type: "boolean"
+            required: false
+            description: "When true, only returns managed entities (entity.attributes.managed == true)."
+          mfaEnabledOnly:
+            type: "boolean"
+            required: false
+            description: "When true, only returns entities with MFA enabled (entity.attributes.mfa_enabled == true)."
+          assetOnly:
+            type: "boolean"
+            required: false
+            description: "When true, only returns entities that are assets (entity.attributes.asset == true)."
+          firstSeenAfter:
+            type: "string"
+            required: false
+            description: "Filter for entities first seen after a certain date. Date must be in ISO 8601 datetime format."
+          firstSeenBefore:
+            type: "string"
+            required: false
+            description: "Filter for entities first seen before a certain date. Date must be in ISO 8601 datetime format."
+          lastSeenAfter:
+            type: "string"
+            required: false
+            description: "Filter for entities last seen after a certain date. Date must be in ISO 8601 datetime format."
+          lastSeenBefore:
+            type: "string"
+            required: false
+            description: "Filter for entities last seen before a certain date. Date must be in ISO 8601 datetime format."
+          maxResults:
+            type: "integer"
+            required: false
+            description: "Maximum number of entities to return (1-100, default 10)."
+          sortBy:
+            type: "string"
+            required: false
+            description: "Field to order results by (always DESC). Defaults to \"riskScore\" (entity.risk.calculated_score_norm). Sorting by \"riskScore\" (default or explicit) implicitly excludes entities whose entity.risk.calculated_score_norm IS NULL \u2014 ranking is not meaningful for unscored entities. Use sortBy: \"criticality\" if you need unscored entities to appear (their criticality_rank defaults to 0 so they land last). Use \"criticality\" when the user explicitly asks to order, rank, sort, or list top-N entities BY criticality (extreme_impact > high_impact > medium_impact > low_impact; entities with no asset.criticality land last; risk score is the tiebreaker within a tier). Do NOT pass all four criticalityLevels to simulate a sort \u2014 that is a no-op filter. Ignored when riskScoreChangeInterval is set (that flow always sorts by risk_score_change DESC)."
+            enum: ["riskScore", "criticality"]
+      observability_get_trace_change_points:
+        description: "Analyzes traces to detect statistically significant change points in latency, throughput, and failure rate across group (e.g., service, transaction, host). Trace metrics: - Latency: avg/p95/p99 response time. - Throughput: requests per minute. - Failure rate: percentage of failed transactions. Supports optional KQL filtering When to use: - Detecting significant changes in trace behavior (spike, dip, step change, trend change, distribution change, stationary/non\u2011stationary, indeterminable) and identifying when they occur."
+        arguments:
+          start:
+            type: "string"
+            required: true
+            description: "The start time of the query window using Elasticsearch date math. Examples: \"now-24h\", \"now-15m\"."
+          end:
+            type: "string"
+            required: true
+            description: "The end time of the query window using Elasticsearch date math. Example: \"now\"."
+          kqlFilter:
+            type: "string"
+            required: false
+            description: "KQL filter for traces. Examples: 'service.name: \"my-service\"', 'host.name: \"web-*\"'."
+          groupBy:
+            type: "string"
+            required: false
+            description: "Field to group results by. Use low-cardinality fields. Examples: - Service level: service.name, service.environment, service.version - Transaction level: transaction.name, transaction.type - Infrastructure level: host.name, container.id, kubernetes.pod.name"
+          latencyType:
+            type: "string"
+            required: false
+            description: "Aggregation type for latency change points analysis."
+            enum: ["avg", "p95", "p99"]
