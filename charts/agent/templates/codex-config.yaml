@@ -17,7 +17,7 @@ data:
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"
     # Placeholder: agentgateway injects the real upstream key; the client only
     # needs a non-empty value, and the egress proxy scrubs it in transit.
-    experimental_bearer_token = "unused"
+    experimental_bearer_token = "none"
     wire_api = "responses"
     [mcp_servers.mnemosyne]
     command = "/opt/hermes/.venv/bin/mnemosyne"

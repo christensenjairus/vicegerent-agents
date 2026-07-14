@@ -363,12 +363,14 @@ spec:
             - name: GIT_SSH_COMMAND
               value: ssh -i /opt/hermes-ssh/hermes_agent_ed25519 -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
-            # agentgateway injects the real upstream provider key; these clients only
-            # need a non-empty value, and the egress proxy scrubs it in transit.
+            # agentgateway injects the real upstream key; egress proxy scrubs it in
+            # transit. Must be "none" — Hermes's has_usable_secret() placeholder
+            # allowlist, not "unused" — else canonical anthropic/openai-api falsely
+            # register as user-configured and leak into the desktop model picker.
             - name: ANTHROPIC_API_KEY
-              value: unused
+              value: none
             - name: OPENAI_API_KEY
-              value: unused
+              value: none
             # TODO: haiku is overkill for mnemosyne consolidation; replace with a cheap OpenAI model once org tokens are available.
             - name: MNEMOSYNE_LLM_ENABLED
               value: 'true'
