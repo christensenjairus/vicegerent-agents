@@ -29,12 +29,12 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/faster-whisper/models--Systran--faster-whisper-base
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2026.7.1@sha256:b6c019227889e6675424a2b6223b2cafdd36bf7d1048d1ddd8e043b880d6cc0f
+FROM nousresearch/hermes-agent:v2026.7.2.2@sha256:9c841866021c54c4596849f6135717e8a4d52ba510b7f52c50aef1de1a283973
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
-      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.1"
+      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.2.2"
 
 # requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
 # ENV covers non-login shells (exec sessions); /etc/profile.d re-prepends it since Debian's /etc/profile
@@ -477,18 +477,6 @@ RUN rm -f /tmp/0016-credential-pool-anthropic-base-url.py
 COPY patches/0020-anthropic-gateway-placeholder-credential.py /tmp/0020-anthropic-gateway-placeholder-credential.py
 RUN /opt/hermes/.venv/bin/python /tmp/0020-anthropic-gateway-placeholder-credential.py
 RUN rm -f /tmp/0020-anthropic-gateway-placeholder-credential.py
-
-# Patch tools/mcp_tool.py so a parked MCP server (reconnect budget exhausted)
-# keeps retrying forever on a fixed cadence (default 30s, floored at 10s,
-# configurable per server via mcp_servers.<name>.parked_retry_interval)
-# instead of blocking indefinitely for an external nudge (a tool call, OAuth
-# recovery, or a manual /mcp refresh). Without this, an MCP backend outage
-# longer than the ~2min initial reconnect budget requires restarting Hermes
-# to reconnect even after the backend comes back on its own. Remove once
-# upstream Hermes adds a periodic parked-retry timeout of its own.
-COPY patches/0017-mcp-parked-auto-retry.py /tmp/0017-mcp-parked-auto-retry.py
-RUN /opt/hermes/.venv/bin/python /tmp/0017-mcp-parked-auto-retry.py
-RUN rm -f /tmp/0017-mcp-parked-auto-retry.py
 
 # Patch tools/registry.py so _check_fn_cached() logs the actual exception +
 # traceback when a tool's check_fn raises, instead of only ever logging the
