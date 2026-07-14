@@ -490,6 +490,23 @@ COPY patches/0018-check-fn-exception-traceback.py /tmp/0018-check-fn-exception-t
 RUN /opt/hermes/.venv/bin/python /tmp/0018-check-fn-exception-traceback.py
 RUN rm -f /tmp/0018-check-fn-exception-traceback.py
 
+# Lower tools/mcp_tool.py's parked-MCP-server self-probe cadence from
+# upstream's default 300s to 60s. Upstream now natively self-heals a parked
+# server (reconnect budget exhausted, tools deregistered) on a periodic
+# probe -- this repo's old patch 0017 hand-added the same behavior and was
+# removed on upgrade to v2026.7.2.2 since upstream's own fix made it dead
+# code (its anchor no longer matches the refactored function at all). But
+# upstream's constant is a hardcoded 300s with no per-server config knob
+# (0017's version was configurable, default 30s). This deployment has
+# exactly one MCP server (vmcp, ToolHive's aggregator -- see 0009's patch
+# docstring), so a flat 60s self-probe interval is a reasonable middle
+# ground: fast enough that a vMCP flap self-heals within a minute, slow
+# enough not to busy-loop a genuinely-down backend. Remove once upstream
+# exposes mcp_servers.<name>.parked_retry_interval as a config option.
+COPY patches/0022-mcp-parked-retry-interval-60s.py /tmp/0022-mcp-parked-retry-interval-60s.py
+RUN /opt/hermes/.venv/bin/python /tmp/0022-mcp-parked-retry-interval-60s.py
+RUN rm -f /tmp/0022-mcp-parked-retry-interval-60s.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
