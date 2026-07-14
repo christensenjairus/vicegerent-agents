@@ -11,7 +11,7 @@ data:
     {
       "env": {
         "ANTHROPIC_BASE_URL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic",
-        "ANTHROPIC_AUTH_TOKEN": "unused",
+        "ANTHROPIC_AUTH_TOKEN": "none",
         "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1"
       },
       "model": "claude-opus-4-8",
