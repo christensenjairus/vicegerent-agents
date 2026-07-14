@@ -453,16 +453,25 @@ COPY patches/0016-credential-pool-anthropic-base-url.py /tmp/0016-credential-poo
 RUN /opt/hermes/.venv/bin/python /tmp/0016-credential-pool-anthropic-base-url.py
 RUN rm -f /tmp/0016-credential-pool-anthropic-base-url.py
 
-# Patch hermes_cli/runtime_provider.py's native-Anthropic branch so a
-# gateway-routed placeholder token (this platform's ANTHROPIC_API_KEY="none",  # pragma: allowlist secret
-# needed to keep the canonical anthropic/openai-api providers from falsely
-# appearing "configured" per the HAH-112 fix) doesn't make the desktop's
+# Patch hermes_cli/runtime_provider.py's native-Anthropic resolution (both
+# the pool-entry path AND the fallback branch) so a gateway-routed
+# placeholder token (this platform's ANTHROPIC_API_KEY="none", needed to  # pragma: allowlist secret
+# keep the canonical anthropic/openai-api providers from falsely appearing
+# "configured" per the HAH-112 fix) doesn't make the desktop's
 # setup.runtime_check RPC report "No usable credentials found for anthropic"
 # even though real requests work fine (agentgateway supplies the actual key
-# downstream). Normalizes such tokens to the existing "no-key-required"
-# sentinel setup.runtime_check already allowlists. Depends on 0014 (needs
-# cfg_base_url / _anthropic_base_url_override_ok already in place). Remove
-# once upstream either does this normalization itself or teaches
+# downstream). The pool-entry path is the one actually exercised on this
+# platform (agent/credential_pool.py's _seed_from_env() unconditionally
+# seeds ANTHROPIC_API_KEY into the persisted pool -- "none" is truthy, no
+# placeholder check -- so resolve_runtime_provider() always takes that path
+# here); the fallback branch is patched too for deployments where the pool
+# has no usable "anthropic" entry. Normalizes such tokens to the existing
+# "no-key-required" sentinel setup.runtime_check already allowlists.
+# Verified live: without this patch, resolve_runtime_provider() returns
+# api_key="none" (not "no-key-required"), reproducing the exact false  # pragma: allowlist secret
+# warning. Depends on 0014 (needs cfg_base_url / _anthropic_base_url_override_ok
+# / _resolve_anthropic_base_url_override already in place). Remove once
+# upstream either does this normalization itself or teaches
 # setup.runtime_check that a trusted gateway override doesn't need a
 # locally-usable secret.
 COPY patches/0020-anthropic-gateway-placeholder-credential.py /tmp/0020-anthropic-gateway-placeholder-credential.py
