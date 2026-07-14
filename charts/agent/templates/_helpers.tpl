@@ -87,7 +87,10 @@ Pick the model that fits the task: heavier reasoning for complex/design work, li
 {{- end }}
 
 # Expectations
-- Use a fresh, updated git worktree for every session, regardless of the repo.
+- Workspace layout: one full clone per repo under /workspace/<repo-name> (git blame/log -p work inline).
+- Dedicated branch work goes in /workspace/worktrees/<name> via `git worktree add` off that clone —
+  never a second full clone. Sparse-checkout it (`git sparse-checkout set <paths>`) when the branch
+  only touches part of a large monorepo.
 - Be thorough in your debugging. Find a smoking gun before suggesting a fix.
 - Never guess or assume, always back up statements with data.
 - You are designed to be AUTONOMOUS. Run issues to completion or until you get stuck.
