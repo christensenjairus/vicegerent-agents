@@ -89,9 +89,11 @@ THV = os.environ.get("THV", "thv")
 # Kubeconfig mount path inside the containerized kubernetes MCP server.
 KUBECONFIG_CONTAINER_PATH = "/kubeconfig/config"
 
-# AWS: the aws-api-mcp-server image's HOME is /app, and botocore derives the SSO
-# token-cache path (~/.aws/sso/cache) from HOME with no env override — so the
-# host ~/.aws is mounted at /app/.aws and HOME pinned to /app (see apply:aws_config).
+# AWS: botocore derives the SSO token-cache path (~/.aws/sso/cache) from HOME
+# with no env override, so any container that needs the operator's ~/.aws
+# (the aws-api-mcp-server backend, and kubernetes-mcp-server for exec-plugin
+# auth against a real EKS cluster) gets it mounted at /app/.aws with HOME
+# pinned to /app (see apply:aws_config).
 AWS_HOME_CONTAINER_PATH = "/app"
 AWS_DIR_CONTAINER_PATH = "/app/.aws"
 
@@ -633,6 +635,14 @@ def build_thv_run_argv(
             aws_workdir = runtime_dir / "aws-workdir"
             aws_workdir.mkdir(parents=True, exist_ok=True)
             argv += ["-v", f"{aws_workdir}:{AWS_DIR_CONTAINER_PATH}/aws-api-mcp"]
+            # The AWS CLI needs to write refreshed STS credentials to ~/.aws/cli/cache
+            # for profiles that assume a role -- without a writable overlay there, a
+            # cache miss/expiry hard-fails with "Read-only file system" (a cache hit
+            # succeeds silently, which is why this is easy to miss testing by hand).
+            # Shared across every apply:aws_config consumer, same as aws-workdir above.
+            aws_cli_cache = runtime_dir / "aws-cli-cache"
+            aws_cli_cache.mkdir(parents=True, exist_ok=True)
+            argv += ["-v", f"{aws_cli_cache}:{AWS_DIR_CONTAINER_PATH}/cli/cache"]
             argv += ["-e", f"HOME={AWS_HOME_CONTAINER_PATH}"]
         elif apply == "remote_header":
             # Inject a static auth header into a `remote` server by NAME reference
