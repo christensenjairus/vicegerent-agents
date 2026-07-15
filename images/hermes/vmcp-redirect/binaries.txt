@@ -1,0 +1,13 @@
+# CLI names to shadow with the vMCP-redirect stub.
+# One name per line; trailing "# comment" notes which host/mcp/toolhive-servers.json
+# backend it corresponds to. Blank lines and full-line comments are ignored.
+#
+# ADD A LINE HERE whenever a new MCP backend is added to toolhive-servers.json
+# that has an obvious equivalent CLI an agent might reach for instead.
+kubectl  # kubernetes backend
+gh       # github backend
+glab     # gitlab backend
+aws      # aws backend
+amtool   # alertmanager / alertmanager_gov backend
+pd       # pagerduty / pagerduty_gov backend
+jira     # jira backend
