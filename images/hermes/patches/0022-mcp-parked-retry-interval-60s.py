@@ -11,7 +11,7 @@ call can ever reach the circuit-breaker half-open probe or
 _signal_reconnect once tools are deregistered, so a downed server with
 no active tool traffic stayed dead for the rest of the process's life.
 
-Upstream shipped the same fix natively as of v2026.7.2.2 (tracked as
+Upstream shipped the same fix natively as of v2026.7.7.2 (tracked as
 issue #57129 in tools/mcp_tool.py's own comments): a module-level
 _PARKED_RETRY_INTERVAL constant and a timeout= parameter on
 _wait_for_reconnect_or_shutdown() that self-triggers a reconnect

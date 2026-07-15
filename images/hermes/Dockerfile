@@ -29,12 +29,12 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/faster-whisper/models--Systran--faster-whisper-base
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2026.7.2.2@sha256:9c841866021c54c4596849f6135717e8a4d52ba510b7f52c50aef1de1a283973
+FROM nousresearch/hermes-agent:v2026.7.7.2@sha256:9c841866021c54c4596849f6135717e8a4d52ba510b7f52c50aef1de1a283973
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
-      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.2.2"
+      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.7.2"
 
 # requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
 # ENV covers non-login shells (exec sessions); /etc/profile.d re-prepends it since Debian's /etc/profile
@@ -494,7 +494,7 @@ RUN rm -f /tmp/0018-check-fn-exception-traceback.py
 # upstream's default 300s to 60s. Upstream now natively self-heals a parked
 # server (reconnect budget exhausted, tools deregistered) on a periodic
 # probe -- this repo's old patch 0017 hand-added the same behavior and was
-# removed on upgrade to v2026.7.2.2 since upstream's own fix made it dead
+# removed on upgrade to v2026.7.7.2 since upstream's own fix made it dead
 # code (its anchor no longer matches the refactored function at all). But
 # upstream's constant is a hardcoded 300s with no per-server config knob
 # (0017's version was configurable, default 30s). This deployment has
