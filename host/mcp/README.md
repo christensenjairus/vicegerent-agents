@@ -47,7 +47,7 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 | `alertmanager` | npx `mcp-alertmanager` | `url` param (`--url`), no secret |
 | `pagerduty` | registry `io.github.stacklok/pagerduty` (container) | `pagerduty_user_api_key` secret |
 | `elastic` | remote transport to Kibana Agent Builder (URL param) | `elastic_kibana_url` + `elastic_api_key` secrets |
-| `aws` | registry `public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server` (container, read-only) | read-only `~/.aws` mount (SSO), multi-profile |
+| `aws` | custom `harbor.hahomelabs.com/vicegerent/aws-api-mcp-server` (non-blocking patch of upstream awslabs image, read-only) | read-only `~/.aws` mount (SSO), multi-profile |
 | `aws_profiles` | custom `harbor.hahomelabs.com/vicegerent/aws-profiles-mcp` (hidden companion of `aws`) | read-only `~/.aws` mount |
 
 Tool scoping uses the vMCP's native `aggregation.tools` primitive: a server
