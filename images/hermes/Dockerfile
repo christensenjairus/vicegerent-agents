@@ -163,6 +163,23 @@ RUN case "${TARGETARCH}" in \
     && rm /tmp/tirith.tar.gz \
     && tirith --version
 
+# cluster/cloud CLIs belong in MCP servers, not the sandbox image: shadow
+# their conventional binary names with a stub that redirects an agent to the
+# vMCP server instead of a bare "command not found". binaries.txt is the
+# single list to extend when a new toolhive-servers.json backend gets an
+# obvious CLI equivalent.
+COPY vmcp-redirect/stub.sh /usr/local/bin/vmcp-redirect-stub
+RUN chmod +x /usr/local/bin/vmcp-redirect-stub
+COPY vmcp-redirect/binaries.txt /tmp/vmcp-redirect-binaries.txt
+RUN while IFS= read -r name; do \
+        name="${name%%#*}"; \
+        name="$(echo "$name" | xargs)"; \
+        [ -z "$name" ] && continue; \
+        ln -sf /usr/local/bin/vmcp-redirect-stub "/usr/local/bin/${name}"; \
+    done < /tmp/vmcp-redirect-binaries.txt \
+    && rm /tmp/vmcp-redirect-binaries.txt \
+    && kubectl 2>&1 | grep -q "use the vMCP server instead"
+
 # Bake jq/yq only; cluster/cloud CLIs belong in MCP servers, not the sandbox image.
 # renovate: datasource=github-releases depName=jqlang/jq
 ARG JQ_VERSION=1.8.2
