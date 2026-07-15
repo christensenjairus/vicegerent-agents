@@ -507,6 +507,17 @@ COPY patches/0022-mcp-parked-retry-interval-60s.py /tmp/0022-mcp-parked-retry-in
 RUN /opt/hermes/.venv/bin/python /tmp/0022-mcp-parked-retry-interval-60s.py
 RUN rm -f /tmp/0022-mcp-parked-retry-interval-60s.py
 
+# Raise tools/mcp_tool.py's MCP circuit-breaker strike threshold from
+# upstream's 3 to 15 consecutive real transport/auth failures before a
+# backend is parked for the 60s cooldown. With 0009 already excluding
+# business/isError responses and scoping the breaker per vMCP backend, 3
+# genuine blips is too twitchy for the single host-vMCP-over-mTLS path;
+# 15 keeps the #10447 anti-burn-loop protection while tolerating transient
+# flakiness. Remove once upstream exposes the threshold as a config option.
+COPY patches/0023-mcp-circuit-breaker-threshold-15.py /tmp/0023-mcp-circuit-breaker-threshold-15.py
+RUN /opt/hermes/.venv/bin/python /tmp/0023-mcp-circuit-breaker-threshold-15.py
+RUN rm -f /tmp/0023-mcp-circuit-breaker-threshold-15.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
