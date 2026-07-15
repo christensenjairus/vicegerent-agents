@@ -1,0 +1,117 @@
+---
+# aws policy: through the aws-api-mcp-server call_aws tool, deny (1) operations
+# that MINT credentials / tokens / access (privilege escalation) and (2) direct
+# secret-VALUE reads. The shim's awsSecretReadAttr helper (mapping.yaml) parses
+# each call_aws command (str or batch list) into a lowercased awsOps
+# ["<service>/<operation>", ...] list; both rules match against it. The op sets
+# are fixed AWS facts, hardcoded here (no cluster-var).
+#
+# WHY THIS IS REQUIRED (verified live, 2026): READ_OPERATIONS_ONLY only blocks
+# operations AWS classifies IsWrite=true. It does NOT stop credential/secret
+# reads — and the aws-api-mcp-server's own custom-readonly list even FORCE-ALLOWS
+# several credential minters (eks get-token, ecr get-login-password,
+# rds generate-db-auth-token, s3 presign, codeartifact/codecommit creds, ...).
+# Confirmed by probing the live backend: `aws eks get-token` returned a real
+# Kubernetes ExecCredential bearer token. So a "read-only" AWS path is, without
+# this rule, a working path to a kubeconfig-equivalent token, assumed-role
+# credentials, registry/DB auth tokens, and Secrets Manager / SSM SecureString
+# values. This guardrail is enforced regardless of how the gate classifies an op
+# (defense-in-depth: even the ops the gate already blocks are denied here, so a
+# reclassification or gate regression can't reopen the hole).
+#
+# Residual gaps (documented, not closed here): the AIRTIGHT complement is the
+# AWS profile/permission-set's own IAM — deny secretsmanager:GetSecretValue,
+# ssm:GetParameter* on SecureString, ecr:GetAuthorizationToken, eks:* token
+# paths, sts:AssumeRole*, kms:Decrypt, etc. The IsWrite=false universe is huge
+# and enumerated at runtime from a live AWS document, so a token denylist can't
+# cover the long tail (any future get-*-token / get-*-credentials, or a
+# describe-* that returns embedded env vars / user-data / connection strings —
+# e.g. lambda get-function, cloudformation get-template, ecs
+# describe-task-definition, ec2 describe-instance-attribute --attribute userData).
+# A wildcard/bulk enumeration (e.g. ssm get-parameters-by-path --recursive) also
+# dodges any resource-name filter. IAM least-privilege is the backstop; this is
+# the request-time layer.
+apiVersion: api.cerbos.dev/v1
+resourcePolicy:
+  version: default
+  resource: aws_command
+  rules:
+    - name: deny-credential-and-access-minting
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.awsOps)
+            && request.resource.attr.awsOps.exists(o, o in [
+            "sts/assume-role", "sts/assume-role-with-saml",
+            "sts/assume-role-with-web-identity", "sts/get-session-token",
+            "sts/get-federation-token", "sts/assume-root",
+            "iam/create-access-key",
+            "sso/get-role-credentials",
+            "sso-oidc/create-token", "sso-oidc/create-token-with-iam",
+            "cognito-identity/get-credentials-for-identity",
+            "cognito-identity/get-open-id-token",
+            "cognito-identity/get-open-id-token-for-developer-identity",
+            "cognito-idp/initiate-auth", "cognito-idp/admin-initiate-auth",
+            "cognito-idp/respond-to-auth-challenge",
+            "cognito-idp/admin-respond-to-auth-challenge",
+            "eks/get-token",
+            "ecr/get-authorization-token", "ecr/get-login-password", "ecr/get-login",
+            "ecr-public/get-authorization-token", "ecr-public/get-login-password",
+            "codeartifact/get-authorization-token", "codeartifact/login",
+            "codecommit/credential-helper",
+            "rds/generate-db-auth-token",
+            "redshift/get-cluster-credentials",
+            "redshift/get-cluster-credentials-with-iam",
+            "redshift-serverless/get-credentials",
+            "kafka/get-bootstrap-brokers",
+            "gamelift/get-instance-access", "gamelift/get-compute-access",
+            "connect/get-federation-token",
+            "lightsail/get-instance-access-details",
+            "ssm/start-session",
+            "kms/decrypt", "kms/generate-data-key", "kms/generate-data-key-pair",
+            "ec2/get-password-data", "ec2/create-key-pair",
+            "ec2-instance-connect/send-ssh-public-key",
+            "ec2-instance-connect/send-serial-console-ssh-public-key",
+            "acm/export-certificate",
+            "lightsail/download-default-key-pair",
+            "cognito-idp/describe-user-pool-client",
+            "apigateway/get-api-key", "apigateway/get-api-keys",
+            "iam/create-login-profile", "iam/update-login-profile",
+            "iam/create-service-specific-credential",
+            "iam/reset-service-specific-credential",
+            "iot/create-keys-and-certificate",
+            "s3/presign", "cloudfront/sign"])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent is not allowed to run AWS operations that mint"
+            + " credentials, tokens, or access (e.g. eks get-token, sts"
+            + " assume-role, ecr/codeartifact/codecommit auth, rds/redshift DB"
+            + " tokens, kms decrypt). These escalate access beyond read-only."
+    - name: deny-secret-value-read
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            has(request.resource.attr.awsOps)
+            && request.resource.attr.awsOps.exists(o, o in [
+            "secretsmanager/get-secret-value",
+            "secretsmanager/batch-get-secret-value",
+            "ssm/get-parameter", "ssm/get-parameters",
+            "ssm/get-parameters-by-path", "ssm/get-parameter-history"])
+      output:
+        when:
+          ruleActivated: >-
+            "This agent is not allowed to read secret values from AWS Secrets"
+            + " Manager (get-secret-value / batch-get-secret-value) or SSM"
+            + " Parameter Store (get-parameter*, which can return SecureString"
+            + " plaintext). Use describe-/list- calls for metadata only."
+    - name: allow-all
+      actions: ['*']
+      effect: EFFECT_ALLOW
+      roles: ['*']

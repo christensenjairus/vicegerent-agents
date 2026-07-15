@@ -5,7 +5,10 @@
 # Alertmanager silence duration, or a PagerDuty manage_incidents change);
 # unmapped tools pass (defaultAction: allow). Cerbos denies Secret reads,
 # OpenSearch-datasource reads, Elastic data-access calls targeting a denied
-# index/datastream token (${elasticDeniedIndexPatterns}), Jira WRITES targeting a project outside
+# index/datastream token (${elasticDeniedIndexPatterns}), AWS call_aws commands
+# that mint credentials/tokens/access (eks get-token, sts assume-role, ecr/rds/
+# redshift auth tokens, kms decrypt, ...) or read secret values (Secrets Manager
+# get-secret-value/batch, SSM get-parameter*), Jira WRITES targeting a project outside
 # ${jiraAllowedProjects} (reads are unrestricted), GitHub calls targeting a repo outside the allowlist or writing
 # directly to a protected branch, Linear calls targeting a team other than
 # DEVOPS, Alertmanager silences over the duration cap, Alertmanager getAlerts
@@ -33,6 +36,7 @@ backends:
       - jiraFieldsAttr
       - githubReviewersAttr
       - elasticTargetsAttr
+      - awsSecretReadAttr
       - webCrawlAttr
       - webFetchAttr
       - webMonitorAttr
@@ -120,6 +124,25 @@ backends:
       elastic_platform_streams_get_failed_documents: *elastic_data
       elastic_platform_streams_query_documents: *elastic_data
       elastic_security_alerts: *elastic_data
+      # AWS (awslabs aws-api-mcp-server) executor -> aws_command. cli_command is
+      # str | list[str] (batch); awsSecretReadAttr parses the AWS CLI grammar
+      # (service+operation positionals, skipping interleaved global options) into
+      # a lowercased awsOps ["service/operation", ...] list. resource_aws.yaml
+      # denies credential/token/access-minting ops (eks get-token, sts
+      # assume-role, ecr/rds/redshift auth tokens, kms decrypt, ...) and
+      # secret-value reads (Secrets Manager, SSM get-parameter*) -- verified live
+      # that READ_OPERATIONS_ONLY does NOT block these (it even force-allows some
+      # credential minters), so this is the real escalation guardrail, not just
+      # defense-in-depth. Only call_aws is mapped -- suggest_aws_commands only
+      # returns suggestion TEXT (execution still goes back through call_aws, which
+      # is gated), so mapping it adds no protection, mirroring elastic's unmapped
+      # discovery tools. id is a stable literal (cli_command is a command
+      # string/list, not a resource id), like pagerduty's manage_incidents.
+      aws_call_aws:
+        resourceType: aws_command
+        action: execute
+        id: "'call_aws'"
+        attrFrom: awsSecretReadAttr(args)
       # Jira project/issue-bearing tools -> jira_project, mirroring Notion's
       # read-everywhere/write-scoped model: reads (get_issue/get_project_issues/
       # get_transitions) are allowed against ANY project, since there's nothing

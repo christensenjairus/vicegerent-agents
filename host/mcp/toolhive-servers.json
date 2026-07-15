@@ -365,6 +365,55 @@
         "security_get_entity", "security_search_entities",
         "observability_get_trace_change_points"
       ]
+    },
+    {
+      "name": "aws",
+      "description": "AWS access via awslabs aws-api-mcp-server, read-only and multi-profile. READ_OPERATIONS_ONLY=true restricts call_aws to read operations (allowlist-enforced at the source; pair each profile with a ReadOnlyAccess-scoped IAM role -- the README is explicit that IAM is the primary control). The host ~/.aws is mounted READ-ONLY at /app/.aws (apply:aws_config, HOME pinned to /app so the SSO token cache resolves; the server's own writable state dir is overlaid separately), exposing every installed profile; the agent selects one per call with `aws ... --profile <name>` (AWS_API_MCP_PROFILE_NAME left unset, so there's no default). SSO tokens are refreshed host-side with `aws sso login` -- the read-only mount means the sandbox never writes the operator's AWS creds, matching how every other backend's credentials are maintained outside the sandbox. Exposes call_aws (executes an AWS CLI command string, or a batch list of up to 20) and suggest_aws_commands (natural-language -> suggested CLI; note it sends the query to an AWS-hosted endpoint under api.aws); get_execution_plan stays off (EXPERIMENTAL_AGENT_SCRIPTS unset). Egress is allowlisted to .amazonaws.com and .api.aws (leading-dot suffix -- ToolHive's squid does dstdomain matching, so this one suffix covers every <service>.<region>.amazonaws.com across all regions incl. gov, the SSO oidc/portal endpoints, and the read-only-classification endpoint; .api.aws covers newer endpoints + the suggest_aws_commands endpoint api-mcp.global.api.aws). Verified live via the egress proxy's access log: sts/ec2/etc. across regions tunnel through, while aws.amazon.com and non-AWS hosts are denied. The mcp-cerbos-shim guardrail (resource_aws.yaml) denies call_aws commands that mint credentials/tokens/access (eks get-token, sts assume-role, ecr/rds/redshift auth tokens, kms decrypt, private-key/cert exports, console-credential creation, ...) or read secret values (Secrets Manager get/batch-get-secret-value, SSM get-parameter*) -- verified live that READ_OPERATIONS_ONLY does NOT block these (it even force-allows some minters, e.g. eks get-token returns a real Kubernetes bearer token). Scoping each profile's IAM permission set is the airtight complement.",
+      "enabled": false,
+      "type": "registry",
+      "registry": "public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server:1.3.46",
+      "transport": "stdio",
+      "env": {
+        "READ_OPERATIONS_ONLY": "true",
+        "AWS_REGION": "us-west-2",
+        "AWS_API_MCP_TELEMETRY": "false"
+      },
+      "network": {
+        "allow_hosts": [".amazonaws.com", ".api.aws"]
+      },
+      "params": [
+        {
+          "name": "aws_config_dir",
+          "prompt": "Path to your AWS config dir (blank = ~/.aws). Mounted read-only; refresh SSO tokens host-side with `aws sso login`.",
+          "apply": "aws_config"
+        }
+      ],
+      "tools": [
+        "call_aws",
+        "suggest_aws_commands"
+      ]
+    },
+    {
+      "name": "aws_profiles",
+      "description": "Hidden companion to the `aws` backend (companion_of: aws) -- enabled/disabled with it as one unit, never shown or configured on its own, so a developer doesn't need to know it exists. One tool, `list`, returning the AWS profile names from the mounted read-only ~/.aws/config so the agent can discover which --profile values call_aws accepts (aws-api-mcp-server can't enumerate profiles -- its validator rejects `aws configure`). Read-only, network.none (makes no outbound calls -- reads the local config and serves stdio through ToolHive's bridge), returns profile NAMES only, never credentials. Reuses the same apply:aws_config read-only ~/.aws mount as the aws backend (its aws_config_dir param value is inherited from the parent). Tiny custom image (images/aws-profiles-mcp). Workload named `aws_profiles` with tool `list` so the vMCP's {workload}_ prefix surfaces it as `aws_profiles_list`, sitting naturally in the aws_ tool family next to aws_call_aws / aws_suggest_aws_commands (two workloads can't share the exact `aws` prefix -- names are unique per group -- so this is the closest natural fit).",
+      "enabled": false,
+      "companion_of": "aws",
+      "type": "registry",
+      "registry": "harbor.hahomelabs.com/vicegerent/aws-profiles-mcp:v0.1.0",
+      "transport": "stdio",
+      "network": {
+        "none": true
+      },
+      "params": [
+        {
+          "name": "aws_config_dir",
+          "prompt": "Path to your AWS config dir (blank = ~/.aws). Mounted read-only.",
+          "apply": "aws_config"
+        }
+      ],
+      "tools": [
+        "list"
+      ]
     }
   ]
 }

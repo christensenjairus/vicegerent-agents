@@ -1,0 +1,174 @@
+---
+# The denied op sets are fixed AWS facts hardcoded in resource_aws.yaml (no
+# cluster-var), so these fixtures need no cluster-vars sync.
+name: aws_command_block_test
+description: Credential/access-minting ops and secret-value reads via call_aws are
+  denied; metadata/inventory reads and other services are allowed.
+options:
+  now: '2026-07-02T00:00:00Z'
+principals:
+  hermes:
+    id: hermes
+    roles: [agent]
+resources:
+  # --- credential / access minting (deny) ---
+  eks_get_token:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [eks/get-token]
+  sts_assume_role:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [sts/assume-role]
+  ecr_get_auth_token:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [ecr/get-authorization-token]
+  rds_db_auth_token:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [rds/generate-db-auth-token]
+  kms_decrypt:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [kms/decrypt]
+  s3_presign:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [s3/presign]
+  ssm_start_session:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [ssm/start-session]
+  acm_export_certificate:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [acm/export-certificate]
+  apigateway_get_api_key:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [apigateway/get-api-key]
+  iam_create_login_profile:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [iam/create-login-profile]
+  # --- secret-value reads (deny) ---
+  get_secret_value:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [secretsmanager/get-secret-value]
+  batch_get_secret_value:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [secretsmanager/batch-get-secret-value]
+  ssm_get_parameter:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [ssm/get-parameter]
+  batch_with_a_minter:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [s3/list-buckets, eks/get-token]
+  # --- allowed (metadata / inventory / recon) ---
+  get_caller_identity:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [sts/get-caller-identity]
+  eks_describe_cluster:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [eks/describe-cluster]
+  describe_secret:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [secretsmanager/describe-secret]
+  ssm_describe_parameters:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [ssm/describe-parameters]
+  unrelated_read:
+    id: call_aws
+    kind: aws_command
+    attr:
+      awsOps: [s3/list-buckets]
+  no_ops:
+    id: call_aws
+    kind: aws_command
+    attr: {}
+tests:
+  - name: credential/access-minting ops are denied (incl. inside a batch)
+    input:
+      principals: [hermes]
+      resources:
+        - eks_get_token
+        - sts_assume_role
+        - ecr_get_auth_token
+        - rds_db_auth_token
+        - kms_decrypt
+        - s3_presign
+        - ssm_start_session
+        - acm_export_certificate
+        - apigateway_get_api_key
+        - iam_create_login_profile
+        - batch_with_a_minter
+      actions: [execute]
+    expected:
+      - {principal: hermes, resource: eks_get_token, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: sts_assume_role, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: ecr_get_auth_token, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: rds_db_auth_token, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: kms_decrypt, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: s3_presign, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: ssm_start_session, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: acm_export_certificate, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: apigateway_get_api_key, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: iam_create_login_profile, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: batch_with_a_minter, actions: {execute: EFFECT_DENY}}
+  - name: secret-value reads are denied
+    input:
+      principals: [hermes]
+      resources:
+        - get_secret_value
+        - batch_get_secret_value
+        - ssm_get_parameter
+      actions: [execute]
+    expected:
+      - {principal: hermes, resource: get_secret_value, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: batch_get_secret_value, actions: {execute: EFFECT_DENY}}
+      - {principal: hermes, resource: ssm_get_parameter, actions: {execute: EFFECT_DENY}}
+  - name: metadata / inventory / recon reads and unparseable commands are allowed
+    input:
+      principals: [hermes]
+      resources:
+        - get_caller_identity
+        - eks_describe_cluster
+        - describe_secret
+        - ssm_describe_parameters
+        - unrelated_read
+        - no_ops
+      actions: [execute]
+    expected:
+      - {principal: hermes, resource: get_caller_identity, actions: {execute: EFFECT_ALLOW}}
+      - {principal: hermes, resource: eks_describe_cluster, actions: {execute: EFFECT_ALLOW}}
+      - {principal: hermes, resource: describe_secret, actions: {execute: EFFECT_ALLOW}}
+      - {principal: hermes, resource: ssm_describe_parameters, actions: {execute: EFFECT_ALLOW}}
+      - {principal: hermes, resource: unrelated_read, actions: {execute: EFFECT_ALLOW}}
+      - {principal: hermes, resource: no_ops, actions: {execute: EFFECT_ALLOW}}

@@ -1,0 +1,14 @@
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py aws_profiles --format yaml -o <this-file>
+group: vicegerent
+tool_count: 1
+servers:
+  aws_profiles:
+    tool_count: 1
+    tools:
+      list:
+        description: "List the AWS profiles available to the `aws` backend's call_aws tool. Read from the operator's mounted ~/.aws/config. Pass one of these to call_aws inside the CLI command as `--profile <name>` (e.g. call_aws(cli_command=\"aws sts get-caller-identity --profile <name>\")). Returns profile names only \u2014 no credentials."
+        arguments: {}

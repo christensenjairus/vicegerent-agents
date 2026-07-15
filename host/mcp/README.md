@@ -11,7 +11,7 @@ Hermes sandbox
   -> agentgateway
   -> ghostunnel (mTLS, listen 127.0.0.1:8453, reached via host.docker.internal:8453)
   -> ToolHive vMCP (loopback 127.0.0.1:4483, prefixes each backend's tools with {workload}_)
-  -> 11 ToolHive workloads (group 'vicegerent')
+  -> 17 ToolHive workloads (group 'vicegerent')
 ```
 
 `thv` runs the workloads as Docker containers under ToolHive's own daemon —
@@ -28,7 +28,7 @@ Supervisord manages only the three long-lived host processes:
 - `ghostunnel` — terminates mTLS from the cluster (client CN `agent-client`)
   and forwards to vMCP.
 
-## The 11 backends (group `vicegerent`)
+## The 17 backends (group `vicegerent`)
 
 The workload name is the vMCP tool prefix, and the Cerbos policy keys off it —
 these names are load-bearing, defined in `toolhive-servers.json`:
@@ -47,6 +47,8 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 | `alertmanager` | npx `mcp-alertmanager` | `url` param (`--url`), no secret |
 | `pagerduty` | registry `io.github.stacklok/pagerduty` (container) | `pagerduty_user_api_key` secret |
 | `elastic` | remote transport to Kibana Agent Builder (URL param) | `elastic_kibana_url` + `elastic_api_key` secrets |
+| `aws` | registry `public.ecr.aws/awslabs-mcp/awslabs/aws-api-mcp-server` (container, read-only) | read-only `~/.aws` mount (SSO), multi-profile |
+| `aws_profiles` | custom `harbor.hahomelabs.com/vicegerent/aws-profiles-mcp` (hidden companion of `aws`) | read-only `~/.aws` mount |
 
 Tool scoping uses the vMCP's native `aggregation.tools` primitive: a server
 with a `tools` allowlist in `toolhive-servers.json` emits a `{workload, filter}`
@@ -110,7 +112,7 @@ egress is locked to exactly the hosts it needs — anything else is denied by
 ToolHive's own egress proxy, independent of and in addition to the Cerbos/tool
 allowlisting above.
 
-`network` takes one of four shapes:
+`network` takes one of these shapes:
 
 - **`allow_hosts: [...]`** — static hostnames, safe to hardcode because they
   don't vary across users/clusters (fixed cloud endpoints): `github`
@@ -119,7 +121,14 @@ allowlisting above.
   (api.tavily.com), `firecrawl` (api.firecrawl.dev), `pagerduty`/`pagerduty_gov`
   (api.pagerduty.com — the PagerDuty MCP server's own docs confirm this is the
   only host used unless `PAGERDUTY_API_HOST` is overridden for an EU account,
-  which this config doesn't do for either workload).
+  which this config doesn't do for either workload), and `aws`
+  (`.amazonaws.com`, `.api.aws`). The leading dot is a suffix match — ToolHive's
+  egress proxy is squid and turns each `allow_hosts` entry into an
+  `acl … dstdomain <host>`, so a leading-dot entry covers every subdomain: one
+  `.amazonaws.com` allows every `<service>.<region>.amazonaws.com` (all regions
+  incl. gov, plus the SSO oidc/portal and read-only-classification endpoints)
+  without enumerating them, and `.api.aws` covers newer service endpoints + the
+  `suggest_aws_commands` endpoint. Verified via the egress proxy's access log.
 - **`host_from_param: "<param name>"`** — the hostname is parsed (via
   `urllib.parse.urlparse`) out of a `params[]` entry's *resolved* value at `thv
   run` time — never hardcoded, since it's per-operator/per-cluster. Covers
@@ -136,19 +145,27 @@ allowlisting above.
   isolation via `--isolate-network=false` (see "Kubernetes networking" below)
   because it needs raw docker-network TCP to the kind API server, which the
   egress proxy (HTTP/HTTPS only) can't front.
-
-There's deliberately no `network.broad` (unrestricted-egress) server in this
-config: `tavily` and `firecrawl` look at first glance like they'd need broad
-internet access (they fetch arbitrary user-supplied URLs), but both are SaaS
-products whose MCP servers proxy that fetching through their own API
-(`api.tavily.com`/`api.firecrawl.dev` do the actual outbound request
-server-side) — so a narrow static allowlist is correct and was verified
-against each package's source before being hardcoded.
+- **`none: true`** — deny-all egress (a permission profile with an empty
+  allow-list). Only `aws_profiles`: it makes no outbound calls, just reads the
+  mounted `~/.aws/config` and serves stdio through ToolHive's bridge.
 
 A change to `network` (a new allowlisted host, an edited hostname param) is
 folded into `server_spec_fingerprint()`'s drift-detection hash, so `start`
 recreates the affected workload instead of leaving a stale `--permission-profile`
-baked into an already-running container.
+baked into an already-running container. The same fingerprint also folds in the
+CONTENT of a server's mounted host config (the `aws`/`aws_profiles` `~/.aws`
+directory, a user-supplied kubeconfig): an `aws sso login`, a newly added
+profile, or an edited kubeconfig changes the hash, so the next `start` recreates
+the workload with the fresh config rather than relying on the live bind mount
+(some servers read their config only once at startup). The kind-cluster internal
+kubeconfig's CA rotation is handled separately by `kind_kubeconfig_stale`.
+
+`aws_profiles` is a **hidden companion** of `aws` (`companion_of: aws`): it's
+enabled/disabled with `aws` as one unit, never shown or configured on its own
+(so a developer needn't know it exists), and inherits `aws`'s `~/.aws` mount
+config. Its sole tool (`aws_profiles_list`) lets the agent discover which
+`--profile` values `call_aws` accepts — the `aws` backend can't enumerate
+profiles itself.
 
 Orthogonal argument-level authorization still lives in the cluster (the Cerbos
 guardrail on the `vmcp` backend); no Cedar/authz runs in the vMCP.
@@ -199,7 +216,7 @@ not `teamId`) was confirmed against a live `tools/list` call.
 
 ### Tool discovery optimizer
 
-With 11 backends aggregated, the raw tool count is large enough to burn a
+With 17 backends aggregated, the raw tool count is large enough to burn a
 meaningful chunk of the agent's context budget just listing tool definitions.
 `thv vmcp serve --optimizer` (Tier 1, FTS5 keyword search, no extra container)
 collapses the exposed surface to two meta-tools — `find_tool` (search) and
