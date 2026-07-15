@@ -115,7 +115,17 @@ named `vicegerent-agents`; everything inside it uses the name `vicegerent`.
   stream `name` — plus the `execute_esql` query text, surfaced as a `targets` list by the
   `elasticTargetsAttr` shim helper; reads that never name a blocked index are unrestricted,
   and an index-less/wildcard search that dodges the token is a documented residual gap best
-  closed by scoping the Elastic API key's own role); any **Jira** WRITE (create/update/transition/comment/link) targeting a project
+  closed by scoping the Elastic API key's own role); any **AWS** `call_aws` command (aws-api-mcp-server)
+  that mints credentials/tokens/access or reads secret values — `READ_OPERATIONS_ONLY` does NOT block
+  these (verified live: `eks get-token` returned a real Kubernetes bearer token, and the server even
+  force-allows some credential minters), so `resource_aws.yaml` denies, by parsed `<service>/<operation>`
+  (the `awsSecretReadAttr` shim helper tokenizes the CLI command, batch-aware), a hardcoded set of
+  credential/access minters (`eks/get-token`, `sts/assume-role*`, `ecr`/`ecr-public`/`codeartifact`/
+  `codecommit` auth, `rds`/`redshift` DB tokens, `kms/decrypt`, `ssm/start-session`, `ec2/get-password-data`,
+  `s3/presign`, …) and secret-value reads (`secretsmanager/get-secret-value`/`batch-get-secret-value`,
+  `ssm/get-parameter*`) — defense-in-depth regardless of the read-only gate, with the profiles' own IAM
+  permission sets as the airtight complement and the `IsWrite=false` long tail (env-var-bearing
+  `describe-*`, bulk/wildcard enumeration) a documented residual gap; any **Jira** WRITE (create/update/transition/comment/link) targeting a project
   outside `${jiraAllowedProjects}` (by `project_key`, the project prefix of an
   issue/epic key, or an `epicKey`/`parent` reference smuggled inside
   `additional_fields`/`fields`' raw JSON — parsed by the `jiraFieldsAttr` helper,

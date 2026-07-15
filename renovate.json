@@ -127,6 +127,16 @@
     {
       "customType": "regex",
       "managerFilePatterns": [
+        "/^host/mcp/toolhive-servers\\.json$/"
+      ],
+      "matchStrings": [
+        "\"registry\":\\s*\"(?<depName>[a-z0-9][a-z0-9./_-]*?):(?<currentValue>v?[0-9][^\"@]*)\""
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "managerFilePatterns": [
         "/^charts/egress-proxy/templates/deployment\\.ya?ml$/"
       ],
       "matchStrings": [

@@ -89,6 +89,12 @@ THV = os.environ.get("THV", "thv")
 # Kubeconfig mount path inside the containerized kubernetes MCP server.
 KUBECONFIG_CONTAINER_PATH = "/kubeconfig/config"
 
+# AWS: the aws-api-mcp-server image's HOME is /app, and botocore derives the SSO
+# token-cache path (~/.aws/sso/cache) from HOME with no env override — so the
+# host ~/.aws is mounted at /app/.aws and HOME pinned to /app (see apply:aws_config).
+AWS_HOME_CONTAINER_PATH = "/app"
+AWS_DIR_CONTAINER_PATH = "/app/.aws"
+
 # Core supervised programs (always run): vMCP, ghostunnel, rclone-s3.
 SUPERVISED_PROGRAMS = ("vmcp", "ghostunnel", "rclone-s3")
 # caffeinate (macOS stay-awake) is opt-in per `start`; shown in status/logs regardless.
@@ -235,11 +241,25 @@ def read_secret_value(secret_name: str) -> str:
     return result.stdout.strip() if result.returncode == 0 else ""
 
 
+def _param_owner(server: dict[str, Any]) -> str:
+    """The server whose configured param VALUES and enabled-state this server
+    uses. Normally itself; for a hidden companion (`companion_of`) it's the
+    parent, so the companion inherits the parent's config (e.g. aws-profiles
+    reuses aws's aws_config_dir) and is never configured on its own."""
+    return server.get("companion_of") or server["name"]
+
+
 def is_server_enabled(server: dict[str, Any], state: dict[str, bool]) -> bool:
-    """Effective enabled state: a runtime override wins over the config default."""
-    name = server["name"]
-    if name in state:
-        return state[name]
+    """Effective enabled state: a runtime override wins over the config default.
+
+    A companion (`companion_of`) mirrors its parent's state via `_param_owner`,
+    so enabling/disabling the parent flips both as one unit — the companion is
+    never enabled independently. Keep a companion's own `enabled` default equal
+    to its parent's so the pre-configure default matches too.
+    """
+    owner = _param_owner(server)
+    if owner in state:
+        return state[owner]
     return bool(server.get("enabled", False))
 
 
@@ -389,22 +409,21 @@ def _resolve_param_value(server: dict[str, Any], param_name: str, runtime_dir: P
     """Resolve one configured param's current value (secret or runtime state),
     same lookup `build_thv_run_argv` does for `apply: server_arg`/`kubeconfig`.
     """
-    name = server["name"]
+    owner = _param_owner(server)
     for param in server.get("params", []):
         if param["name"] != param_name:
             continue
         if param.get("secret"):
-            return read_secret_value(param_secret_name(name, param_name))
-        return server_param(runtime_dir, name, param_name, param.get("default", ""))
+            return read_secret_value(param_secret_name(owner, param_name))
+        return server_param(runtime_dir, owner, param_name, param.get("default", ""))
     return ""
 
 
 def build_permission_profile(server: dict[str, Any], runtime_dir: Path) -> dict[str, Any] | None:
     """Build a ToolHive network permission-profile dict for one server, or None
-    if the server is declared `network.broad` (needs unrestricted egress and is
-    deliberately exempted from allowlisting — see `toolhive-servers.json`) or
-    `network.exempt` (network-mode carve-out, e.g. kubernetes' raw docker-network
-    access — out of scope for permission-profile allowlisting entirely).
+    if the server is declared `network.exempt` (network-mode carve-out, e.g.
+    kubernetes' raw docker-network access — out of scope for permission-profile
+    allowlisting entirely).
 
     Isolation is ToolHive's default since v0.30.1 (no `--isolate-network` flag
     needed); passing `--permission-profile <path>` with a `network.outbound`
@@ -424,10 +443,20 @@ def build_permission_profile(server: dict[str, Any], runtime_dir: Path) -> dict[
         raise SystemExit(
             f"{name}: no 'network' config in toolhive-servers.json — every server "
             "must declare network.allow_hosts/host_from_param/host_from_secret, "
-            "network.broad=true, or network.exempt=true (see host/mcp/README.md)"
+            "network.none=true, or network.exempt=true (see host/mcp/README.md)"
         )
-    if net.get("broad") or net.get("exempt"):
+    if net.get("exempt"):
         return None
+
+    if net.get("none"):
+        # Server makes no outbound calls at all (e.g. aws-profiles reads the
+        # mounted ~/.aws/config and serves stdio through ToolHive's bridge).
+        # Lock egress to deny-all rather than inherit ToolHive's default.
+        return {
+            "network": {
+                "outbound": {"insecure_allow_all": False, "allow_host": [], "allow_port": []}
+            }
+        }
 
     allow_hosts = list(net.get("allow_hosts", []))
     host_from_param = net.get("host_from_param")
@@ -466,7 +495,8 @@ def build_permission_profile(server: dict[str, Any], runtime_dir: Path) -> dict[
         raise SystemExit(
             f"{name}: network config resolved to an empty allow_hosts list — "
             "refusing to run with a permission profile that blocks all egress "
-            "unless that's actually intended (set network.broad=true instead)"
+            "unless that's actually intended (set network.none=true for a "
+            "deliberate no-egress server)"
         )
 
     return {
@@ -484,8 +514,8 @@ def write_permission_profile(
     server: dict[str, Any], runtime_dir: Path
 ) -> Path | None:
     """Build and persist the permission-profile JSON for one server; return its
-    path, or None if the server is `network.broad` (no profile needed — it
-    inherits ToolHive's default unrestricted `network` profile).
+    path, or None if the server is `network.exempt` (no profile — it opts out of
+    permission-profile allowlisting entirely, e.g. kubernetes' docker-network mode).
     """
     profile = build_permission_profile(server, runtime_dir)
     if profile is None:
@@ -544,9 +574,8 @@ def build_thv_run_argv(
     # opted out via run_flags (kubernetes: --isolate-network=false, needs raw
     # docker-network TCP to the kind API server and can't go through the
     # egress proxy — see README "Kubernetes networking"). Every other server
-    # gets an explicit --permission-profile: either a narrow static/dynamic
-    # allowlist, or (network.broad, e.g. tavily/firecrawl) an explicit opt-out
-    # of allowlisting because the tool legitimately fetches arbitrary hosts.
+    # gets an explicit --permission-profile: a narrow static/dynamic allowlist,
+    # or (network.none) a deny-all-egress profile.
     profile_path = write_permission_profile(server, runtime_dir)
     if profile_path is not None:
         argv += ["--permission-profile", str(profile_path)]
@@ -557,12 +586,13 @@ def build_thv_run_argv(
 
     # Apply configured params (values from `configure`, stored in runtime state --
     # or, for a param marked "secret": true, in the `thv` secrets provider instead).
+    param_owner = _param_owner(server)  # companion inherits the parent's values
     for param in server.get("params", []):
         pname = param["name"]
         if param.get("secret"):
-            value = read_secret_value(param_secret_name(name, pname))
+            value = read_secret_value(param_secret_name(param_owner, pname))
         else:
-            value = server_param(runtime_dir, name, pname, param.get("default", ""))
+            value = server_param(runtime_dir, param_owner, pname, param.get("default", ""))
         apply = param.get("apply")
         if apply == "server_arg":
             if value:
@@ -582,6 +612,28 @@ def build_thv_run_argv(
             argv += ["-v", f"{kubeconfig}:{KUBECONFIG_CONTAINER_PATH}:ro"]
             argv += ["-e", f"KUBECONFIG={KUBECONFIG_CONTAINER_PATH}"]
             server_args += ["--kubeconfig", KUBECONFIG_CONTAINER_PATH]
+        elif apply == "aws_config":
+            # Mount the host ~/.aws (a user-supplied path wins; else ~/.aws)
+            # read-only into the container and pin HOME so profiles + the SSO
+            # token cache resolve. Read-only is deliberate: the agent must never
+            # mutate the operator's AWS config/creds, and SSO token refresh is a
+            # host-side concern (`aws sso login`), mirroring how every other
+            # backend's credentials are maintained outside the sandbox.
+            aws_dir = Path(value).expanduser() if value else Path.home() / ".aws"
+            if not aws_dir.is_dir():
+                raise SystemExit(
+                    f"{name}: AWS config dir not found: {aws_dir} — run `aws configure` "
+                    "/ `aws sso login` first, or set the path via `vicegerent mcp configure`"
+                )
+            argv += ["-v", f"{aws_dir}:{AWS_DIR_CONTAINER_PATH}:ro"]
+            # aws-api-mcp-server writes its own state/log under $HOME/.aws/aws-api-mcp,
+            # which the read-only creds mount above would block. Overlay a writable
+            # dir at exactly that subpath (in the runtime dir) so the server's state
+            # is writable while the operator's real creds stay read-only.
+            aws_workdir = runtime_dir / "aws-workdir"
+            aws_workdir.mkdir(parents=True, exist_ok=True)
+            argv += ["-v", f"{aws_workdir}:{AWS_DIR_CONTAINER_PATH}/aws-api-mcp"]
+            argv += ["-e", f"HOME={AWS_HOME_CONTAINER_PATH}"]
         elif apply == "remote_header":
             # Inject a static auth header into a `remote` server by NAME reference
             # so the credential stays in the `thv` secret store — never argv, never
@@ -663,15 +715,68 @@ def kind_kubeconfig_stale(server: dict[str, Any], runtime_dir: Path) -> bool:
     return _ca_data(result.stdout) != _ca_data(dest.read_text(encoding="utf-8"))
 
 
+def _path_content_digest(path: Path) -> str:
+    """sha256 over a file's bytes, or a directory's sorted (relpath, bytes)
+    manifest; "" if absent/unreadable. Folds the CONTENT of a server's mounted
+    host config into its spec fingerprint so an on-disk change forces a recreate
+    on the next `start`. A live bind mount alone isn't enough — some MCP servers
+    read/cache their config once at startup, so a fresh `aws sso login` token, a
+    new profile in ~/.aws/config, or an edited kubeconfig wouldn't take effect
+    until the container is recreated."""
+    h = hashlib.sha256()
+    try:
+        if path.is_dir():
+            for p in sorted(path.rglob("*")):
+                if p.is_file():
+                    h.update(str(p.relative_to(path)).encode("utf-8") + b"\0")
+                    try:
+                        h.update(p.read_bytes())
+                    except OSError:
+                        h.update(b"<unreadable>")
+                    h.update(b"\0")
+        elif path.is_file():
+            h.update(path.read_bytes())
+        else:
+            return ""
+    except OSError:
+        return ""
+    return h.hexdigest()
+
+
+def _mounted_config_digest(server: dict[str, Any], runtime_dir: Path) -> str:
+    """Digest of the host config a server MOUNTS (apply:aws_config /
+    apply:kubeconfig). The kind-cluster internal kubeconfig's CA rotation is
+    handled separately by kind_kubeconfig_stale; here we cover the ~/.aws
+    directory (config + SSO token cache + credentials) and a user-supplied
+    kubeconfig path. Companions resolve the same path as their parent
+    (_resolve_param_value uses the owner), so both recreate together."""
+    parts: list[str] = []
+    for param in server.get("params", []):
+        apply = param.get("apply")
+        if apply == "aws_config":
+            val = _resolve_param_value(server, param["name"], runtime_dir)
+            aws_dir = Path(val).expanduser() if val else Path.home() / ".aws"
+            parts.append("aws_config:" + _path_content_digest(aws_dir))
+        elif apply == "kubeconfig":
+            val = _resolve_param_value(server, param["name"], runtime_dir)
+            if val:  # kind_cluster (no explicit path) is covered by kind_kubeconfig_stale
+                parts.append("kubeconfig:" + _path_content_digest(Path(val).expanduser()))
+    if not parts:
+        return ""
+    return hashlib.sha256("|".join(sorted(parts)).encode("utf-8")).hexdigest()
+
+
 def server_spec_fingerprint(server: dict[str, Any], runtime_dir: Path) -> str:
     """Hash the parts of a server's config entry that determine its running
     container: type/package-or-registry/transport/run_flags/server_args/
     server_args_after/env/
     secret TARGETS (never secret values — those live in `thv secret`, not this
     repo) and configured PARAM NAMES (not their values, which come from runtime
-    state and may reasonably change without forcing a rebuild here; params that
-    must trigger a recreate, like a changed kubeconfig path, are already covered
-    by `kind_kubeconfig_stale`).
+    state and may reasonably change without forcing a rebuild here; a changed
+    kubeconfig path is covered by `kind_kubeconfig_stale`, and the CONTENT of a
+    server's mounted host config — the aws `~/.aws` dir, a user kubeconfig — is
+    folded in via `mounted_config` so an `aws sso login`, a new profile, or an
+    edited kubeconfig recreates the workload on the next start).
 
     Also hashes the *content* of the generated network permission profile —
     unlike ordinary params, a change here (a new GitLab/Alertmanager/
@@ -700,6 +805,10 @@ def server_spec_fingerprint(server: dict[str, Any], runtime_dir: Path) -> str:
         ),
         "param_names": sorted(p["name"] for p in server.get("params", [])),
         "permission_profile": build_permission_profile(server, runtime_dir),
+        # Content of the mounted host config (aws ~/.aws, a user kubeconfig): a
+        # change (aws sso login, a new profile, an edited kubeconfig) drifts this
+        # and recreates the workload on the next start.
+        "mounted_config": _mounted_config_digest(server, runtime_dir),
     }
     blob = json.dumps(fingerprint_input, sort_keys=True).encode("utf-8")
     return hashlib.sha256(blob).hexdigest()
@@ -1705,6 +1814,10 @@ def configure(
     running = list_workloads(group)
     for server in servers:
         name = server["name"]
+        # Hidden companions (companion_of) are enabled/configured with their
+        # parent as one unit and never shown on their own — skip entirely.
+        if server.get("companion_of"):
+            continue
         secrets = server.get("secrets", [])
         currently = is_server_enabled(server, state)
         print(f"\n── {name} ──  (currently {'enabled' if currently else 'disabled'})")
@@ -1823,8 +1936,10 @@ def configure(
 
     save_server_state(runtime_dir, state)
     save_server_params(runtime_dir, params_all)
-    on = [s["name"] for s in servers if is_server_enabled(s, state)]
-    off = [s["name"] for s in servers if not is_server_enabled(s, state)]
+    # Companions are hidden — they follow their parent and aren't listed.
+    visible = [s for s in servers if not s.get("companion_of")]
+    on = [s["name"] for s in visible if is_server_enabled(s, state)]
+    off = [s["name"] for s in visible if not is_server_enabled(s, state)]
     print("\nSaved. enabled: " + (", ".join(on) or "(none)"))
     print("       disabled: " + (", ".join(off) or "(none)"))
     print("Run `vicegerent start` to bring the enabled servers up.")
@@ -1839,9 +1954,15 @@ def set_enabled(
 ) -> int:
     """Non-interactive enable/disable of a single server (persists to state)."""
     config = load_servers_config(servers_config)
-    known = {s["name"] for s in config.get("servers", [])}
-    if name not in known:
-        raise SystemExit(f"unknown server: {name!r}. Known: {sorted(known)}")
+    by_name = {s["name"]: s for s in config.get("servers", [])}
+    if name not in by_name:
+        raise SystemExit(f"unknown server: {name!r}. Known: {sorted(by_name)}")
+    parent = by_name[name].get("companion_of")
+    if parent:
+        raise SystemExit(
+            f"{name!r} is a hidden companion of {parent!r} and follows it "
+            f"automatically — enable/disable {parent!r} instead."
+        )
     state = load_server_state(runtime_dir)
     state[name] = enabled
     save_server_state(runtime_dir, state)
