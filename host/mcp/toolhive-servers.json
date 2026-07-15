@@ -4,10 +4,11 @@
   "servers": [
     {
       "name": "kubernetes",
-      "description": "Read-only Kubernetes access (resources, pods, logs, Helm release listing). --read-only exposes only readOnlyHint tools at the source; the allowlist pins the exact set. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README). configuration_view is excluded despite being read-only: it returns the full kubeconfig with client cert/key in plaintext (a usable cluster credential); configuration_contexts_list covers context discovery without key material.",
+      "description": "Read-only Kubernetes access (resources, pods, logs, Helm release listing). --read-only exposes only readOnlyHint tools at the source; the allowlist pins the exact set. Cerbos blocks reading Secrets. Runs on the 'vicegerent' docker network to reach the API, which widens the host trust boundary to that network (see host/mcp/README). configuration_view is excluded despite being read-only: it returns the full kubeconfig with client cert/key in plaintext (a usable cluster credential); configuration_contexts_list covers context discovery without key material. Custom image (images/kubernetes-mcp-server) bundles the AWS CLI so a real EKS cluster's exec-plugin kubeconfig auth works; see host/mcp/README.md \"Kubernetes networking\" for details.",
       "enabled": false,
-      "type": "npx",
-      "package": "kubernetes-mcp-server@0.0.64",
+      "type": "registry",
+      "registry": "harbor.hahomelabs.com/vicegerent/kubernetes-mcp-server:v0.1.0",
+      "transport": "stdio",
       "server_args": ["--read-only","--toolsets=config,core,helm"],
       "kind_cluster": "vicegerent",
       "run_flags": ["--network", "vicegerent", "--isolate-network=false"],
@@ -20,6 +21,11 @@
           "prompt": "Kubeconfig path for the target cluster (blank = auto-generate from the kind 'vicegerent' cluster)",
           "apply": "kubeconfig",
           "secret": true
+        },
+        {
+          "name": "aws_config_dir",
+          "prompt": "Path to AWS config dir, for kubeconfigs using AWS IAM/exec auth against a real EKS cluster (blank = ~/.aws)",
+          "apply": "aws_config"
         }
       ],
       "tools": [

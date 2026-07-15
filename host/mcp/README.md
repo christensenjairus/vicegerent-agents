@@ -35,7 +35,7 @@ these names are load-bearing, defined in `toolhive-servers.json`:
 
 | Workload | Run | Auth |
 |---|---|---|
-| `kubernetes` | npx `kubernetes-mcp-server` (`--read-only`) | kind `--internal` kubeconfig |
+| `kubernetes` | custom `harbor.hahomelabs.com/vicegerent/kubernetes-mcp-server` (adds AWS CLI to upstream's `kubernetes-mcp-server`, `--read-only`) | kind `--internal` kubeconfig or a user kubeconfig, plus a mandatory read-only `~/.aws` mount (blank = `~/.aws`) for EKS exec auth |
 | `gitlab` | npx `@zereight/mcp-gitlab` | `gitlab_token` secret |
 | `github` | registry `io.github.stacklok/github` (container) | `github_token` secret |
 | `tavily` | npx `tavily-mcp` | `tavily_api_key` secret |
@@ -144,7 +144,11 @@ allowlisting above.
   entirely. Only `kubernetes`: it already opts out of ToolHive's network
   isolation via `--isolate-network=false` (see "Kubernetes networking" below)
   because it needs raw docker-network TCP to the kind API server, which the
-  egress proxy (HTTP/HTTPS only) can't front.
+  egress proxy (HTTP/HTTPS only) can't front. Because this is an unconditional
+  opt-out (not a narrower allowlist), it's *also* what makes pointing
+  `kubeconfig` at a real AWS EKS cluster reachable with no extra config —
+  there's no separate `allow_hosts` entry to add for the EKS API endpoint;
+  don't mistake `exempt` for still being squid-fronted.
 - **`none: true`** — deny-all egress (a permission profile with an empty
   allow-list). Only `aws_profiles`: it makes no outbound calls, just reads the
   mounted `~/.aws/config` and serves stdio through ToolHive's bridge.
@@ -234,12 +238,28 @@ against an older shim image that predates this unwrap.
 
 ### Kubernetes networking (the gotcha)
 
-`thv` containerizes the npx k8s server, so it lives in the Docker VM and cannot
+`thv` containerizes the k8s server, so it lives in the Docker VM and cannot
 reach a host-loopback API. The container is attached to the kind docker network
-(`--network vicegerent --isolate-network=false`) and fed kind's `--internal`
-kubeconfig (`kind get kubeconfig --name vicegerent --internal`, server
-`https://vicegerent-control-plane:6443`), mounted read-only and pointed at via
-`KUBECONFIG` + `--kubeconfig`.
+(`--network vicegerent --isolate-network=false`) and, with a blank `kubeconfig`
+param, fed kind's `--internal` kubeconfig (`kind get kubeconfig --name
+vicegerent --internal`, server `https://vicegerent-control-plane:6443`),
+mounted read-only and pointed at via `KUBECONFIG` + `--kubeconfig`.
+
+`kubernetes` runs a custom image (`images/kubernetes-mcp-server`, not
+ToolHive's generic `npx://` protocol) that bundles the AWS CLI alongside the
+`kubernetes-mcp-server` npm package. That's needed to point `kubeconfig` at a
+*real* cluster instead: a kubeconfig from `aws eks update-kubeconfig` carries
+an `exec:` IAM-authenticator plugin that shells out to `aws eks get-token` at
+request time, using the operator's ambient AWS credentials — and that exec
+call runs inside this same container, so it needs the `aws` binary on `PATH`
+and the operator's AWS config available. The `aws_config_dir` param
+(`apply: "aws_config"`, same as the `aws` backend) always mounts `~/.aws`
+read-only for exactly that — blank defaults to `~/.aws`, and `start` fails if
+that directory doesn't exist, even for a kind-cluster-only setup (SSO refresh
+stays host-side, same as the `aws` backend). The agent's tool surface doesn't
+change either way — `aws eks get-token` runs as an internal credential helper
+the auth library invokes, never as an agent-callable tool, so none of the
+`aws` backend's own credential-minting Cerbos guardrails apply here.
 
 ## Security & trust boundary (read before running on a shared machine)
 
