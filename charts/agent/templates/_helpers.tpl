@@ -149,6 +149,9 @@ platform_toolsets:
     - hermes-slack
     - kanban
     - moa
+toolsets:
+  - hermes-cli
+  - kanban
 kanban:
   dispatch_in_gateway: false
 delegation:
