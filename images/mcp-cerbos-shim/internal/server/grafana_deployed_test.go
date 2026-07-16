@@ -51,6 +51,12 @@ func TestDeployedGrafanaMapping_OpenSearchReachesCerbos(t *testing.T) {
 		{"grafana_list_prometheus_metric_names", map[string]any{"datasourceUid": osUID}, osUID, ""},
 		{"grafana_get_datasource", map[string]any{"uid": osUID}, osUID, ""},
 		{"grafana_get_datasource", map[string]any{"name": osName}, "", osName},
+		// Loki/VictoriaLogs read tools: same datasourceUid arg shape as the
+		// Prometheus tools above, must reach Cerbos as grafana_datasource too.
+		{"grafana_query_loki_logs", map[string]any{"datasourceUid": osUID, "logql": "{app=\"x\"}"}, osUID, ""},
+		{"grafana_query_loki_stats", map[string]any{"datasourceUid": osUID, "logql": "{app=\"x\"}"}, osUID, ""},
+		{"grafana_list_loki_label_names", map[string]any{"datasourceUid": osUID}, osUID, ""},
+		{"grafana_list_loki_label_values", map[string]any{"datasourceUid": osUID, "labelName": "app"}, osUID, ""},
 	}
 
 	for _, tc := range cases {

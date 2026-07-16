@@ -85,6 +85,16 @@ backends:
       grafana_list_prometheus_metric_names: *grafana_ds
       grafana_list_prometheus_label_names: *grafana_ds
       grafana_list_prometheus_label_values: *grafana_ds
+      # Loki/VictoriaLogs read tools (toolhive-servers.json) -- same datasourceUid
+      # arg shape as the Prometheus tools above, so they reuse *grafana_ds
+      # verbatim: the OpenSearch-datasource block applies here too, not just to
+      # metrics reads. query_loki_patterns/analyze_loki_labels/
+      # suggest_loki_alloy_label_config are not in the tool allowlist, so they're
+      # not mapped.
+      grafana_query_loki_logs: *grafana_ds
+      grafana_query_loki_stats: *grafana_ds
+      grafana_list_loki_label_names: *grafana_ds
+      grafana_list_loki_label_values: *grafana_ds
       # grafana_gov backend (toolhive-servers.json): same tools, same guardrail --
       # the OpenSearch-datasource block doesn't depend on which Grafana instance
       # the call is aimed at, so it reuses the *grafana_ds body verbatim.
@@ -95,6 +105,10 @@ backends:
       grafana_gov_list_prometheus_metric_names: *grafana_ds
       grafana_gov_list_prometheus_label_names: *grafana_ds
       grafana_gov_list_prometheus_label_values: *grafana_ds
+      grafana_gov_query_loki_logs: *grafana_ds
+      grafana_gov_query_loki_stats: *grafana_ds
+      grafana_gov_list_loki_label_names: *grafana_ds
+      grafana_gov_list_loki_label_values: *grafana_ds
       # Elastic (Kibana Agent Builder) data-access tools -> elastic; Cerbos
       # denies any call whose target index/datastream matches a denied token
       # (${elasticDeniedIndexPatterns}, resource_elastic.yaml), same

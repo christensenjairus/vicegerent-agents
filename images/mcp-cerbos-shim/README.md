@@ -53,7 +53,10 @@ Consequences:
 - The mapped tools are only the ones that name a protected resource: the k8s
   `kind`/resource selectors (`kubernetes_resources_get`, `kubernetes_resources_list`),
   the Grafana datasource-bearing tools (`grafana_get_datasource`,
-  `grafana_query_prometheus*`, `grafana_list_prometheus_*` — `grafana_check_datasources_health`
+  `grafana_query_prometheus*`, `grafana_list_prometheus_*`, `grafana_query_loki_logs`,
+  `grafana_query_loki_stats`, `grafana_list_loki_label_*` — the Loki/VictoriaLogs tools
+  carry the same `datasourceUid` arg as the Prometheus ones, so they hit the same
+  OpenSearch-datasource block; `grafana_check_datasources_health`
   takes a plural `uids` array this single-resource-per-call model can't check, and only
   reveals up/down status rather than a datasource's actual data, so it's unmapped),
   the project/issue-bearing Jira tools
