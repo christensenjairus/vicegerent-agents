@@ -193,7 +193,7 @@
     },
     {
       "name": "grafana",
-      "description": "Grafana observability, read-only (search/datasource/dashboard/prometheus/asserts/annotations/rendering reads). --disable-write is the fail-closed write kill-switch. --disable-proxied turns off Tempo-datasource MCP discovery (unused): without it, being off-VPN makes every session across ALL vMCP backends hang on a live call to Grafana, not just this one. Cerbos additionally blocks reads of OpenSearch datasources.",
+      "description": "Grafana observability, read-only (search/datasource/dashboard/prometheus/loki+victorialogs/asserts/annotations/rendering reads). --disable-write is the fail-closed write kill-switch. --disable-proxied turns off Tempo-datasource MCP discovery (unused): without it, being off-VPN makes every session across ALL vMCP backends hang on a live call to Grafana, not just this one. Cerbos additionally blocks reads of OpenSearch datasources (defs/resource_grafana.yaml), which also covers the Loki/VictoriaLogs tools below via the same grafana_datasource mapping.",
       "enabled": false,
       "type": "registry",
       "registry": "grafana",
@@ -207,7 +207,8 @@
         "get_dashboard_property", "get_dashboard_summary", "query_prometheus", "query_prometheus_histogram",
         "list_prometheus_metric_names", "list_prometheus_metric_metadata", "list_prometheus_label_names",
         "list_prometheus_label_values", "get_assertions", "get_annotations", "get_annotation_tags",
-        "get_panel_image"
+        "get_panel_image", "query_loki_logs", "query_loki_stats", "list_loki_label_names",
+        "list_loki_label_values"
       ],
       "secrets": [
         {"name": "grafana_url", "target": "GRAFANA_URL"},
@@ -216,7 +217,7 @@
     },
     {
       "name": "grafana_gov",
-      "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown and --disable-proxied rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
+      "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown, --disable-proxied, and Loki/VictoriaLogs Cerbos-guardrail rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
       "enabled": false,
       "type": "registry",
       "registry": "grafana",
@@ -230,7 +231,8 @@
         "get_dashboard_property", "get_dashboard_summary", "query_prometheus", "query_prometheus_histogram",
         "list_prometheus_metric_names", "list_prometheus_metric_metadata", "list_prometheus_label_names",
         "list_prometheus_label_values", "get_assertions", "get_annotations", "get_annotation_tags",
-        "get_panel_image"
+        "get_panel_image", "query_loki_logs", "query_loki_stats", "list_loki_label_names",
+        "list_loki_label_values"
       ],
       "secrets": [
         {"name": "grafana_gov_url", "target": "GRAFANA_URL"},
