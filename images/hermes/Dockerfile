@@ -570,6 +570,20 @@ COPY patches/0025-curator-skill-read-marks-contextvar-isolation.py /tmp/0025-cur
 RUN /opt/hermes/.venv/bin/python /tmp/0025-curator-skill-read-marks-contextvar-isolation.py
 RUN rm -f /tmp/0025-curator-skill-read-marks-contextvar-isolation.py
 
+# A parked MCP server (reconnect budget exhausted) used to have its tools
+# deregistered from the global registry, so the model's tool list silently
+# shrank/grew across turns whenever a server had a rough patch. Keep tools
+# registered while parked instead: shutdown() still deregisters them (a
+# genuine, permanent teardown), but the two park-while-still-alive paths in
+# run() no longer do. A tool call against a parked server now returns a
+# clean, human-readable "reconnecting, try again later" error from
+# _make_tool_handler instead of a registry-lookup failure -- without ever
+# calling _signal_reconnect, so the existing 60s self-probe cadence (patch
+# 0022) is completely unaffected by tool-call traffic.
+COPY patches/0027-mcp-parked-tools-stay-registered.py /tmp/0027-mcp-parked-tools-stay-registered.py
+RUN /opt/hermes/.venv/bin/python /tmp/0027-mcp-parked-tools-stay-registered.py
+RUN rm -f /tmp/0027-mcp-parked-tools-stay-registered.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
