@@ -270,6 +270,14 @@ backends:
       # instead.
       # head carried only for create_pull_request (update has no head arg) --
       # feeds resource_github.yaml's deny-pr-not-from-fork.
+      # title/body feed resource_github.yaml's PR title/description format
+      # rules (moveworks-emu/k8s-manifests only). isPrCreate is a literal
+      # constant (not derived from args) distinguishing create from update --
+      # title is a required arg on create_pull_request so it's always
+      # populated there, but body is optional on both tools, and only a
+      # create call omitting body entirely should be treated as a violation
+      # (an update that doesn't touch body isn't reassigning the description
+      # away from a link it may already carry).
       github_create_pull_request:
         <<: *github_repo
         force: {draft: true}
@@ -279,6 +287,9 @@ backends:
           repo: get(args,'repo','')
           branch: get(args,'branch','')
           head: get(args,'head','')
+          title: get(args,'title','')
+          body: get(args,'body','')
+          isPrCreate: "'true'"
       github_update_pull_request:
         <<: *github_repo
         force: {draft: true}
@@ -287,6 +298,9 @@ backends:
           owner: get(args,'owner','')
           repo: get(args,'repo','')
           branch: get(args,'branch','')
+          title: get(args,'title','')
+          body: get(args,'body','')
+          isPrCreate: "'false'"
       github_list_pull_requests: *github_repo
       github_search_pull_requests: *github_repo
       github_request_copilot_review: *github_repo

@@ -35,6 +35,18 @@
 # head or wrong owner is denied. update_pull_request has no head arg (source
 # branch can't change post-creation), so it's not covered. "*" in either var
 # disables the check.
+#
+# deny-pr-title-missing-ticket-ref / deny-pr-body-missing-change-link: PRs
+# against moveworks-emu/k8s-manifests specifically must carry a ticket
+# reference in the title ("[<LINEAR-KEY>] rest of title") and a change-ticket
+# link in the body. Hardcoded to this one owner/repo rather than driven by a
+# cluster-var, since the operator only wants this on the one repo that
+# actually has a change-ticket process, not every allowed repo on every
+# machine. create_pull_request's title is a required arg (mapping.yaml), so
+# a create call always has a populated title to check; body is optional on
+# both tools, so the body rule only fires on create (isPrCreate) -- an
+# update that doesn't touch body isn't reassigning the description away from
+# a link it may already carry.
 apiVersion: api.cerbos.dev/v1
 resourcePolicy:
   version: default
@@ -103,6 +115,51 @@ resourcePolicy:
             + " must come from your personal fork (head must be"
             + " '<fork-owner>:branch' with <fork-owner> matching an allowed"
             + " fork-owner pattern), not a same-repo branch."
+    - name: deny-pr-title-missing-ticket-ref
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.owner == "moveworks-emu"
+            && request.resource.attr.repo == "k8s-manifests"
+            && has(request.resource.attr.title) && request.resource.attr.title
+            != ""
+            && !request.resource.attr.title.matches("^\\[[A-Za-z0-9]+-[0-9]+\\] .+")
+      output:
+        when:
+          ruleActivated: >-
+            "PR titles against moveworks-emu/k8s-manifests must start with a"
+            + " ticket reference, e.g. '[TEAM-1234] My PR Title'."
+    - name: deny-pr-body-missing-change-link
+      actions: ['*']
+      effect: EFFECT_DENY
+      roles: ['*']
+      condition:
+        match:
+          expr: >-
+            request.resource.attr.owner == "moveworks-emu"
+            && request.resource.attr.repo == "k8s-manifests"
+            && (
+            (has(request.resource.attr.isPrCreate) && request.resource.attr.isPrCreate
+            == "true"
+            && (!has(request.resource.attr.body) || request.resource.attr.body
+            == "" || !request.resource.attr.body.matches(
+            "https://bannertech\\.atlassian\\.net/browse/CHANGE-[0-9]+")))
+            ||
+            (has(request.resource.attr.isPrCreate) && request.resource.attr.isPrCreate
+            == "false"
+            && has(request.resource.attr.body) && request.resource.attr.body
+            != "" && !request.resource.attr.body.matches(
+            "https://bannertech\\.atlassian\\.net/browse/CHANGE-[0-9]+"))
+            )
+      output:
+        when:
+          ruleActivated: >-
+            "PR descriptions against moveworks-emu/k8s-manifests must include a"
+            + " change-ticket link, e.g."
+            + " https://bannertech.atlassian.net/browse/CHANGE-1234."
     - name: allow-all
       actions: ['*']
       effect: EFFECT_ALLOW

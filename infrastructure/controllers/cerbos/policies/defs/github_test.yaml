@@ -111,6 +111,104 @@ resources:
     id: christensenjairus/vicegerent-agents
     kind: github_repo
     attr: {owner: christensenjairus, repo: vicegerent-agents, branch: '', head: some-feature-branch}
+  create_k8s_manifests_good_title_and_body:
+    # moveworks-emu/k8s-manifests create with a compliant title+body -- allowed.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      title: '[TEAM-1234] Bump image tag'
+      body: See https://bannertech.atlassian.net/browse/CHANGE-1234 for context
+      isPrCreate: 'true'
+  create_k8s_manifests_bad_title:
+    # Title has no ticket-ref prefix -- denied.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      title: Bump image tag
+      body: https://bannertech.atlassian.net/browse/CHANGE-1234
+      isPrCreate: 'true'
+  create_k8s_manifests_missing_body_link:
+    # Body has no change-ticket link -- denied.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      title: '[TEAM-1234] Bump image tag'
+      body: just some notes, no link
+      isPrCreate: 'true'
+  create_k8s_manifests_no_body_at_all:
+    # create_pull_request called with no body arg at all -- still denied
+    # (missing body is a violation on create, not a pass-through).
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      title: '[TEAM-1234] Bump image tag'
+      isPrCreate: 'true'
+  update_k8s_manifests_untouched_title_body:
+    # update_pull_request that touches neither title nor body -- allowed
+    # regardless of what the PR's existing title/body already are.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: k8s-manifests, branch: '', isPrCreate: 'false'}
+  update_k8s_manifests_sets_bad_title:
+    # update_pull_request that sets a non-compliant title -- denied.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      title: some random title
+      isPrCreate: 'false'
+  update_k8s_manifests_sets_bad_body:
+    # update_pull_request that sets a body with no change-ticket link -- denied.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      body: no link here
+      isPrCreate: 'false'
+  update_k8s_manifests_sets_good_body:
+    # update_pull_request that sets a compliant body -- allowed.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr:
+      owner: moveworks-emu
+      repo: k8s-manifests
+      branch: ''
+      body: https://bannertech.atlassian.net/browse/CHANGE-9999
+      isPrCreate: 'false'
+  create_other_repo_bad_title_and_body:
+    # Same bad title/body shape, but NOT moveworks-emu/k8s-manifests -- the
+    # ticket-ref/change-link rules must not apply outside that one repo.
+    id: christensenjairus/vicegerent-agents
+    kind: github_repo
+    attr:
+      owner: christensenjairus
+      repo: vicegerent-agents
+      branch: ''
+      title: no ticket ref here
+      body: no change link either
+      isPrCreate: 'true'
+  list_pull_requests_k8s_manifests:
+    # A read-only tool mapped to *github_repo (e.g. list_pull_requests) never
+    # carries title/body/isPrCreate at all -- must not be affected.
+    id: moveworks-emu/k8s-manifests
+    kind: github_repo
+    attr: {owner: moveworks-emu, repo: k8s-manifests, branch: ''}
 tests:
   - name: calls confined to an allowed repo are allowed
     input:
@@ -231,4 +329,50 @@ tests:
         actions: {access: EFFECT_DENY}
       - principal: hermes
         resource: create_pr_non_restricted_owner_bare_head
+        actions: {access: EFFECT_ALLOW}
+  - name: PR title/description format is enforced only against moveworks-emu/k8s-manifests
+    input:
+      principals: [hermes]
+      resources:
+        - create_k8s_manifests_good_title_and_body
+        - create_k8s_manifests_bad_title
+        - create_k8s_manifests_missing_body_link
+        - create_k8s_manifests_no_body_at_all
+        - update_k8s_manifests_untouched_title_body
+        - update_k8s_manifests_sets_bad_title
+        - update_k8s_manifests_sets_bad_body
+        - update_k8s_manifests_sets_good_body
+        - create_other_repo_bad_title_and_body
+        - list_pull_requests_k8s_manifests
+      actions: [access]
+    expected:
+      - principal: hermes
+        resource: create_k8s_manifests_good_title_and_body
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_k8s_manifests_bad_title
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_k8s_manifests_missing_body_link
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: create_k8s_manifests_no_body_at_all
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: update_k8s_manifests_untouched_title_body
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: update_k8s_manifests_sets_bad_title
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: update_k8s_manifests_sets_bad_body
+        actions: {access: EFFECT_DENY}
+      - principal: hermes
+        resource: update_k8s_manifests_sets_good_body
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: create_other_repo_bad_title_and_body
+        actions: {access: EFFECT_ALLOW}
+      - principal: hermes
+        resource: list_pull_requests_k8s_manifests
         actions: {access: EFFECT_ALLOW}
