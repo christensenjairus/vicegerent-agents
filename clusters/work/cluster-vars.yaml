@@ -20,7 +20,7 @@ data:
   githubAllowedRepos: >-
     "moveworks-emu/moveworks", "moveworks-emu/k8s-manifests", "moveworks-emu/sec",
     "jchristensen_movester/moveworks", "jchristensen_movester/k8s-manifests",
-    "christensenjairus/vicegerent-agents"
+    "christensenjairus/vicegerent-agents", "jchristensen_movester/Knowledge-Vault"
 
   # Owners requiring fork-qualified PR heads (resource_github.yaml). "*" disables.
   githubForkRequiredOwners: >-
