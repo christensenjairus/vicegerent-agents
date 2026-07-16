@@ -535,6 +535,41 @@ COPY patches/0023-mcp-circuit-breaker-threshold-15.py /tmp/0023-mcp-circuit-brea
 RUN /opt/hermes/.venv/bin/python /tmp/0023-mcp-circuit-breaker-threshold-15.py
 RUN rm -f /tmp/0023-mcp-circuit-breaker-threshold-15.py
 
+# Unwrap the swallowed sub-exception in tools/mcp_tool.py's "connection lost"
+# reconnect-loop warning. anyio TaskGroups (used by the MCP SDK's streamable-
+# HTTP/stdio transports) wrap any single inner-task failure in a
+# BaseExceptionGroup/ExceptionGroup whose default str() is just "unhandled
+# errors in a TaskGroup (N sub-exception(s))" -- confirmed live, 564
+# occurrences of this exact opaque message in errors.log since 2026-07-04
+# with zero diagnostic detail on what actually failed. Purely a
+# logging/diagnostics change -- no reconnect timing, backoff, or control
+# flow is touched. Remove once upstream unwraps ExceptionGroups in this log
+# line itself.
+COPY patches/0024-mcp-connection-lost-diagnostics.py /tmp/0024-mcp-connection-lost-diagnostics.py
+RUN /opt/hermes/.venv/bin/python /tmp/0024-mcp-connection-lost-diagnostics.py
+RUN rm -f /tmp/0024-mcp-connection-lost-diagnostics.py
+
+# Fix tools/skill_manager_tool.py's background-curator read-before-write
+# tracking: it used a ContextVar holding an immutable frozenset, rebound on
+# every mark_background_review_skill_read() call. execute_tool_calls_concurrent
+# dispatches parallel-safe tools (skill_view included) onto worker threads via
+# contextvars.copy_context(), and a ContextVar rebind inside one of those
+# copies is invisible to sibling copies and the parent thread -- so a
+# skill_view mark made in one worker was never visible to the
+# skill_manage(patch) call that follows, causing the background curator's
+# read-before-write guard to fire on literally every patch/edit/delete call.
+# Confirmed live: 223/223 background-curator write failures over 10+ days,
+# 100% failure rate, all with "the current SKILL.md content has not been
+# loaded in this review turn" despite skill_view having in fact just been
+# called. Fix: hold a plain mutable set instead, bound once per curator run
+# and mutated in place thereafter -- copy_context() copies the variable
+# binding (a reference), so every fork after that one bind shares the same
+# underlying set. Remove once upstream fixes this ContextVar/copy_context
+# interaction.
+COPY patches/0025-curator-skill-read-marks-contextvar-isolation.py /tmp/0025-curator-skill-read-marks-contextvar-isolation.py
+RUN /opt/hermes/.venv/bin/python /tmp/0025-curator-skill-read-marks-contextvar-isolation.py
+RUN rm -f /tmp/0025-curator-skill-read-marks-contextvar-isolation.py
+
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
