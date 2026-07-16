@@ -133,7 +133,7 @@ mcp_servers:
       HERMES_HOME: /opt/data
   vmcp:
     url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp
-    timeout: 30
+    timeout: 90
     connect_timeout: 5
 agent:
   max_turns: 150
