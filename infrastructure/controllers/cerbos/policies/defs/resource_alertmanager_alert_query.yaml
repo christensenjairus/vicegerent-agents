@@ -1,14 +1,18 @@
 ---
 # alertmanager_alert_query policy: getAlerts requires a non-empty filterLabel.
 # Calling getAlerts with no filter returns every active alert as
-# unaggregated JSON and reliably times out against
-# mcp-alertmanager's own hardcoded 30s HTTP client timeout -- confirmed live,
-# not theoretical (unfiltered getAlerts times out every time; the identical
-# call with filterLabel=severity=critical succeeds in seconds). This agent
-# only pages on critical severity and has no use for warning/info noise, so
-# requiring a filter isn't just a timeout workaround, it matches the actual
-# operating posture. Denying with no filterLabel at all forces the caller
-# (Cerbos's own tool, or the agent) toward the already-fast, purpose-built
+# unaggregated JSON and reliably times out -- confirmed live, not theoretical
+# (unfiltered getAlerts times out every time; the identical call with
+# filterLabel=severity=critical succeeds in seconds). Originally attributed
+# to mcp-alertmanager's own client-side HTTP timeout, but that was never
+# independently confirmed -- the timeout is equally explained by Hermes's own
+# client-side MCP tool-call timeout (mcp_servers.vmcp.timeout, see
+# charts/agent/templates/_helpers.tpl), which was 30s when this was first
+# written and has since been raised to 90s. This agent only pages on
+# critical severity and has no use for warning/info noise, so requiring a
+# filter isn't just a timeout workaround, it matches the actual operating
+# posture. Denying with no filterLabel at all forces the caller (Cerbos's own
+# tool, or the agent) toward the already-fast, purpose-built
 # getCriticalAlerts/getAlertingSummary tools instead of a call that will
 # never succeed unfiltered.
 #

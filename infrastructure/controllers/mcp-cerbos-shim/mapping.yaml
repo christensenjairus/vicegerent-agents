@@ -13,8 +13,9 @@
 # directly to a protected branch, Linear calls targeting a team other than
 # DEVOPS, Alertmanager silences over the duration cap, Alertmanager getAlerts
 # calls with no filterLabel (an unfiltered call returns every active alert
-# and reliably exceeds mcp-alertmanager's own hardcoded 30s client timeout),
-# out-of-scope PagerDuty incident changes, Notion create-pages calls whose parent isn't
+# and reliably times out; see resource_alertmanager_alert_query.yaml for why
+# the earlier "mcp-alertmanager's own hardcoded 30s client timeout"
+# attribution was retracted), out-of-scope PagerDuty incident changes, Notion create-pages calls whose parent isn't
 # the Scratchpad folder, and Tavily/Firecrawl crawl+map calls targeting an
 # internal-only host or exceeding the limit/depth/breadth caps. GitLab has no mapped tools or Cerbos resource at all
 # (see the GitLab tools comment below). A `force` block instead
@@ -374,10 +375,13 @@ backends:
       # instance the silence is created on.
       alertmanager_gov_createSilence: *alertmanager_create_silence
       # getAlerts with no filterLabel returns every active alert as full
-      # unaggregated JSON, which reliably exceeds
-      # mcp-alertmanager's own hardcoded, unconfigurable 30s client timeout
-      # (confirmed live: unfiltered getAlerts times out; the same call with
-      # filterLabel=severity=critical succeeds in seconds). The operator only
+      # unaggregated JSON, which reliably times out (confirmed live:
+      # unfiltered getAlerts times out; the same call with
+      # filterLabel=severity=critical succeeds in seconds). See
+      # resource_alertmanager_alert_query.yaml -- the earlier attribution to
+      # "mcp-alertmanager's own hardcoded, unconfigurable 30s client timeout"
+      # was retracted; the more likely culprit was Hermes's own client-side
+      # MCP tool-call timeout, since raised from 30s to 90s. The operator only
       # pages on critical severity and doesn't want warnings/info alerts at
       # all, so this isn't just a performance guard -- an unfiltered call is
       # never the right call here. No helper needed: filterLabel is already

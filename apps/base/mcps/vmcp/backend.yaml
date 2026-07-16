@@ -17,6 +17,7 @@ spec:
     tcp:
       connectTimeout: 5s
     http:
-      # Backstop above the Hermes client timeout (30s) so the gateway never
-      # severs an in-flight request the client still considers live.
-      requestTimeout: 60s
+      # Backstop above the Hermes/Claude/Codex client tool-call timeout (90s)
+      # so the gateway never severs an in-flight request the client still
+      # considers live.
+      requestTimeout: 120s
