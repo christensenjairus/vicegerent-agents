@@ -2,6 +2,6 @@
 # https://github.com/kubernetes-sigs/metrics-server/blob/master/charts/metrics-server/values.yaml
 image:
   repository: registry.k8s.io/metrics-server/metrics-server
-  tag: v0.8.1
+  tag: v0.9.0
 # Kind's kubelet serves metrics with a self-signed cert the cluster CA can't verify.
 args: [--kubelet-insecure-tls]
