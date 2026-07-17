@@ -121,7 +121,7 @@ RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
 
 # terragrunt for formatting HCL/Terraform files in repos that use it.
 # renovate: datasource=github-releases depName=gruntwork-io/terragrunt
-ARG TERRAGRUNT_VERSION=v1.1.0
+ARG TERRAGRUNT_VERSION=v1.1.1
 ARG TARGETARCH
 RUN curl -fsSL -o /usr/local/bin/terragrunt \
         "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_${TARGETARCH}" \
