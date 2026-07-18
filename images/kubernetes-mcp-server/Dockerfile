@@ -5,7 +5,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # renovate: datasource=github-tags depName=aws/aws-cli
-ARG AWSCLI_VERSION=2.35.23
+ARG AWSCLI_VERSION=2.36.2
 RUN ARCH="$(dpkg --print-architecture)" \
     && case "$ARCH" in \
          amd64) AWS_ARCH=x86_64 ;; \
