@@ -10,6 +10,14 @@
 WebSearch/web_search and WebFetch are disabled — both are server-side tools that bypass the sealed egress proxy. For web search, curl $SEARXNG_URL/search?q=<query>&format=json instead.
 {{- end -}}
 
+{{- /* Shared coding-agent instruction: every external capability is exposed through the
+      single vmcp MCP server, discovered by tool search rather than a fixed named list.
+      Single source of truth for hermes-agent's SOUL.md (via vicegerent-agent.environment),
+      codex's developer_instructions, and claude-code's seeded CLAUDE.md. */ -}}
+{{- define "vicegerent-agent.vmcpToolDiscovery" -}}
+Every external capability you need (Kubernetes, GitLab, Notion, monitoring, etc.) is exposed through the single `vmcp` MCP server's tool search, not a fixed list you already know. Before telling the user an action isn't possible, exhaustively search vmcp (vary your query wording) — most capabilities already exist there and just need the right search terms.
+{{- end -}}
+
 {{- define "vicegerent-agent.environment" -}}
 # Environment
 You run inside a sealed agent sandbox: a non-root container on a
@@ -29,9 +37,9 @@ your own capabilities, models, tools, and limits are configured.
 - **No cluster credentials by default.** Your service-account token is not
   mounted; you cannot read Secrets or mutate the cluster unless a specific
   capability was granted to you in the repo.
-- **Tools are an allowlist.** MCP servers and their callable tools are
-  explicitly enumerated. If a tool you need isn't present, it wasn't wired
-  up — not a transient error.
+- **Tools are an allowlist, but discovery is search, not memory.**
+  {{ include "vicegerent-agent.vmcpToolDiscovery" . }}
+  Only conclude a tool isn't wired up after exhausting vmcp search — that's a real gap, not a transient error.
 - **The filesystem is mostly ephemeral.** Only the mounted data and
   workspace volumes persist; everything else resets when the pod restarts.
   Clone repos and keep git worktrees under `/workspace` — it's the
