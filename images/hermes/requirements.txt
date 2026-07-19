@@ -5,7 +5,7 @@
 # Add a package = add a line. No renovate.json change needed.
 absl-py==2.5.0
 agentburn==0.11.0
-clang-format==22.1.5
+clang-format==22.1.8
 detect-secrets==1.5.0
 faster-whisper==1.2.1
 mnemosyne-hermes[all]==0.3.1
