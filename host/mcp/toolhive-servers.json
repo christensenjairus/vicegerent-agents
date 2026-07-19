@@ -39,7 +39,7 @@
       "description": "GitLab MCP scoped to issues (read+write) and the merge-request lifecycle short of merging or approving (create/update/review/comment/labels), plus read-only pipeline status/logs. No generic git file/branch-write tools and no repo/project allowlist: the bot has direct SSH to gitlab.hahomelabs.com, so routine git goes through git itself and MCP is only for MR-object actions git can't do. approve/unapprove and merge are excluded (HAH-64) so the bot can't rubber-stamp or merge any MR. execute_graphql is excluded (arbitrary API access would bypass every other exclusion).",
       "enabled": false,
       "type": "npx",
-      "package": "@zereight/mcp-gitlab@2.1.30",
+      "package": "@zereight/mcp-gitlab@2.1.42",
       "env": {"USE_PIPELINE": "true"},
       "secrets": [{"name": "gitlab_token", "target": "GITLAB_PERSONAL_ACCESS_TOKEN"}],
       "network": {
