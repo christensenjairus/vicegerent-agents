@@ -5,7 +5,7 @@
 # renovate: datasource=github-releases depName=agentgateway/agentgateway
 ARG AGW_VERSION=v1.3.1
 
-FROM docker.io/library/rust:1.96.1-trixie AS builder
+FROM docker.io/library/rust:1.97.1-trixie AS builder
 ARG AGW_VERSION
 ARG TARGETARCH
 
