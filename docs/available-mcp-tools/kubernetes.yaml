@@ -25,7 +25,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -44,7 +44,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           namespace:
             type: "string"
             required: false
@@ -55,7 +55,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -66,7 +66,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           name:
             type: "string"
             required: true
@@ -85,7 +85,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           name:
             type: "string"
             required: true
@@ -96,7 +96,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           label_selector:
             type: "string"
             required: false
@@ -111,7 +111,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           name:
             type: "string"
             required: true
@@ -126,7 +126,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -141,7 +141,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           fieldSelector:
             type: "string"
             required: false
@@ -164,7 +164,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           name:
             type: "string"
             required: true
@@ -191,7 +191,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           label_selector:
             type: "string"
             required: false
@@ -210,7 +210,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
       resources_get:
         description: "Get a Kubernetes resource in the current cluster by providing its apiVersion, kind, optionally the namespace, and its name (common apiVersion and kind include: v1 Pod, v1 Service, v1 Node, apps/v1 Deployment, networking.k8s.io/v1 Ingress, route.openshift.io/v1 Route)"
         arguments:
@@ -221,7 +221,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           kind:
             type: "string"
             required: true
@@ -244,7 +244,7 @@ servers:
           context:
             type: "string"
             required: false
-            description: "Optional parameter selecting which context to run the tool in. Defaults to mw_am_usge1_mgmt2_main if not set"
+            description: "Optional parameter selecting which context to run the tool in. Defaults to vicegerent if not set"
           fieldSelector:
             type: "string"
             required: false

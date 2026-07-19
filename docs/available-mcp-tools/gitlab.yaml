@@ -1,8 +1,8 @@
-# available-tools.yaml — catalog of every tool exposed by the running
-# vicegerent MCP backends, with each tool's arguments (type, required,
-# description, enum). Reference for spotting missing tools and for writing
-# cerbos argument-level policies. GENERATED — do not edit by hand.
-# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py gitlab --format yaml -o <this-file>
 group: vicegerent
 tool_count: 134
 servers:
@@ -501,8 +501,12 @@ servers:
             required: true
             description: "Project ID or complete URL-encoded path to project"
       get_merge_request:
-        description: "Get details of a merge request (mergeRequestIid or branchName required)"
+        description: "Get details of a merge request (mergeRequestIid or branchName required). Set include_summaries=true for deployment/commit/approval summaries"
         arguments:
+          include_summaries:
+            type: "boolean"
+            required: false
+            description: "If true, include deployment_summary, commit_addition_summary and approval_summary (extra API calls, larger response). Default false to reduce token usage."
           merge_request_iid:
             type: "string"
             required: false
@@ -684,6 +688,10 @@ servers:
             type: "string"
             required: false
             description: "The IID of a merge request"
+          milestone_id:
+            type: "string"
+            required: false
+            description: "Milestone ID to assign. Set to 0 to unassign. Null is treated as omitted."
           project_id:
             type: "string"
             required: true
@@ -1071,16 +1079,29 @@ servers:
             required: true
             description: "Project ID or complete URL-encoded path to project"
       bulk_publish_draft_notes:
-        description: "Publish all draft notes for a merge request"
+        description: "Publish all draft notes for a merge request. Optionally sets reviewer_state and posts a summary note (GitLab 19.2+). Can set reviewer_state even with no drafts."
         arguments:
+          internal:
+            type: "boolean"
+            required: false
+            description: "If true, the summary note is internal (GitLab 19.2+, default false)"
           merge_request_iid:
             type: "string"
             required: true
             description: "The IID of a merge request"
+          note:
+            type: "string"
+            required: false
+            description: "Summary note body to post on the merge request (GitLab 19.2+)"
           project_id:
             type: "string"
             required: true
             description: "Project ID or complete URL-encoded path to project"
+          reviewer_state:
+            type: "string"
+            required: false
+            description: "Set reviewer review state after publishing (GitLab 19.2+). Does not record a formal approval. Works even with no draft notes."
+            enum: ["requested_changes", "reviewed"]
       list_merge_request_emoji_reactions:
         description: "List all emoji reactions on a merge request"
         arguments:
@@ -1482,8 +1503,12 @@ servers:
             required: false
             description: "Return issues updated before the given time (ISO 8601)"
       get_issue:
-        description: "Get details of a specific issue"
+        description: "Get details of a specific issue. Returns a slim milestone by default; set full_response=true for the complete milestone object"
         arguments:
+          full_response:
+            type: "boolean"
+            required: false
+            description: "If true, return the complete issue object including the full milestone description. Default returns a slim milestone (id, iid, title, state, web_url) to reduce token usage."
           issue_iid:
             type: "string"
             required: true
@@ -1493,7 +1518,7 @@ servers:
             required: true
             description: "Project ID or URL-encoded path"
       update_issue:
-        description: "Update an issue"
+        description: "Update an issue. Returns a slim confirmation by default; set full_response=true for the complete updated issue object"
         arguments:
           assignee_ids:
             type: "array"
@@ -1515,6 +1540,10 @@ servers:
             type: "string"
             required: false
             description: "Date the issue is due (YYYY-MM-DD)"
+          full_response:
+            type: "boolean"
+            required: false
+            description: "If true, return the complete updated issue object. Default returns a slim confirmation (iid, title, state, web_url, updated_at) to reduce token usage."
           issue_iid:
             type: "string"
             required: true
@@ -3002,14 +3031,6 @@ servers:
             type: "string"
             required: true
             description: "The ID of the job"
-          limit:
-            type: "number"
-            required: false
-            description: "Maximum number of lines to return from the end of the log (default: 1000)"
-          offset:
-            type: "number"
-            required: false
-            description: "Number of lines to skip from the end of the log (default: 0)"
           project_id:
             type: "string"
             required: true
@@ -3024,7 +3045,7 @@ servers:
           limit:
             type: "number"
             required: false
-            description: "Maximum number of lines to return from the end of the log (default: 1000)"
+            description: "Maximum number of lines to return from the end of the log (default/max: 1000)"
           offset:
             type: "number"
             required: false
