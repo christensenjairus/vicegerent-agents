@@ -24,7 +24,7 @@ spec:
   chart:
     spec:
       chart: cilium
-      version: 1.19.5
+      version: 1.19.6
       interval: 12h
       sourceRef:
         kind: HelmRepository
