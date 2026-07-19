@@ -1,6 +1,6 @@
 # renovate: datasource=pypi depName=fastmcp
 ARG FASTMCP_VERSION=3.4.4
-FROM python:3.13-slim
+FROM python:3.14-slim
 ARG FASTMCP_VERSION
 RUN pip install --no-cache-dir "fastmcp==${FASTMCP_VERSION}"
 COPY server.py /app/server.py
