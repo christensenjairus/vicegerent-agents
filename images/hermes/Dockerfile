@@ -1,6 +1,6 @@
 # Also supplies the Go toolchain (/usr/local/go) copied into the final image below.
 # renovate: datasource=go depName=golang.org/x/tools/gopls
-ARG GOPLS_VERSION=v0.22.0
+ARG GOPLS_VERSION=v0.23.0
 FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
