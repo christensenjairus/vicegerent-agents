@@ -627,6 +627,14 @@ def build_thv_run_argv(
                     f"{name}: AWS config dir not found: {aws_dir} — run `aws configure` "
                     "/ `aws sso login` first, or set the path via `vicegerent mcp configure`"
                 )
+            # The two overlay mounts below land *inside* the read-only aws_dir mount,
+            # so the container runtime must create their mountpoints by mkdir-ing into
+            # aws_dir's own (now read-only) view -- which fails with EROFS unless the
+            # subdirectory already exists in aws_dir on the host. Pre-create them as
+            # empty parking dirs; the overlay mounts immediately cover them, so no
+            # content is ever actually written into aws_dir itself.
+            (aws_dir / "aws-api-mcp").mkdir(exist_ok=True)
+            (aws_dir / "cli" / "cache").mkdir(parents=True, exist_ok=True)
             argv += ["-v", f"{aws_dir}:{AWS_DIR_CONTAINER_PATH}:ro"]
             # aws-api-mcp-server writes its own state/log under $HOME/.aws/aws-api-mcp,
             # which the read-only creds mount above would block. Overlay a writable
