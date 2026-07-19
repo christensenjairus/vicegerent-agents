@@ -197,7 +197,7 @@ RUN curl -fsSL -o /usr/local/bin/jq \
 
 # Bake buf for repos with a protobuf pre-commit toolchain (buf lint/format).
 # renovate: datasource=github-releases depName=bufbuild/buf
-ARG BUF_VERSION=v1.71.0
+ARG BUF_VERSION=v1.72.0
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
         arm64) BUF_ARCH=aarch64 ;; \
