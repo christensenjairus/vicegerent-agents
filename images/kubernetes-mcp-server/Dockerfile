@@ -18,7 +18,7 @@ RUN ARCH="$(dpkg --print-architecture)" \
     && rm -rf /tmp/awscliv2.zip /tmp/aws
 
 # renovate: datasource=npm depName=kubernetes-mcp-server
-ARG KUBERNETES_MCP_SERVER_VERSION=0.0.64
+ARG KUBERNETES_MCP_SERVER_VERSION=0.0.65
 RUN npm install -g "kubernetes-mcp-server@${KUBERNETES_MCP_SERVER_VERSION}" \
     && npm cache clean --force
 
