@@ -55,3 +55,5 @@ data:
     }
   CLAUDE.md: |-
     {{ include "vicegerent-agent.webSearchInstructions" . | trim }}
+
+    {{ include "vicegerent-agent.vmcpToolDiscovery" . | trim }}
