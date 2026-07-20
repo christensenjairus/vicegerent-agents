@@ -219,7 +219,7 @@ ARG KUSTOMIZE_VERSION=v5.8.1
 # renovate: datasource=github-releases depName=yannh/kubeconform
 ARG KUBECONFORM_VERSION=v0.8.0
 # renovate: datasource=github-releases depName=cerbos/cerbos
-ARG CERBOS_VERSION=v0.53.0
+ARG CERBOS_VERSION=v0.54.0
 ARG TARGETARCH
 RUN case "${TARGETARCH}" in \
         arm64) KUSTOMIZE_ARCH=arm64 ;; \
