@@ -115,7 +115,7 @@
       "description": "Firecrawl web scraping, crawling, and extraction. No write capability exists (every tool reads/scrapes/monitors an arbitrary public URL you supply; nothing touches anything this platform owns), so the tools list below is the full live set pinned explicitly rather than a restriction.",
       "enabled": false,
       "type": "npx",
-      "package": "firecrawl-mcp@3.22.3",
+      "package": "firecrawl-mcp@3.22.4",
       "network": {
         "allow_hosts": ["api.firecrawl.dev"]
       },
