@@ -57,3 +57,5 @@ data:
     {{ include "vicegerent-agent.webSearchInstructions" . | trim }}
 
     {{ include "vicegerent-agent.vmcpToolDiscovery" . | trim }}
+
+    {{ include "vicegerent-agent.worktreeDiscipline" . | trim }}
