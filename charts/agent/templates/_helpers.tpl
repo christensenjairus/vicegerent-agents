@@ -140,6 +140,19 @@ model:
   default: claude-sonnet-5
   context_length: 1000000
   persist_switch_by_default: false
+model_aliases:
+  haiku:
+    model: claude-haiku-4-5
+    provider: anthropic
+  sonnet:
+    model: claude-sonnet-5
+    provider: anthropic
+  opus:
+    model: claude-opus-4-8
+    provider: anthropic
+  gpt-5:
+    model: gpt-5.6-sol
+    provider: openai
 fallback_providers:
   - provider: custom
     model: gpt-5.4
