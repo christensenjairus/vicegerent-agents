@@ -176,6 +176,8 @@ agent:
   max_turns: 150
   gateway_timeout: 900
   reasoning_effort: medium
+  reasoning_overrides:
+    gpt-5.4: none
   disabled_toolsets:
     - computer_use
     - tts

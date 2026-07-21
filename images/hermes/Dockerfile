@@ -697,3 +697,18 @@ RUN rm -f /tmp/0035-slack-flat-text-table-rendering.py
 COPY patches/0036-slack-runtime-footer-dm-only.py /tmp/0036-slack-runtime-footer-dm-only.py
 RUN /opt/hermes/.venv/bin/python /tmp/0036-slack-runtime-footer-dm-only.py
 RUN rm -f /tmp/0036-slack-runtime-footer-dm-only.py
+
+# jiter (the Rust JSON parser the Anthropic SDK's streaming snapshot builder
+# uses to reassemble tool-call input_json_delta chunks) raises a bare
+# ValueError on malformed JSON that is NOT a json.JSONDecodeError subclass,
+# so the classifier's existing "malformed response body -> retryable"
+# exclusion never catches it. Misclassified as a local programming bug, it
+# triggers an immediate non-retryable-error -> fallback-provider switch
+# instead of a same-provider retry, even when the primary call actually
+# returned HTTP 200 (live incident: agentgateway logged a clean 200/3932ms
+# response that Hermes then failed to json-parse). See the patch file for
+# the full writeup. Remove once upstream checks jiter's actual error shape
+# instead of exception-type identity.
+COPY patches/0037-jiter-streaming-parse-error-retryable.py /tmp/0037-jiter-streaming-parse-error-retryable.py
+RUN /opt/hermes/.venv/bin/python /tmp/0037-jiter-streaming-parse-error-retryable.py
+RUN rm -f /tmp/0037-jiter-streaming-parse-error-retryable.py
