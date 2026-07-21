@@ -90,10 +90,16 @@ _EXTRA_PRICES = {
     "anthropic/claude-opus-4-8":            (5.00, 25.00),
     "anthropic/claude-fable-5":             (10.00, 50.00),
     # OpenAI — https://platform.openai.com/docs/pricing (2026-06)
-    # gpt-5.5 short-context price (<272K tokens); long-context is $10/$45.
+    # Short-context price (<272K tokens); long-context roughly doubles both
+    # input and output. gpt-5.6-sol/gpt-5.5 have no separate long-context
+    # cache-writes rate; gpt-5.5-pro/gpt-5.4-pro have no cached-input tier.
     "openai/gpt-4.1":                       (2.00,  8.00),
     "openai/gpt-4o-mini":                   (0.15,  0.60),
+    "openai/gpt-5.6-sol":                   (5.00, 30.00),
+    "openai/gpt-5.6-terra":                 (2.50, 15.00),
+    "openai/gpt-5.6-luna":                  (1.00,  6.00),
     "openai/gpt-5.5":                       (5.00, 30.00),
+    "openai/gpt-5.5-pro":                   (30.00, 180.00),
 }
 # fmt: on
 

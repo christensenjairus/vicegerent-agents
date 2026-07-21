@@ -6,7 +6,7 @@ metadata:
   namespace: agent-sandbox
 data:
   config.toml: |-
-    model = "gpt-5.5"
+    model = "gpt-5.6-sol"
     model_provider = "vicegerent"
     web_search = "disabled"
     developer_instructions = "{{ printf "%s %s %s" (include "vicegerent-agent.webSearchInstructions" . | trim) (include "vicegerent-agent.vmcpToolDiscovery" . | trim) (include "vicegerent-agent.worktreeDiscipline" . | trim) | replace "\"" "\\\"" }}"
