@@ -673,3 +673,16 @@ RUN rm -f /tmp/0031-slack-thread-context-command-detection.py
 COPY patches/0033-slack-rich-blocks-table-only.py /tmp/0033-slack-rich-blocks-table-only.py
 RUN /opt/hermes/.venv/bin/python /tmp/0033-slack-rich-blocks-table-only.py
 RUN rm -f /tmp/0033-slack-rich-blocks-table-only.py
+
+# Fix agentburn's by_model cost breakdown: it only ever read `sessions`
+# (one row per session, model = the session's STARTING model), so a session
+# that switched models mid-conversation via /model had its entire cost
+# credited/blamed on whichever model it started with -- silently dropping
+# every dollar spent on a model switched to later. Loads Hermes'
+# session_model_usage table (per-(session, model) cost/token split) and uses
+# it for by_model whenever a session has rows there, falling back to the old
+# whole-session attribution otherwise. Remove once agentburn's own Hermes
+# adapter reads session_model_usage natively.
+COPY patches/0034-agentburn-per-model-cost-attribution.py /tmp/0034-agentburn-per-model-cost-attribution.py
+RUN /opt/hermes/.venv/bin/python /tmp/0034-agentburn-per-model-cost-attribution.py
+RUN rm -f /tmp/0034-agentburn-per-model-cost-attribution.py
