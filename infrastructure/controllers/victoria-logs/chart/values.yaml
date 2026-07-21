@@ -7,6 +7,8 @@ server:
     repository: victoriametrics/victoria-logs
     tag: v1.52.0
   retentionPeriod: 7d
+  extraArgs:
+    retention.maxDiskSpaceUsageBytes: 5GiB
   persistentVolume:
     size: 10Gi
     storageClassName: csi-hostpath-sc
