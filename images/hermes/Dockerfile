@@ -661,19 +661,6 @@ COPY patches/0031-slack-thread-context-command-detection.py /tmp/0031-slack-thre
 RUN /opt/hermes/.venv/bin/python /tmp/0031-slack-thread-context-command-detection.py
 RUN rm -f /tmp/0031-slack-thread-context-command-detection.py
 
-# Stop Slack rich-blocks rendering from exploding ordinary prose (headers,
-# lists, quotes, horizontal rules, fenced code, paragraphs) into one Block
-# Kit block per structural element -- Slack's own per-block padding made
-# otherwise-short responses tall enough to trigger the client's "Show More"
-# collapse. Only markdown pipe-tables now get their own structural block
-# (native `table`, unchanged); everything else folds into flat mrkdwn
-# `section` blocks, restoring pre-rich-blocks compactness while keeping
-# native table rendering. Remove once upstream Hermes's renderer does the
-# same, or Slack's client-side collapse threshold changes.
-COPY patches/0033-slack-rich-blocks-table-only.py /tmp/0033-slack-rich-blocks-table-only.py
-RUN /opt/hermes/.venv/bin/python /tmp/0033-slack-rich-blocks-table-only.py
-RUN rm -f /tmp/0033-slack-rich-blocks-table-only.py
-
 # Fix agentburn's by_model cost breakdown: it only ever read `sessions`
 # (one row per session, model = the session's STARTING model), so a session
 # that switched models mid-conversation via /model had its entire cost
@@ -686,3 +673,16 @@ RUN rm -f /tmp/0033-slack-rich-blocks-table-only.py
 COPY patches/0034-agentburn-per-model-cost-attribution.py /tmp/0034-agentburn-per-model-cost-attribution.py
 RUN /opt/hermes/.venv/bin/python /tmp/0034-agentburn-per-model-cost-attribution.py
 RUN rm -f /tmp/0034-agentburn-per-model-cost-attribution.py
+
+# Render markdown pipe-tables as fenced, aligned-monospace text in
+# format_message() -- the flat-text-only table rendering, now that
+# slack.extra.rich_blocks is disabled entirely (its Block Kit table block
+# carried its own "Show more"/"Show less" collapse chrome on every
+# surrounding section, worse than the raw-pipe rendering it replaced;
+# patch 0033's table-only Block Kit rendering was removed for the same
+# reason -- see this repo's MR history). Remove once Slack's own client
+# stops applying per-block collapse chrome to Block Kit sections, or a
+# native non-collapsing table primitive becomes available.
+COPY patches/0035-slack-flat-text-table-rendering.py /tmp/0035-slack-flat-text-table-rendering.py
+RUN /opt/hermes/.venv/bin/python /tmp/0035-slack-flat-text-table-rendering.py
+RUN rm -f /tmp/0035-slack-flat-text-table-rendering.py
