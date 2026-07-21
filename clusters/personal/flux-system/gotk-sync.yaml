@@ -8,7 +8,7 @@ metadata:
 spec:
   interval: 1m0s
   ref:
-    branch: upgrade/hermes-agent-2026.7.20
+    branch: main
   secretRef:
     name: flux-system
   url: ssh://git@gitlab.hahomelabs.com/jchristensen/vicegerent-agents.git
