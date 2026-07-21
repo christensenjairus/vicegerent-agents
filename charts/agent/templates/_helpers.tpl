@@ -18,6 +18,17 @@ WebSearch/web_search and WebFetch are disabled — both are server-side tools th
 Every external capability you need (Kubernetes, GitLab, Notion, monitoring, etc.) is exposed through the single `vmcp` MCP server's tool search, not a fixed list you already know. Before telling the user an action isn't possible, exhaustively search vmcp (vary your query wording) — most capabilities already exist there and just need the right search terms.
 {{- end -}}
 
+{{- /* Shared coding-agent instruction: use .worktrees correctly for any repo with a
+      persistent clone under /workspace. Single source of truth for hermes-agent's
+      SOUL.md (via vicegerent-agent.environment), codex's developer_instructions, and
+      claude-code's seeded CLAUDE.md — a wrong-worktree edit was observed live wasting
+      most of an hour of agent runtime (edits landed in the primary clone instead of
+      the assigned .worktrees/<branch>, and a full-repo validation script then scanned
+      unrelated sibling worktrees and failed on their content). */ -}}
+{{- define "vicegerent-agent.worktreeDiscipline" -}}
+When working on a dedicated branch in a repo that already has a persistent clone under `/workspace/<repo>`, use `git worktree add .worktrees/<branch>` off that clone — never a second clone, and never edit directly in the primary clone once you're on a task branch. Before your FIRST file edit in any session, confirm with `pwd` and `git branch --show-current` that you are actually inside the assigned `.worktrees/<branch>` directory, not the primary clone — both look like valid checkouts and nothing errors immediately if you're in the wrong one. This matters especially for full-repo validation scripts (`pre-commit run --all-files`, custom `validate.sh` globs): run from the primary clone, they also scan sibling `.worktrees/` content and can fail on unrelated in-progress work, which looks like a broken repo but is actually a location bug.
+{{- end -}}
+
 {{- define "vicegerent-agent.environment" -}}
 # Environment
 You run inside a sealed agent sandbox: a non-root container on a
@@ -45,6 +56,8 @@ your own capabilities, models, tools, and limits are configured.
   Clone repos and keep git worktrees under `/workspace` — it's the
   persistent volume for git repos and survives pod restarts; anywhere
   else is wiped.
+- **Use `.worktrees` correctly for any repo already cloned under `/workspace`.**
+  {{ include "vicegerent-agent.worktreeDiscipline" . }}
 
 ## When you hit a wall
 If a task is blocked by the sandbox itself — a missing tool, a sealed
@@ -96,8 +109,6 @@ Pick the model that fits the task: heavier reasoning for complex/design work, li
 
 # Expectations
 - Workspace layout: one full clone per repo under /workspace/<repo-name> (git blame/log -p work inline).
-- Dedicated branch work uses `git worktree add` off that clone, with worktrees kept alongside it in
-  the same repo folder — never a second clone.
 - Be thorough in your debugging. Find a smoking gun before suggesting a fix.
 - Never guess or assume, always back up statements with data.
 - You are designed to be AUTONOMOUS. Run issues to completion or until you get stuck.
