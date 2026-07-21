@@ -27,10 +27,10 @@ Snapshot ``agent.session_estimated_cost_usd`` immediately before
 ``run_conversation()``, read it again immediately afterward, and calculate the
 turn delta. Snapshot wall-clock time around the same call to calculate the last
 turn's duration. These values are added to the two gateway return dictionaries,
-then passed to the footer. A requested ``cost`` field renders both spend values
-as four decimal places for the turn and two for the session; ``duration`` renders
-seconds or compact minutes and seconds. Missing values are silently skipped like
-the existing fields.
+then passed to the footer. A requested ``cost`` field renders both spend
+values rounded to two decimal places; ``duration`` renders seconds or compact
+minutes and seconds. Missing values are silently skipped like the existing
+fields.
 
 Fail-loud by design: every anchor must occur exactly once against the source
 after patches 0028 and 0036, or the image build stops for re-verification.
@@ -153,7 +153,7 @@ REPLACEMENT_FORMAT_FIELDS = (
     "        elif field == \"cost\":\n"
     "            if turn_cost_usd is not None and session_cost_usd is not None:\n"
     "                parts.append(\n"
-    "                    f\"${turn_cost_usd:.4f} turn · ${session_cost_usd:.2f} session\"\n"
+    "                    f\"${turn_cost_usd:.2f} turn · ${session_cost_usd:.2f} session\"\n"
     "                )\n"
     "        elif field == \"duration\":\n"
     "            if turn_duration_s is not None:\n"
