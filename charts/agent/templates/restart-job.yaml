@@ -20,6 +20,7 @@ spec:
           type: RuntimeDefault
       containers:
         - name: restart
+          # renovate: datasource=docker depName=alpine/k8s
           image: alpine/k8s:1.36.2
           securityContext:
             allowPrivilegeEscalation: false

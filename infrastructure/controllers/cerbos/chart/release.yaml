@@ -17,7 +17,7 @@ spec:
   chart:
     spec:
       chart: cerbos
-      version: 0.53.0
+      version: 0.54.0
       interval: 12h
       sourceRef:
         kind: HelmRepository
