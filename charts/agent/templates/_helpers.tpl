@@ -139,6 +139,7 @@ model_catalog:
 model:
   default: claude-sonnet-5
   context_length: 1000000
+  persist_switch_by_default: false
 fallback_providers:
   - provider: custom
     model: gpt-5.4
