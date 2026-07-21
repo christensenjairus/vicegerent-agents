@@ -686,3 +686,14 @@ RUN rm -f /tmp/0034-agentburn-per-model-cost-attribution.py
 COPY patches/0035-slack-flat-text-table-rendering.py /tmp/0035-slack-flat-text-table-rendering.py
 RUN /opt/hermes/.venv/bin/python /tmp/0035-slack-flat-text-table-rendering.py
 RUN rm -f /tmp/0035-slack-flat-text-table-rendering.py
+
+# Suppress the Slack runtime footer (model/context/effort/cwd) outside DMs.
+# display.platforms.slack.runtime_footer.enabled is on unconditionally in
+# this chart's default, which is fine 1:1 but leaks internal runtime state
+# into any shared channel the bot is invited into. Gates the single footer
+# build call site on source.chat_id starting with "D" (Slack's own DM
+# channel-ID prefix); every other platform is unaffected. Remove once
+# upstream Hermes's runtime_footer gains native per-channel-type scoping.
+COPY patches/0036-slack-runtime-footer-dm-only.py /tmp/0036-slack-runtime-footer-dm-only.py
+RUN /opt/hermes/.venv/bin/python /tmp/0036-slack-runtime-footer-dm-only.py
+RUN rm -f /tmp/0036-slack-runtime-footer-dm-only.py
