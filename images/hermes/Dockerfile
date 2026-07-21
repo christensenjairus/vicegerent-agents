@@ -641,3 +641,15 @@ RUN rm -f /tmp/0028-runtime-footer-effort-field.py
 COPY patches/0030-per-platform-verifier-and-memory-notifications.py /tmp/0030-per-platform-verifier-and-memory-notifications.py
 RUN /opt/hermes/.venv/bin/python /tmp/0030-per-platform-verifier-and-memory-notifications.py
 RUN rm -f /tmp/0030-per-platform-verifier-and-memory-notifications.py
+
+# Fix Slack thread-context injection masking in-thread /model, !model,
+# /reasoning, !reasoning, /stop, etc. -- prepending the fetched thread
+# summary directly onto the trigger message's `text` made `event.text` no
+# longer start with "/", so every `event.get_command()` check silently
+# returned None and the command dispatched as plain chat instead. Routed
+# through MessageEvent.channel_context (already consumed correctly, and
+# late, by gateway/run.py) instead. Remove once upstream Hermes's Slack
+# adapter does the same.
+COPY patches/0031-slack-thread-context-command-detection.py /tmp/0031-slack-thread-context-command-detection.py
+RUN /opt/hermes/.venv/bin/python /tmp/0031-slack-thread-context-command-detection.py
+RUN rm -f /tmp/0031-slack-thread-context-command-detection.py
