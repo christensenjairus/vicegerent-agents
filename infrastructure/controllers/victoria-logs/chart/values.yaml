@@ -3,6 +3,9 @@
 # https://github.com/VictoriaMetrics/helm-charts/blob/master/charts/victoria-logs-single/values.yaml
 nameOverride: victoria-logs
 server:
+  image:
+    repository: victoriametrics/victoria-logs
+    tag: v1.52.0
   retentionPeriod: 7d
   persistentVolume:
     size: 10Gi

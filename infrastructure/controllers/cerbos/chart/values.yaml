@@ -1,6 +1,9 @@
 ---
 # Upstream default values:
-# https://github.com/cerbos/helm-charts/blob/main/charts/cerbos/values.yaml
+# https://github.com/cerbos/cerbos/blob/main/deploy/charts/cerbos/values.yaml
+image:
+  repository: ghcr.io/cerbos/cerbos
+  tag: 0.54.0
 resources:
   requests:
     cpu: 50m
