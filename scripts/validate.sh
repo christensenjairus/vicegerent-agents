@@ -47,12 +47,15 @@ require_tools() {
 }
 
 download_and_extract_schemas() {
-  local tmp_dir tmp_tar
+  local tmp_dir tmp_tar rc=0
   tmp_dir="$(mktemp -d /tmp/flux-schemas.XXXXXX)"
   tmp_tar="$tmp_dir/schemas.tar.gz"
-  curl -sfL --connect-timeout 10 --max-time 60 "$SCHEMA_URL" -o "$tmp_tar"
-  tar zxf "$tmp_tar" -C "$SCHEMA_DEST"
+  curl -sfL --connect-timeout 10 --max-time 60 "$SCHEMA_URL" -o "$tmp_tar" || rc=$?
+  if (( rc == 0 )); then
+    tar zxf "$tmp_tar" -C "$SCHEMA_DEST" || rc=$?
+  fi
   rm -rf "$tmp_dir"
+  return "$rc"
 }
 
 ensure_flux_schemas() {
@@ -180,7 +183,7 @@ echo "INFO - Validating kustomize overlays"
 repo_kustomizations | while IFS= read -r -d $'\0' file; do
   dir="${file/%$kustomize_config}"
   echo "INFO - Validating kustomization $dir"
-  retry_cmd bash -c "kustomize build '$dir' ${kustomize_flags[*]} | kubeconform ${kubeconform_flags[*]} ${kubeconform_config[*]}"
+  retry_cmd bash -c "set -o pipefail; kustomize build '$dir' ${kustomize_flags[*]} | kubeconform ${kubeconform_flags[*]} ${kubeconform_config[*]}"
 done
 
 cerbos_policy_dir="infrastructure/controllers/cerbos/policies/defs"
