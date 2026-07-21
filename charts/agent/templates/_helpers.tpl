@@ -117,6 +117,10 @@ providers:
     api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1
     key_env: OPENAI_API_KEY
     transport: responses
+model_catalog:
+  excluded_providers:
+    - anthropic
+    - openai
 {{- end -}}
 
 {{- /* Platform-wide operational defaults; overridable per-agent via values.config. */ -}}
@@ -156,7 +160,6 @@ platform_toolsets:
   slack:
     - hermes-slack
     - kanban
-    - moa
 toolsets:
   - hermes-cli
   - kanban

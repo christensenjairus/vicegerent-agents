@@ -10,7 +10,7 @@ on.
 ## Why a derived image
 
 The stock image ships the Hermes runtime but **not** the pieces this platform
-relies on. Verified against the upstream arm64 image (`v2026.7.7.2`):
+relies on. Verified against the upstream arm64 image (`v2026.7.20`):
 
 | Needed | In stock image? |
 | --- | --- |
@@ -31,7 +31,7 @@ egress-locked cluster only ever pulls.
 docker login harbor.hahomelabs.com
 make image PLATFORM=linux/arm64      # Kind on Apple Silicon
 make push
-# or: make release PLATFORM=linux/arm64 TAG=v2026.7.7.2
+# or: make release PLATFORM=linux/arm64 TAG=v2026.7.20
 ```
 
 `make help` lists targets. `TAG` defaults to the upstream version; bump it when
@@ -111,10 +111,10 @@ repointed at this Harbor image, tracked by the `custom.regex` Renovate manager.
 Upstream Hermes is also customized at build time by numbered Python scripts in
 `patches/`, each `COPY`d in, run against `/opt/hermes/.venv`, then deleted. They edit
 installed package files in place and self-verify where feasible; remove one once the
-fix lands upstream. (Numbering is sparse — 0002/0003/0010 were dropped.)
+fix lands upstream. (Numbering is sparse — 0001/0002/0003/0010 were dropped; 0001 was
+upstream's own fix for offline Tool Search context-length resolution, landed natively
+by v2026.7.20.)
 
-- `0001-toolsearch-context-length.py` — resolve Tool Search context length offline so
-  it never dials `openrouter.ai` at startup behind the egress lockdown.
 - `0004-agentburn.py` — `HERMES_HOME` support for the agentburn adapter and missing
   Anthropic/OpenAI model prices.
 - `0006-slack-command-name.py` — make the catch-all Slack slash command configurable
