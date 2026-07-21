@@ -5,6 +5,194 @@ FROM golang:1.26 AS gopls
 ARG GOPLS_VERSION
 RUN GOBIN=/out GOTOOLCHAIN=auto go install "golang.org/x/tools/gopls@${GOPLS_VERSION}"
 
+# Every purely-static release binary this image bakes, fetched here instead
+# of in the main stage below so a Renovate bump of the nousresearch/hermes-agent
+# base (FROM line further down) doesn't invalidate any of these downloads --
+# none of them depend on the base image's contents. Kept on a plain floating
+# tag (no digest pin), matching the gopls/mnemosyne-models builder stages'
+# convention below.
+#
+# Portability note: every tool here except tirith ships a statically-linked
+# Go/Rust binary (CGO_ENABLED=0 equivalent), so its glibc/musl ABI is
+# irrelevant -- only architecture (TARGETARCH) matters. tirith's release
+# asset is named "...-unknown-linux-gnu.tar.gz", i.e. dynamically linked
+# against glibc, but nothing in this stage executes it (verification happens
+# in the main stage against the real target ABI -- see below). This stage
+# uses debian:trixie-slim (glibc 2.41) rather than bookworm-slim (glibc
+# 2.36) because the real bazel(1) binary bazelisk downloads below to warm
+# its cache IS executed here and is itself glibc-linked. Hit exactly this
+# class of failure with rtk's arm64 build needing GLIBC_2.39 against
+# bookworm's 2.36 -- fixed by removing rtk's version-check from this stage
+# entirely (this stage's glibc was never relevant to rtk's compatibility
+# with the final image; the main stage's re-verification catches any real
+# incompatibility). Bumping to trixie is extra headroom for the one thing
+# that does execute here (bazelisk's real download-and-run).
+FROM debian:trixie-slim AS tools
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates curl tar unzip \
+    && rm -rf /var/lib/apt/lists/*
+ARG TARGETARCH
+
+# terraform-ls is downloaded from HashiCorp releases; strip leading v for URL.
+# renovate: datasource=github-releases depName=hashicorp/terraform-ls
+ARG TERRAFORM_LS_VERSION=v0.38.8
+RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
+    && curl -fsSL -o /tmp/terraform-ls.zip \
+        "https://releases.hashicorp.com/terraform-ls/${TFLS_VER}/terraform-ls_${TFLS_VER}_linux_${TARGETARCH}.zip" \
+    && unzip -o /tmp/terraform-ls.zip -d /usr/local/bin \
+    && chmod +x /usr/local/bin/terraform-ls \
+    && rm /tmp/terraform-ls.zip
+
+# terragrunt for formatting HCL/Terraform files in repos that use it.
+# renovate: datasource=github-releases depName=gruntwork-io/terragrunt
+ARG TERRAGRUNT_VERSION=v1.1.1
+RUN curl -fsSL -o /usr/local/bin/terragrunt \
+        "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_${TARGETARCH}" \
+    && chmod +x /usr/local/bin/terragrunt
+
+# Bake tirith pre-exec scanner; runtime auto-download would fail behind egress policy.
+# renovate: datasource=github-releases depName=sheeki03/tirith
+ARG TIRITH_VERSION=v0.3.3
+RUN case "${TARGETARCH}" in \
+        arm64) TIRITH_ARCH=aarch64 ;; \
+        amd64) TIRITH_ARCH=x86_64 ;; \
+        *) echo "tirith: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/tirith.tar.gz \
+        "https://github.com/sheeki03/tirith/releases/download/${TIRITH_VERSION}/tirith-${TIRITH_ARCH}-unknown-linux-gnu.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/tirith.tar.gz tirith \
+    && chmod +x /usr/local/bin/tirith \
+    && rm /tmp/tirith.tar.gz
+
+# Bake jq/yq only; cluster/cloud CLIs belong in MCP servers, not the sandbox image.
+# renovate: datasource=github-releases depName=jqlang/jq
+ARG JQ_VERSION=1.8.2
+# renovate: datasource=github-releases depName=mikefarah/yq
+ARG YQ_VERSION=v4.53.3
+RUN curl -fsSL -o /usr/local/bin/jq \
+        "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
+    && chmod +x /usr/local/bin/jq \
+    && curl -fsSL -o /usr/local/bin/yq \
+        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH}" \
+    && chmod +x /usr/local/bin/yq
+
+# Bake buf for repos with a protobuf pre-commit toolchain (buf lint/format).
+# renovate: datasource=github-releases depName=bufbuild/buf
+ARG BUF_VERSION=v1.72.0
+RUN case "${TARGETARCH}" in \
+        arm64) BUF_ARCH=aarch64 ;; \
+        amd64) BUF_ARCH=x86_64 ;; \
+        *) echo "buf: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/buf.tar.gz \
+        "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}.tar.gz" \
+    && tar -xz -C /tmp -f /tmp/buf.tar.gz buf/bin/buf --strip-components=2 \
+    && mv /tmp/buf /usr/local/bin/buf \
+    && rm /tmp/buf.tar.gz \
+    && chmod +x /usr/local/bin/buf
+
+# Bake kustomize + kubeconform + cerbos + helm so validate.sh and pre-commit hooks
+# work offline in the egress-locked sandbox without downloading at runtime.
+# renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
+ARG KUSTOMIZE_VERSION=v5.8.1
+# renovate: datasource=github-releases depName=yannh/kubeconform
+ARG KUBECONFORM_VERSION=v0.8.0
+# renovate: datasource=github-releases depName=cerbos/cerbos
+ARG CERBOS_VERSION=v0.54.0
+RUN case "${TARGETARCH}" in \
+        arm64) KUSTOMIZE_ARCH=arm64 ;; \
+        amd64) KUSTOMIZE_ARCH=amd64 ;; \
+        *) echo "kustomize: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/kustomize.tar.gz \
+        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_${KUSTOMIZE_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/kustomize.tar.gz kustomize \
+    && rm /tmp/kustomize.tar.gz \
+    && curl -fsSL -o /tmp/kubeconform.tar.gz \
+        "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${TARGETARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/kubeconform.tar.gz kubeconform \
+    && rm /tmp/kubeconform.tar.gz \
+    && CERBOS_VER="${CERBOS_VERSION#v}" \
+    && case "${TARGETARCH}" in \
+        arm64) CERBOS_ARCH=arm64 ;; \
+        amd64) CERBOS_ARCH=x86_64 ;; \
+        *) echo "cerbos: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/cerbos.tar.gz \
+        "https://github.com/cerbos/cerbos/releases/download/${CERBOS_VERSION}/cerbos_${CERBOS_VER}_Linux_${CERBOS_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/cerbos.tar.gz cerbos \
+    && rm /tmp/cerbos.tar.gz
+
+# Bake helm so scripts/validate.sh and pre-commit validate-flux-manifests can run offline.
+# renovate: datasource=github-releases depName=helm/helm
+ARG HELM_VERSION=v4.2.3
+RUN case "${TARGETARCH}" in \
+        arm64) HELM_ARCH=arm64 ;; \
+        amd64) HELM_ARCH=amd64 ;; \
+        *) echo "helm: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/helm.tar.gz \
+        "https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz" \
+    && tar -xz -C /usr/local/bin --strip-components=1 \
+        -f /tmp/helm.tar.gz "linux-${HELM_ARCH}/helm" \
+    && rm /tmp/helm.tar.gz
+
+# Bake bazelisk + buildifier/buildozer so agents can build/run Bazel targets in
+# repos that use Bazel (e.g. k8s-manifests' helm_charts renders), and reformat/edit
+# BUILD files, entirely offline in the egress-locked sandbox. bazelisk itself is a thin
+# version-selecting launcher; the actual bazel(1) binary it execs is downloaded on first
+# use from releases.bazel.build (verified: NOT github.com -- a plain
+# `bazelisk version` attempt against the sandbox's own egress proxy gets a hard
+# `Forbidden` from releases.bazel.build even though github.com release assets are
+# reachable). Pre-warming bazelisk's on-disk cache at build time (BAZELISK_HOME below,
+# baked with BAZEL_PINNED_VERSION) means the sandbox never has to dial
+# releases.bazel.build at runtime for that one pinned version -- but this build step
+# itself needs releases.bazel.build reachable from wherever `docker build` runs (the
+# operator's laptop per this README, not the sandbox). Bzlmod dependency resolution
+# (bcr.bazel.build, or an internal mirror) still needs its host reachable at *runtime* --
+# this bake only guarantees bazel/buildozer/buildifier themselves are present offline.
+# renovate: datasource=github-releases depName=bazelbuild/bazelisk
+ARG BAZELISK_VERSION=v1.29.0
+# renovate: datasource=github-releases depName=bazelbuild/buildtools
+ARG BUILDTOOLS_VERSION=v8.5.1
+# Pinned Bazel release to pre-warm bazelisk's cache with; keep in sync with the
+# .bazelversion of the Bazel repos this sandbox operates against (k8s-manifests: 8.5.1).
+ARG BAZEL_PINNED_VERSION=8.5.1
+ENV BAZELISK_HOME=/opt/hermes/.cache/bazelisk
+RUN case "${TARGETARCH}" in \
+        arm64) BT_ARCH=arm64 ;; \
+        amd64) BT_ARCH=amd64 ;; \
+        *) echo "bazelisk/buildtools: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /usr/local/bin/bazelisk \
+        "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/bazelisk \
+    && ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel \
+    && curl -fsSL -o /usr/local/bin/buildifier \
+        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildifier-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/buildifier \
+    && curl -fsSL -o /usr/local/bin/buildozer \
+        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildozer-linux-${BT_ARCH}" \
+    && chmod +x /usr/local/bin/buildozer \
+    && mkdir -p "${BAZELISK_HOME}" \
+    && USE_BAZEL_VERSION="${BAZEL_PINNED_VERSION}" bazelisk version \
+    && test -n "$(find "${BAZELISK_HOME}" -type f -name 'bazel-real' -o -type f -iname 'bazel*' 2>/dev/null | head -1)" \
+    && chmod -R a+rX "${BAZELISK_HOME}"
+
+# Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
+# renovate: datasource=github-releases depName=rtk-ai/rtk
+ARG RTK_VERSION=v0.43.0
+RUN case "${TARGETARCH}" in \
+        arm64) RTK_TRIPLE=aarch64-unknown-linux-gnu ;; \
+        amd64) RTK_TRIPLE=x86_64-unknown-linux-musl ;; \
+        *) echo "rtk: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
+    esac \
+    && curl -fsSL -o /tmp/rtk.tar.gz \
+        "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/rtk-${RTK_TRIPLE}.tar.gz" \
+    && tar -xz -C /usr/local/bin -f /tmp/rtk.tar.gz rtk \
+    && chmod +x /usr/local/bin/rtk \
+    && rm /tmp/rtk.tar.gz
+
 # Offline Mnemosyne + STT model seed for the egress-locked sandbox; preserve HF cache layout.
 FROM python:3.14-slim AS mnemosyne-models
 # renovate: datasource=pypi depName=huggingface-hub
@@ -107,26 +295,13 @@ RUN cd /tmp/npm \
         $(node -p "Object.entries(require('./package.json').dependencies).map(([k,v])=>k+'@'+v).join(' ')") \
     && rm -rf /tmp/npm /root/.npm
 
-# terraform-ls is downloaded from HashiCorp releases; strip leading v for URL.
-# renovate: datasource=github-releases depName=hashicorp/terraform-ls
-ARG TERRAFORM_LS_VERSION=v0.38.8
-ARG TARGETARCH
-RUN TFLS_VER="${TERRAFORM_LS_VERSION#v}" \
-    && curl -fsSL -o /tmp/terraform-ls.zip \
-        "https://releases.hashicorp.com/terraform-ls/${TFLS_VER}/terraform-ls_${TFLS_VER}_linux_${TARGETARCH}.zip" \
-    && python3 -c "import zipfile; zipfile.ZipFile('/tmp/terraform-ls.zip').extractall('/usr/local/bin')" \
-    && chmod +x /usr/local/bin/terraform-ls \
-    && rm /tmp/terraform-ls.zip \
-    && terraform-ls version
-
-# terragrunt for formatting HCL/Terraform files in repos that use it.
-# renovate: datasource=github-releases depName=gruntwork-io/terragrunt
-ARG TERRAGRUNT_VERSION=v1.1.1
-ARG TARGETARCH
-RUN curl -fsSL -o /usr/local/bin/terragrunt \
-        "https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}/terragrunt_linux_${TARGETARCH}" \
-    && chmod +x /usr/local/bin/terragrunt \
-    && terragrunt --version
+# terraform-ls, terragrunt, tirith, jq, yq, buf, kustomize, kubeconform,
+# cerbos, helm, bazelisk/buildifier/buildozer, and rtk are all baked in the
+# independent `tools` stage above (decoupled from this base image so a
+# Renovate bump here doesn't invalidate any of those downloads). Only
+# runtime-required apt packages (openjdk for keytool) and env vars stay here.
+COPY --from=tools /usr/local/bin/terraform-ls /usr/local/bin/terraform-ls
+COPY --from=tools /usr/local/bin/terragrunt /usr/local/bin/terragrunt
 
 # Full Go toolchain so agents can build/test Go code (e.g. mcp-cerbos-shim).
 COPY --from=gopls /usr/local/go /usr/local/go
@@ -147,21 +322,8 @@ RUN LCM_DEST="$(/opt/hermes/.venv/bin/python -c 'import plugins.context_engine a
         | tar -xz -C "$LCM_DEST" --strip-components=1 \
     && /opt/hermes/.venv/bin/python -c "from plugins.context_engine import discover_context_engines as d; assert 'lcm' in [n for n, _, _ in d()], 'lcm engine not discovered after bake'; print('hermes-lcm ${HERMES_LCM_VERSION} baked + discoverable')"
 
-# Bake tirith pre-exec scanner; runtime auto-download would fail behind egress policy.
-# renovate: datasource=github-releases depName=sheeki03/tirith
-ARG TIRITH_VERSION=v0.3.3
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        arm64) TIRITH_ARCH=aarch64 ;; \
-        amd64) TIRITH_ARCH=x86_64 ;; \
-        *) echo "tirith: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/tirith.tar.gz \
-        "https://github.com/sheeki03/tirith/releases/download/${TIRITH_VERSION}/tirith-${TIRITH_ARCH}-unknown-linux-gnu.tar.gz" \
-    && tar -xz -C /usr/local/bin -f /tmp/tirith.tar.gz tirith \
-    && chmod +x /usr/local/bin/tirith \
-    && rm /tmp/tirith.tar.gz \
-    && tirith --version
+COPY --from=tools /usr/local/bin/tirith /usr/local/bin/tirith
+RUN tirith --version
 
 # cluster/cloud CLIs belong in MCP servers, not the sandbox image: shadow
 # their conventional binary names with a stub that redirects an agent to the
@@ -180,158 +342,50 @@ RUN while IFS= read -r name; do \
     && rm /tmp/vmcp-redirect-binaries.txt \
     && kubectl 2>&1 | grep -q "use the vMCP server instead"
 
-# Bake jq/yq only; cluster/cloud CLIs belong in MCP servers, not the sandbox image.
-# renovate: datasource=github-releases depName=jqlang/jq
-ARG JQ_VERSION=1.8.2
-# renovate: datasource=github-releases depName=mikefarah/yq
-ARG YQ_VERSION=v4.53.3
-ARG TARGETARCH
-RUN curl -fsSL -o /usr/local/bin/jq \
-        "https://github.com/jqlang/jq/releases/download/jq-${JQ_VERSION}/jq-linux-${TARGETARCH}" \
-    && chmod +x /usr/local/bin/jq \
-    && jq --version \
-    && curl -fsSL -o /usr/local/bin/yq \
-        "https://github.com/mikefarah/yq/releases/download/${YQ_VERSION}/yq_linux_${TARGETARCH}" \
-    && chmod +x /usr/local/bin/yq \
-    && yq --version
+COPY --from=tools /usr/local/bin/jq /usr/local/bin/jq
+COPY --from=tools /usr/local/bin/yq /usr/local/bin/yq
+RUN jq --version && yq --version
 
-# Bake buf for repos with a protobuf pre-commit toolchain (buf lint/format).
-# renovate: datasource=github-releases depName=bufbuild/buf
-ARG BUF_VERSION=v1.72.0
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        arm64) BUF_ARCH=aarch64 ;; \
-        amd64) BUF_ARCH=x86_64 ;; \
-        *) echo "buf: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/buf.tar.gz \
-        "https://github.com/bufbuild/buf/releases/download/${BUF_VERSION}/buf-Linux-${BUF_ARCH}.tar.gz" \
-    && tar -xz -C /tmp -f /tmp/buf.tar.gz buf/bin/buf --strip-components=2 \
-    && mv /tmp/buf /usr/local/bin/buf \
-    && rm /tmp/buf.tar.gz \
-    && chmod +x /usr/local/bin/buf \
-    && buf --version
+COPY --from=tools /usr/local/bin/buf /usr/local/bin/buf
+RUN buf --version
 
-# Bake kustomize + kubeconform + cerbos + helm so validate.sh and pre-commit hooks
+# kustomize + kubeconform + cerbos + helm so validate.sh and pre-commit hooks
 # work offline in the egress-locked sandbox without downloading at runtime.
-# renovate: datasource=github-releases depName=kubernetes-sigs/kustomize
-ARG KUSTOMIZE_VERSION=v5.8.1
-# renovate: datasource=github-releases depName=yannh/kubeconform
-ARG KUBECONFORM_VERSION=v0.8.0
-# renovate: datasource=github-releases depName=cerbos/cerbos
-ARG CERBOS_VERSION=v0.54.0
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        arm64) KUSTOMIZE_ARCH=arm64 ;; \
-        amd64) KUSTOMIZE_ARCH=amd64 ;; \
-        *) echo "kustomize: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/kustomize.tar.gz \
-        "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2F${KUSTOMIZE_VERSION}/kustomize_${KUSTOMIZE_VERSION}_linux_${KUSTOMIZE_ARCH}.tar.gz" \
-    && tar -xz -C /usr/local/bin -f /tmp/kustomize.tar.gz kustomize \
-    && rm /tmp/kustomize.tar.gz \
-    && kustomize version \
-    && curl -fsSL -o /tmp/kubeconform.tar.gz \
-        "https://github.com/yannh/kubeconform/releases/download/${KUBECONFORM_VERSION}/kubeconform-linux-${TARGETARCH}.tar.gz" \
-    && tar -xz -C /usr/local/bin -f /tmp/kubeconform.tar.gz kubeconform \
-    && rm /tmp/kubeconform.tar.gz \
-    && kubeconform -v \
-    && CERBOS_VER="${CERBOS_VERSION#v}" \
-    && case "${TARGETARCH}" in \
-        arm64) CERBOS_ARCH=arm64 ;; \
-        amd64) CERBOS_ARCH=x86_64 ;; \
-        *) echo "cerbos: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/cerbos.tar.gz \
-        "https://github.com/cerbos/cerbos/releases/download/${CERBOS_VERSION}/cerbos_${CERBOS_VER}_Linux_${CERBOS_ARCH}.tar.gz" \
-    && tar -xz -C /usr/local/bin -f /tmp/cerbos.tar.gz cerbos \
-    && rm /tmp/cerbos.tar.gz \
-    && cerbos --version
+COPY --from=tools /usr/local/bin/kustomize /usr/local/bin/kustomize
+COPY --from=tools /usr/local/bin/kubeconform /usr/local/bin/kubeconform
+COPY --from=tools /usr/local/bin/cerbos /usr/local/bin/cerbos
+COPY --from=tools /usr/local/bin/helm /usr/local/bin/helm
+RUN kustomize version && kubeconform -v && cerbos --version && helm version
 
-# Bake helm so scripts/validate.sh and pre-commit validate-flux-manifests can run offline.
-# renovate: datasource=github-releases depName=helm/helm
-ARG HELM_VERSION=v4.2.3
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        arm64) HELM_ARCH=arm64 ;; \
-        amd64) HELM_ARCH=amd64 ;; \
-        *) echo "helm: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/helm.tar.gz \
-        "https://get.helm.sh/helm-${HELM_VERSION}-linux-${HELM_ARCH}.tar.gz" \
-    && tar -xz -C /usr/local/bin --strip-components=1 \
-        -f /tmp/helm.tar.gz "linux-${HELM_ARCH}/helm" \
-    && rm /tmp/helm.tar.gz \
-    && helm version
-
-# Bake bazelisk + buildifier/buildozer so agents can build/run Bazel targets in
-# repos that use Bazel (e.g. k8s-manifests' helm_charts renders), and reformat/edit
-# BUILD files, entirely offline in the egress-locked sandbox. bazelisk itself is a thin
-# version-selecting launcher; the actual bazel(1) binary it execs is downloaded on first
-# use from releases.bazel.build (verified: NOT github.com -- a plain
-# `bazelisk version` attempt against the sandbox's own egress proxy gets a hard
-# `Forbidden` from releases.bazel.build even though github.com release assets are
-# reachable). Pre-warming bazelisk's on-disk cache at build time (BAZELISK_HOME below,
-# baked with BAZEL_PINNED_VERSION) means the sandbox never has to dial
-# releases.bazel.build at runtime for that one pinned version -- but this build step
-# itself needs releases.bazel.build reachable from wherever `docker build` runs (the
-# operator's laptop per this README, not the sandbox). Bzlmod dependency resolution
-# (bcr.bazel.build, or an internal mirror) still needs its host reachable at *runtime* --
-# this bake only guarantees bazel/buildozer/buildifier themselves are present offline.
+# bazelisk + buildifier/buildozer so agents can build/run Bazel targets in
+# repos that use Bazel (e.g. k8s-manifests' helm_charts renders), and
+# reformat/edit BUILD files, entirely offline in the egress-locked sandbox.
+# The pre-warmed bazelisk cache (BAZELISK_HOME, baked in the `tools` stage
+# against BAZEL_PINNED_VERSION) is copied verbatim so the sandbox never has
+# to dial releases.bazel.build at runtime for that one pinned version.
 #
-# keytool (headless JRE) so _sandbox.tpl can build a Bazel-trusted PKCS12 truststore
-# at pod-start.
+# keytool (headless JRE) so _sandbox.tpl can build a Bazel-trusted PKCS12
+# truststore at pod-start. This apt package is the one thing here that
+# genuinely depends on the base image's package repos, so it stays in the
+# main stage.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends openjdk-21-jre-headless \
     && rm -rf /var/lib/apt/lists/* \
     && keytool -help >/dev/null
 
-# renovate: datasource=github-releases depName=bazelbuild/bazelisk
-ARG BAZELISK_VERSION=v1.29.0
-# renovate: datasource=github-releases depName=bazelbuild/buildtools
-ARG BUILDTOOLS_VERSION=v8.5.1
-# Pinned Bazel release to pre-warm bazelisk's cache with; keep in sync with the
-# .bazelversion of the Bazel repos this sandbox operates against (k8s-manifests: 8.5.1).
-ARG BAZEL_PINNED_VERSION=8.5.1
-ARG TARGETARCH
 ENV BAZELISK_HOME=/opt/hermes/.cache/bazelisk
-RUN case "${TARGETARCH}" in \
-        arm64) BT_ARCH=arm64 ;; \
-        amd64) BT_ARCH=amd64 ;; \
-        *) echo "bazelisk/buildtools: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /usr/local/bin/bazelisk \
-        "https://github.com/bazelbuild/bazelisk/releases/download/${BAZELISK_VERSION}/bazelisk-linux-${BT_ARCH}" \
-    && chmod +x /usr/local/bin/bazelisk \
-    && ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel \
-    && curl -fsSL -o /usr/local/bin/buildifier \
-        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildifier-linux-${BT_ARCH}" \
-    && chmod +x /usr/local/bin/buildifier \
-    && curl -fsSL -o /usr/local/bin/buildozer \
-        "https://github.com/bazelbuild/buildtools/releases/download/${BUILDTOOLS_VERSION}/buildozer-linux-${BT_ARCH}" \
-    && chmod +x /usr/local/bin/buildozer \
+COPY --from=tools /usr/local/bin/bazelisk /usr/local/bin/bazelisk
+COPY --from=tools /usr/local/bin/buildifier /usr/local/bin/buildifier
+COPY --from=tools /usr/local/bin/buildozer /usr/local/bin/buildozer
+COPY --from=tools "${BAZELISK_HOME}" "${BAZELISK_HOME}"
+RUN ln -s /usr/local/bin/bazelisk /usr/local/bin/bazel \
     && buildifier --version \
     && buildozer -version \
-    && mkdir -p "${BAZELISK_HOME}" \
-    && USE_BAZEL_VERSION="${BAZEL_PINNED_VERSION}" bazelisk version \
     && test -n "$(find "${BAZELISK_HOME}" -type f -name 'bazel-real' -o -type f -iname 'bazel*' 2>/dev/null | head -1)" \
     && chmod -R a+rX "${BAZELISK_HOME}"
 
-# Bake rtk for rtk-hermes; arch triples differ between arm64 and amd64 release assets.
-# renovate: datasource=github-releases depName=rtk-ai/rtk
-ARG RTK_VERSION=v0.43.0
-ARG TARGETARCH
-RUN case "${TARGETARCH}" in \
-        arm64) RTK_TRIPLE=aarch64-unknown-linux-gnu ;; \
-        amd64) RTK_TRIPLE=x86_64-unknown-linux-musl ;; \
-        *) echo "rtk: unsupported TARGETARCH=${TARGETARCH}" >&2; exit 1 ;; \
-    esac \
-    && curl -fsSL -o /tmp/rtk.tar.gz \
-        "https://github.com/rtk-ai/rtk/releases/download/${RTK_VERSION}/rtk-${RTK_TRIPLE}.tar.gz" \
-    && tar -xz -C /usr/local/bin -f /tmp/rtk.tar.gz rtk \
-    && chmod +x /usr/local/bin/rtk \
-    && rm /tmp/rtk.tar.gz \
-    && rtk --version
+COPY --from=tools /usr/local/bin/rtk /usr/local/bin/rtk
+RUN rtk --version
 
 # Patch agentburn: (1) HERMES_HOME support in the hermes adapter so the MCP
 # server finds state.db at $HERMES_HOME instead of ~/.hermes/state.db, and
