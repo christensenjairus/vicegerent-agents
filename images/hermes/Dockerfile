@@ -29,12 +29,12 @@ RUN rm -rf /seed/mnemosyne/models/.cache \
     && test -d /seed/cache/faster-whisper/models--Systran--faster-whisper-base
 
 # Thin Vicegerent derivation of upstream Hermes Agent.
-FROM nousresearch/hermes-agent:v2026.7.7.2@sha256:9c841866021c54c4596849f6135717e8a4d52ba510b7f52c50aef1de1a283973
+FROM nousresearch/hermes-agent:v2026.7.20@sha256:f7b35053268f532f98955195c909f15a230470fbcbdacaa9fdecb95707dad04a
 
 LABEL org.opencontainers.image.title="vicegerent-hermes-agent" \
       org.opencontainers.image.description="Vicegerent derivation of nousresearch/hermes-agent" \
       org.opencontainers.image.source="https://gitlab.hahomelabs.com/jchristensen/vicegerent-agents" \
-      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.7.2"
+      org.opencontainers.image.base.name="docker.io/nousresearch/hermes-agent:v2026.7.20"
 
 # requirements.txt tools (pre-commit, detect-secrets, yamlfix) live here but aren't on PATH upstream.
 # ENV covers non-login shells (exec sessions); /etc/profile.d re-prepends it since Debian's /etc/profile
@@ -332,28 +332,6 @@ RUN case "${TARGETARCH}" in \
     && chmod +x /usr/local/bin/rtk \
     && rm /tmp/rtk.tar.gz \
     && rtk --version
-
-# Patch Hermes Tool Search context-length lookup to avoid a 30s OpenRouter probe in the egress-locked sandbox; remove once upstream lands.
-COPY patches/0001-toolsearch-context-length.py /tmp/0001-toolsearch-context-length.py
-RUN /opt/hermes/.venv/bin/python /tmp/0001-toolsearch-context-length.py \
-    && /opt/hermes/.venv/bin/python -c "import importlib.util as u; p=u.find_spec('model_tools').origin; s=open(p).read(); assert 'custom_providers=_cps) or 0)' in s, 'toolsearch patch marker missing after apply'; print('toolsearch context-length patch verified in', p)" \
-    && /opt/hermes/.venv/bin/python - <<'PY'
-import socket
-socket.socket.connect = lambda self, addr: (_ for _ in ()).throw(RuntimeError(f"network attempted: {addr}"))
-import hermes_cli.config as C
-C.load_config = lambda *a, **k: {
-    "model": {"provider": "opus", "default": "claude-opus-4-8",
-              "base_url": "http://example.invalid/opus"},
-    "providers": {"opus": {"name": "Opus", "api": "http://example.invalid/opus",
-                  "default_model": "claude-opus-4-8",
-                  "models": {"claude-opus-4-8": {"context_length": 1000000}}}},
-}
-import model_tools
-v = model_tools._resolve_active_context_length()
-assert v == 1000000, f"offline resolution returned {v}, expected 1000000"
-print("toolsearch patch: offline context-length resolution OK ->", v)
-PY
-RUN rm -f /tmp/0001-toolsearch-context-length.py
 
 # Patch agentburn: (1) HERMES_HOME support in the hermes adapter so the MCP
 # server finds state.db at $HERMES_HOME instead of ~/.hermes/state.db, and
