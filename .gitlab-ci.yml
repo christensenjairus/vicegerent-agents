@@ -36,12 +36,14 @@ validate:pre-commit:
     KUBECONFORM_VERSION: v0.8.0
     # renovate: datasource=github-releases depName=cerbos/cerbos
     CERBOS_VERSION: v0.54.0
+    # Kept in sync with the header of clusters/personal/flux-system/gotk-components.yaml
+    # (bumped alongside that file via `flux bootstrap` regen, not by Renovate).
+    FLUX_VERSION: v2.8.8
   cache:
     key:
-      prefix: validation-cache-yq${YQ_VERSION}-kustomize${KUSTOMIZE_VERSION}-kubeconform${KUBECONFORM_VERSION}-cerbos${CERBOS_VERSION}
+      prefix: validation-cache-yq${YQ_VERSION}-kustomize${KUSTOMIZE_VERSION}-kubeconform${KUBECONFORM_VERSION}-cerbos${CERBOS_VERSION}-flux${FLUX_VERSION}
       files:
         - .pre-commit-config.yaml
-        - clusters/personal/flux-system/gotk-components.yaml
     paths:
       - .cache/pre-commit/
       - .flux-crd-schemas/
