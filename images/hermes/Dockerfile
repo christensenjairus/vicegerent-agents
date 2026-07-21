@@ -642,14 +642,21 @@ COPY patches/0030-per-platform-verifier-and-memory-notifications.py /tmp/0030-pe
 RUN /opt/hermes/.venv/bin/python /tmp/0030-per-platform-verifier-and-memory-notifications.py
 RUN rm -f /tmp/0030-per-platform-verifier-and-memory-notifications.py
 
-# Fix Slack thread-context injection masking in-thread /model, !model,
-# /reasoning, !reasoning, /stop, etc. -- prepending the fetched thread
-# summary directly onto the trigger message's `text` made `event.text` no
-# longer start with "/", so every `event.get_command()` check silently
-# returned None and the command dispatched as plain chat instead. Routed
-# through MessageEvent.channel_context (already consumed correctly, and
-# late, by gateway/run.py) instead. Remove once upstream Hermes's Slack
-# adapter does the same.
+# Fix two independent bugs in Slack's _handle_slack_message message-text
+# assembly that both silently corrupt in-thread/bang-command handling:
+# (1) prepending the fetched thread-context summary directly onto the
+# trigger message's `text` made `event.text` no longer start with "/", so
+# every `event.get_command()` check silently returned None and the
+# command dispatched as plain chat instead -- routed through
+# MessageEvent.channel_context (already consumed correctly, and late, by
+# gateway/run.py) instead. (2) the quoted/forwarded-blocks merge deduped
+# against the possibly !->/ rewritten `text` instead of the raw message
+# (blocks always mirror the raw, un-rewritten text), silently duplicating
+# every bang-command's raw text onto `text` and corrupting command
+# argument parsing (e.g. `/reasoning high !reasoning high` instead of
+# `/reasoning high`). Remove once upstream Hermes's Slack adapter routes
+# thread-context through channel_context and its blocks-merge dedup
+# compares against raw text.
 COPY patches/0031-slack-thread-context-command-detection.py /tmp/0031-slack-thread-context-command-detection.py
 RUN /opt/hermes/.venv/bin/python /tmp/0031-slack-thread-context-command-detection.py
 RUN rm -f /tmp/0031-slack-thread-context-command-detection.py
