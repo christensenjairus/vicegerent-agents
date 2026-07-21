@@ -6,5 +6,8 @@ __pycache__/
 # Python venv
 host/mcp/.venv/
 
+# Git worktrees for branch work (see AGENTS.md worktree convention)
+.worktrees/
+
 # Host-side rclone serve s3 backing dir for Velero backups (never committed)
 velero-backups/

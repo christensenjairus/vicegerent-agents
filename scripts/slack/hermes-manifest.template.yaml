@@ -14,12 +14,6 @@ features:
   bot_user:
     display_name: '{{NAME}}'
     always_online: true
-  slash_commands:
-    - command: /{{COMMAND}}
-      description: Talk to {{NAME}} or run a subcommand
-      should_escape: false
-      url: https://hermes-agent.local/slack/commands
-      usage_hint: '[subcommand] [args]'
   assistant_view:
     assistant_description: Chat with {{NAME}} in threads and DMs.
 oauth_config:
@@ -30,7 +24,6 @@ oauth_config:
       - channels:history
       - channels:read
       - chat:write
-      - commands
       - files:read
       - files:write
       - groups:history
