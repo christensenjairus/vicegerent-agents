@@ -8,6 +8,7 @@ set -o pipefail
 
 RETRIES=5
 WAIT=2
+FLUX_VERSION="${FLUX_VERSION:-$(grep -m1 '^# Flux Version:' clusters/personal/flux-system/gotk-components.yaml 2>/dev/null | awk '{print $NF}')}"
 FLUX_VERSION="${FLUX_VERSION:-v2.7.0}"
 SCHEMA_URL="https://github.com/fluxcd/flux2/releases/download/${FLUX_VERSION}/crd-schemas.tar.gz"
 SCHEMA_DEST="${SCHEMA_DEST:-/tmp/flux-crd-schemas/master-standalone-strict}"
