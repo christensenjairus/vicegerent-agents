@@ -76,11 +76,11 @@ REPLACEMENT_FOOTER_BUILD = '            # Runtime-metadata footer — only on th
 
 APPLIED_MARKER = "Vicegerent patch: Slack runtime footer DM-only"
 
-ANCHOR_FOOTER_DIVIDER = '            except Exception as _footer_err:\n                logger.debug("runtime_footer build failed: %s", _footer_err)\n                _footer_line = ""\n            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n                response = f"{response}\\n\\n{_footer_line}"'
+ANCHOR_FOOTER_ITALICS = '            except Exception as _footer_err:\n                logger.debug("runtime_footer build failed: %s", _footer_err)\n                _footer_line = ""\n            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n                response = f"{response}\\n\\n{_footer_line}"'
 
-REPLACEMENT_FOOTER_DIVIDER = '            except Exception as _footer_err:\n                logger.debug("runtime_footer build failed: %s", _footer_err)\n                _footer_line = ""\n            # Vicegerent patch (fix 2): a subtle visual divider ahead of the\n            # footer, Slack-only, so it reads as distinct metadata rather\n            # than a continuation of the response body. Prepending onto\n            # _footer_line itself (rather than at each call site) covers\n            # both the inline-append path below AND the separate trailing-\n            # message send used when streaming already delivered the body.\n            if _footer_line and source.platform == Platform.SLACK:\n                _footer_line = f"\\u2500\\u2500\\u2500\\n{_footer_line}"\n            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n                response = f"{response}\\n\\n{_footer_line}"'
+REPLACEMENT_FOOTER_ITALICS = '            except Exception as _footer_err:\n                logger.debug("runtime_footer build failed: %s", _footer_err)\n                _footer_line = ""\n            # Vicegerent patch (fix 2): italicize the footer, Slack-only, so\n            # it reads as distinct metadata rather than a continuation of\n            # the response body. Wrapping _footer_line itself (rather than\n            # at each call site) covers both the inline-append path below\n            # AND the separate trailing-message send used when streaming\n            # already delivered the body. Slack mrkdwn italics use\n            # underscores (_text_), which format_message() passes through\n            # untouched since it already renders as Slack italic syntax.\n            if _footer_line and source.platform == Platform.SLACK:\n                _footer_line = f"_{_footer_line}_"\n            if _footer_line and response and not agent_result.get("already_sent") and not _intentional_silence:\n                response = f"{response}\\n\\n{_footer_line}"'
 
-FIX2_MARKER = "Vicegerent patch: Slack footer divider"
+FIX2_MARKER = "Vicegerent patch: Slack footer italics"
 
 
 def _count_or_raise(src: str, anchor: str, path: str, label: str) -> None:
@@ -120,18 +120,18 @@ def main() -> int:
         print(f"patch: fix 1 (DM-only gating) already applied to {path} -- no-op")
 
     if FIX2_MARKER not in src:
-        _count_or_raise(src, ANCHOR_FOOTER_DIVIDER, path, "footer-divider insertion point")
-        src = src.replace(ANCHOR_FOOTER_DIVIDER, REPLACEMENT_FOOTER_DIVIDER, 1)
+        _count_or_raise(src, ANCHOR_FOOTER_ITALICS, path, "footer-italics insertion point")
+        src = src.replace(ANCHOR_FOOTER_ITALICS, REPLACEMENT_FOOTER_ITALICS, 1)
 
         src += (
-            f"\n# {FIX2_MARKER}: a small divider now renders immediately above "
-            "the Slack footer (Slack only, other platforms unaffected) so it "
-            "reads as distinct metadata rather than a continuation of the "
-            "response body.\n"
+            f"\n# {FIX2_MARKER}: the Slack footer is now rendered in italics "
+            "(Slack only, other platforms unaffected) so it reads as "
+            "distinct metadata rather than a continuation of the response "
+            "body.\n"
         )
-        print(f"patch: Slack footer divider added in {path}")
+        print(f"patch: Slack footer italics added in {path}")
     else:
-        print(f"patch: fix 2 (footer divider) already applied to {path} -- no-op")
+        print(f"patch: fix 2 (footer italics) already applied to {path} -- no-op")
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(src)
