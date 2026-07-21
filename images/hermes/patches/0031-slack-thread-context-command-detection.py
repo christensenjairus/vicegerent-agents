@@ -117,6 +117,31 @@ unaffected: ``original_text`` is never mutated for them, so
 ``_raw_slack_text == original_text == text`` and the dedup behaves
 identically to before.
 
+Fix 3: leading @-mention defeats the ``!``->``/`` bang-command rewrite
+-----------------------------------------------------------------------
+The ``!``->``/`` rewrite above (unchanged by fix 2) gates purely on
+``original_text.startswith("!")`` -- the RAW Slack text. That works fine
+for ``"!reasoning xhigh @Bot"`` (bang first), but Slack's raw text for
+``"@Bot !reasoning xhigh"`` (mention first) is literally
+``"<@BOTUID> !reasoning xhigh"``: it starts with ``"<@"``, never ``"!"``,
+so the rewrite never fires and the bang is never turned into a slash. The
+mention itself isn't stripped from ``text`` until much later (the
+``is_mentioned`` handling near the bottom of the function), well after
+this check has already failed -- so by the time the mention would be
+gone, the opportunity to rewrite has already passed.
+
+Confirmed as the reported symptom: ``!reasoning xhigh`` worked with the
+mention at the END of the message, but silently failed (treated as plain
+chat) with the identical bang command when the mention came FIRST.
+
+Fix: before checking for a leading ``!``, strip any leading run of Slack
+mention tokens (``<@XXXXXXX>``, a fixed, team-independent syntax -- no
+need to resolve ``team_id``/``bot_uid``, which aren't available yet at
+this point in the handler) purely to *detect* the bang. The mention text
+itself is left untouched in ``original_text``; only the ``!`` at its
+original position (after the mention prefix) is rewritten to ``/``, so
+downstream mention-stripping still runs normally.
+
 Both fixes are purely routing fixes: what content is fetched/merged, and
 when, are unchanged in both cases -- only where each value ends up is
 different. Fail-loud by design: each fix's own anchors are counted
@@ -129,8 +154,9 @@ applies just the missing one.
 
 Remove once upstream Hermes routes Slack's thread-context injection
 through ``MessageEvent.channel_context`` itself instead of concatenating
-into ``text``, AND its blocks-merge dedup compares against the message's
-raw pre-rewrite text.
+into ``text``, its blocks-merge dedup compares against the message's raw
+pre-rewrite text, AND its ``!``->``/`` rewrite detects a leading ``!``
+after skipping any leading mention tokens.
 """
 import importlib.util
 import sys
@@ -244,6 +270,81 @@ REPLACEMENT_DEDUP_CHECK = (
 
 FIX2_MARKER = "Vicegerent patch 0031 (fix 2)"
 
+# --- Fix 3: leading @-mention defeats the "!"->"/" bang rewrite -----------
+
+ANCHOR_BANG_REWRITE = (
+    "        # Slack blocks native slash commands inside threads (\"/queue is not\n"
+    "        # supported in threads. Sorry!\").  As a workaround, recognise a\n"
+    "        # leading ``!`` as an alternate command prefix and rewrite it to\n"
+    "        # ``/`` so the rest of the pipeline (MessageType.COMMAND tagging,\n"
+    "        # gateway dispatcher) handles it like a normal slash command.  Only\n"
+    "        # rewrite when the first token resolves to a known gateway command\n"
+    "        # so casual messages like \"!nice work\" pass through unchanged.\n"
+    "        if original_text.startswith(\"!\"):\n"
+    "            try:\n"
+    "                from hermes_cli.commands import is_gateway_known_command\n"
+    "\n"
+    "                first_token = original_text[1:].split(maxsplit=1)[0]\n"
+    "                # Strip \"@suffix\" the same way get_command() does, so\n"
+    "                # forms like ``!stop@hermes`` still resolve.\n"
+    "                cmd_name = first_token.split(\"@\", 1)[0].lower()\n"
+    "                if (\n"
+    "                    cmd_name\n"
+    "                    and \"/\" not in cmd_name\n"
+    "                    and is_gateway_known_command(cmd_name)\n"
+    "                ):\n"
+    "                    original_text = \"/\" + original_text[1:]\n"
+    "            except Exception:  # pragma: no cover - defensive\n"
+    "                pass\n"
+)
+
+REPLACEMENT_BANG_REWRITE = (
+    "        # Slack blocks native slash commands inside threads (\"/queue is not\n"
+    "        # supported in threads. Sorry!\").  As a workaround, recognise a\n"
+    "        # leading ``!`` as an alternate command prefix and rewrite it to\n"
+    "        # ``/`` so the rest of the pipeline (MessageType.COMMAND tagging,\n"
+    "        # gateway dispatcher) handles it like a normal slash command.  Only\n"
+    "        # rewrite when the first token resolves to a known gateway command\n"
+    "        # so casual messages like \"!nice work\" pass through unchanged.\n"
+    "        #\n"
+    "        # Vicegerent patch 0031 (fix 3): a leading \"@Bot !cmd ...\" mention\n"
+    "        # previously defeated this rewrite entirely, since the raw text\n"
+    "        # then starts with \"<@UID>\" rather than \"!\" -- bang commands only\n"
+    "        # worked when the mention came AFTER the bang. Strip any leading\n"
+    "        # run of Slack's fixed \"<@XXXXXXX>\" mention syntax purely to\n"
+    "        # *detect* the bang (no team_id/bot_uid resolution needed); the\n"
+    "        # mention text itself is preserved untouched in original_text.\n"
+    "        _leading_mention_match = re.match(\n"
+    "            r\"^(?:\\s*<@[A-Za-z0-9]+>\\s*)+\", original_text\n"
+    "        )\n"
+    "        _mention_prefix_len = (\n"
+    "            _leading_mention_match.end() if _leading_mention_match else 0\n"
+    "        )\n"
+    "        _bang_check_text = original_text[_mention_prefix_len:]\n"
+    "        if _bang_check_text.startswith(\"!\"):\n"
+    "            try:\n"
+    "                from hermes_cli.commands import is_gateway_known_command\n"
+    "\n"
+    "                first_token = _bang_check_text[1:].split(maxsplit=1)[0]\n"
+    "                # Strip \"@suffix\" the same way get_command() does, so\n"
+    "                # forms like ``!stop@hermes`` still resolve.\n"
+    "                cmd_name = first_token.split(\"@\", 1)[0].lower()\n"
+    "                if (\n"
+    "                    cmd_name\n"
+    "                    and \"/\" not in cmd_name\n"
+    "                    and is_gateway_known_command(cmd_name)\n"
+    "                ):\n"
+    "                    original_text = (\n"
+    "                        original_text[:_mention_prefix_len]\n"
+    "                        + \"/\"\n"
+    "                        + _bang_check_text[1:]\n"
+    "                    )\n"
+    "            except Exception:  # pragma: no cover - defensive\n"
+    "                pass\n"
+)
+
+FIX3_MARKER = "Vicegerent patch 0031 (fix 3)"
+
 
 def _count_or_raise(src: str, anchor: str, path: str, label: str) -> None:
     count = src.count(anchor)
@@ -306,6 +407,27 @@ def _apply_fix2(src: str, path: str) -> str:
     return src
 
 
+def _apply_fix3(src: str, path: str) -> str:
+    if FIX3_MARKER in src:
+        print(f"patch: fix 3 (leading-mention bang rewrite) already applied to {path} -- no-op")
+        return src
+
+    _count_or_raise(src, ANCHOR_BANG_REWRITE, path, "!->/ bang rewrite")
+    src = src.replace(ANCHOR_BANG_REWRITE, REPLACEMENT_BANG_REWRITE, 1)
+
+    src += (
+        f"\n# {FIX3_MARKER}: the \"!\"->\"/\" bang-command rewrite now skips "
+        "any leading Slack mention tokens before checking for \"!\", so "
+        "\"@Bot !cmd ...\" (mention first) dispatches identically to "
+        "\"!cmd ... @Bot\" (bang first).\n"
+    )
+    print(
+        f"patch: Slack bang-command rewrite no longer defeated by a "
+        f"leading @-mention in {path}"
+    )
+    return src
+
+
 def main() -> int:
     spec = importlib.util.find_spec("plugins.platforms.slack.adapter")
     if spec is None or not spec.origin:
@@ -315,12 +437,13 @@ def main() -> int:
     with open(path, "r", encoding="utf-8") as f:
         src = f.read()
 
-    if FIX1_MARKER in src and FIX2_MARKER in src:
+    if FIX1_MARKER in src and FIX2_MARKER in src and FIX3_MARKER in src:
         print(f"patch: already fully applied to {path} -- no-op")
         return 0
 
     src = _apply_fix1(src, path)
     src = _apply_fix2(src, path)
+    src = _apply_fix3(src, path)
 
     with open(path, "w", encoding="utf-8") as f:
         f.write(src)
