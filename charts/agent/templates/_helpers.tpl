@@ -276,10 +276,6 @@ lsp:
 slack:
   require_mention: true
   strict_mention: true
-platforms:
-  slack:
-    extra:
-      rich_blocks: true
 plugins:
   enabled:
     - disk-cleanup
