@@ -712,3 +712,16 @@ RUN rm -f /tmp/0036-slack-runtime-footer-dm-only.py
 COPY patches/0037-jiter-streaming-parse-error-retryable.py /tmp/0037-jiter-streaming-parse-error-retryable.py
 RUN /opt/hermes/.venv/bin/python /tmp/0037-jiter-streaming-parse-error-retryable.py
 RUN rm -f /tmp/0037-jiter-streaming-parse-error-retryable.py
+
+# Replace the runtime footer's cwd with real spend visibility. TERMINAL_CWD is
+# copied once from terminal.cwd at gateway startup and never follows /new,
+# session/turn boundaries, or terminal-tool cd calls, so displaying it falsely
+# implies a relationship to the active work. Snapshot the cached agent's
+# running session cost and wall-clock time around each turn to render the turn
+# cost, session total, and last-turn duration. Applied after 0028 and 0036
+# because it preserves their effort field and Slack DM-only/italics behavior
+# while updating their shared call site. Remove once upstream tracks per-turn
+# cost and duration and exposes them in the footer.
+COPY patches/0039-runtime-footer-cost-field.py /tmp/0039-runtime-footer-cost-field.py
+RUN /opt/hermes/.venv/bin/python /tmp/0039-runtime-footer-cost-field.py
+RUN rm -f /tmp/0039-runtime-footer-cost-field.py
