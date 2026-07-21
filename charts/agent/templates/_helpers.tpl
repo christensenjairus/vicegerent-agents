@@ -227,6 +227,8 @@ display:
   platforms:
     slack:
       tool_progress: false
+      interim_assistant_messages: false
+      long_running_notifications: false
 approvals:
   mode: smart
 command_allowlist: []
@@ -254,6 +256,8 @@ lsp:
 slack:
   require_mention: true
   strict_mention: true
+  extra:
+    rich_blocks: true
 plugins:
   enabled:
     - disk-cleanup
