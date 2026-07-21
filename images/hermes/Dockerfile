@@ -660,3 +660,16 @@ RUN rm -f /tmp/0030-per-platform-verifier-and-memory-notifications.py
 COPY patches/0031-slack-thread-context-command-detection.py /tmp/0031-slack-thread-context-command-detection.py
 RUN /opt/hermes/.venv/bin/python /tmp/0031-slack-thread-context-command-detection.py
 RUN rm -f /tmp/0031-slack-thread-context-command-detection.py
+
+# Stop Slack rich-blocks rendering from exploding ordinary prose (headers,
+# lists, quotes, horizontal rules, fenced code, paragraphs) into one Block
+# Kit block per structural element -- Slack's own per-block padding made
+# otherwise-short responses tall enough to trigger the client's "Show More"
+# collapse. Only markdown pipe-tables now get their own structural block
+# (native `table`, unchanged); everything else folds into flat mrkdwn
+# `section` blocks, restoring pre-rich-blocks compactness while keeping
+# native table rendering. Remove once upstream Hermes's renderer does the
+# same, or Slack's client-side collapse threshold changes.
+COPY patches/0033-slack-rich-blocks-table-only.py /tmp/0033-slack-rich-blocks-table-only.py
+RUN /opt/hermes/.venv/bin/python /tmp/0033-slack-rich-blocks-table-only.py
+RUN rm -f /tmp/0033-slack-rich-blocks-table-only.py
