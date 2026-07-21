@@ -20,7 +20,8 @@ data:
       "enableAllProjectMcpServers": true,
       "permissions": {
         "allow": ["mcp__mnemosyne", "mcp__vmcp"],
-        "deny": ["WebSearch", "WebFetch"]
+        "deny": ["WebSearch", "WebFetch"],
+        "defaultMode": "bypassPermissions"
       },
       "sandbox": {
         "enabled": false

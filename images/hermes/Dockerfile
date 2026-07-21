@@ -619,3 +619,25 @@ RUN rm -f /tmp/0027-mcp-parked-tools-stay-registered.py
 # Bundled skill files are installed 444 (root-owned in the image); make them
 # 644 so skill_manager_tool can patch them after copytree seeds /opt/data/skills.
 RUN find /opt/hermes/skills -name "SKILL.md" -exec chmod 644 {} +
+
+# gateway/runtime_footer.py only supports model/context_pct/cwd fields; add an
+# "effort" field so display.runtime_footer.fields can show the current
+# reasoning-effort level. Single patch touching two files: adds the field to
+# runtime_footer.py itself, then threads the live value from
+# gateway/run.py's self._reasoning_config into the build_footer_line() call
+# site. Remove once upstream Hermes's runtime footer supports an effort
+# field itself.
+COPY patches/0028-runtime-footer-effort-field.py /tmp/0028-runtime-footer-effort-field.py
+RUN /opt/hermes/.venv/bin/python /tmp/0028-runtime-footer-effort-field.py
+RUN rm -f /tmp/0028-runtime-footer-effort-field.py
+
+# file_mutation_verifier and memory_notifications are read as flat
+# global-only settings today (run_agent.py / gateway/run.py), unlike every
+# other per-platform display toggle in this codebase. Teach both to honor
+# display.platforms.<platform>.<key> overrides (falls through to the
+# existing global setting unchanged when no override is set). Remove once
+# upstream Hermes routes both through gateway/display_config.py's
+# resolve_display_setting() itself.
+COPY patches/0030-per-platform-verifier-and-memory-notifications.py /tmp/0030-per-platform-verifier-and-memory-notifications.py
+RUN /opt/hermes/.venv/bin/python /tmp/0030-per-platform-verifier-and-memory-notifications.py
+RUN rm -f /tmp/0030-per-platform-verifier-and-memory-notifications.py

@@ -12,6 +12,7 @@ data:
     developer_instructions = "{{ printf "%s %s %s" (include "vicegerent-agent.webSearchInstructions" . | trim) (include "vicegerent-agent.vmcpToolDiscovery" . | trim) (include "vicegerent-agent.worktreeDiscipline" . | trim) | replace "\"" "\\\"" }}"
     suppress_unstable_features_warning = true
     sandbox_mode = "danger-full-access"
+    approval_policy = "never"
     [model_providers.vicegerent]
     name = "Vicegerent agentgateway"
     base_url = "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1"

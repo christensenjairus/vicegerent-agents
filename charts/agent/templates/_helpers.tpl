@@ -229,6 +229,12 @@ display:
       tool_progress: false
       interim_assistant_messages: false
       long_running_notifications: false
+      runtime_footer:
+        enabled: true
+        fields: [model, effort, context_pct, cwd]
+      file_mutation_verifier: false
+      memory_notifications: "off"
+      busy_ack_enabled: false
 approvals:
   mode: smart
 command_allowlist: []
