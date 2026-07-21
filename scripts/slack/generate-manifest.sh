@@ -6,7 +6,6 @@
 #
 # Arguments:
 #   name         Bot display name, e.g. "Hermes Infra" or "Infra"
-#                Slash command is derived: lowercased, spaces replaced with hyphens.
 #   output-file  Where to write the manifest (default: stdout)
 #
 # Examples:
@@ -31,9 +30,6 @@ if [[ "${NAME}" == "$(echo "${NAME}" | tr '[:upper:]' '[:lower:]')" ]]; then
   echo "warning: name '${NAME}' is all lowercase — Slack display names are typically title-cased (e.g. 'Hermes Infra')" >&2
 fi
 
-# Derive slash command: lowercase, spaces → hyphens
-COMMAND="$(echo "${NAME}" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')"
-
 if [[ ! -f "${TEMPLATE}" ]]; then
   echo "Template not found: ${TEMPLATE}" >&2
   exit 1
@@ -41,7 +37,6 @@ fi
 
 result="$(sed \
   -e "s|{{NAME}}|${NAME}|g" \
-  -e "s|{{COMMAND}}|${COMMAND}|g" \
   "${TEMPLATE}")"
 
 if [[ -n "${OUTPUT}" ]]; then
