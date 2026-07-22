@@ -70,10 +70,7 @@ Cluster secrets are plain Kubernetes Secrets — Kind etcd is the source of trut
 
 MCP-server API keys are the exception: they are `thv` (ToolHive) secrets on the host, not Kubernetes Secrets. Configure them with `vicegerent mcp configure` (see [`host/mcp`](../host/mcp)), not the scripts below.
 
-> Secrets are treated as disposable/recreatable. There is no external secret store
-> in the loop, so **keep your own copy of any API keys** — re-running a setup script
-> is how you rebuild the cluster's secrets after a `kind delete cluster`. (A Velero
-> backup of the Secrets is a planned follow-up.)
+> Secrets are treated as disposable/recreatable. There is no external secret store in the loop, so **keep your own copy of any API keys** — re-running a setup script is how you rebuild the cluster's secrets after a `kind delete cluster`. (A Velero backup of the Secrets is a planned follow-up.)
 
 ### Platform-wide
 
