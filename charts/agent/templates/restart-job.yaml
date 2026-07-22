@@ -4,6 +4,8 @@ kind: Job
 metadata:
   name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
+  annotations:
+    kustomize.toolkit.fluxcd.io/force: Enabled
 spec:
   backoffLimit: 3
   template:
