@@ -713,6 +713,15 @@ COPY patches/0037-jiter-streaming-parse-error-retryable.py /tmp/0037-jiter-strea
 RUN /opt/hermes/.venv/bin/python /tmp/0037-jiter-streaming-parse-error-retryable.py
 RUN rm -f /tmp/0037-jiter-streaming-parse-error-retryable.py
 
+# Patch agent/usage_pricing.py to inject GLM-5.2 model pricing so Slack
+# runtime footers show per-message cost. Hermes's resolve_billing_route()
+# had no zai/glm branch, and _OFFICIAL_DOCS_PRICING had no GLM entries —
+# every GLM session recorded cost_status='unknown' with no footer line.
+# Remove once upstream Hermes adds GLM pricing itself.
+COPY patches/0038-glm-usage-pricing.py /tmp/0038-glm-usage-pricing.py
+RUN /opt/hermes/.venv/bin/python /tmp/0038-glm-usage-pricing.py
+RUN rm -f /tmp/0038-glm-usage-pricing.py
+
 # Replace the runtime footer's cwd with real spend visibility. TERMINAL_CWD is
 # copied once from terminal.cwd at gateway startup and never follows /new,
 # session/turn boundaries, or terminal-tool cd calls, so displaying it falsely
