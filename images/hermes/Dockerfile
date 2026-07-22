@@ -725,3 +725,21 @@ RUN rm -f /tmp/0037-jiter-streaming-parse-error-retryable.py
 COPY patches/0039-runtime-footer-cost-field.py /tmp/0039-runtime-footer-cost-field.py
 RUN /opt/hermes/.venv/bin/python /tmp/0039-runtime-footer-cost-field.py
 RUN rm -f /tmp/0039-runtime-footer-cost-field.py
+
+# The custom provider profile (Ollama/vLLM/llama.cpp/GLM-ARK/gpt-5.4-via-
+# agentgateway -- anything registered as provider: custom) unconditionally
+# emitted extra_body.think=False whenever reasoning was disabled. The
+# OpenAI SDK flattens extra_body into literal top-level JSON keys, and
+# schema-strict OpenAI-compatible endpoints (real OpenAI, and proxies like
+# agentgateway that pass extra_body straight through) hard-400 on the
+# unrecognized "think" field -- while the field was already dead weight
+# for its intended Ollama target (Ollama's own docs: /v1/chat/completions
+# ignores think, only /api/chat honours it, and Hermes never calls the
+# latter). Live incident: the SAME turn that MR !604's reasoning_effort
+# fix was meant to make survivable still 400'd on fallback, this time on
+# "think" instead. Remove once upstream scopes the think field to real
+# Ollama endpoints only (e.g. via is_local_endpoint), or Ollama's own
+# /v1/chat/completions starts honouring it.
+COPY patches/0040-custom-provider-drop-unconditional-think-field.py /tmp/0040-custom-provider-drop-unconditional-think-field.py
+RUN /opt/hermes/.venv/bin/python /tmp/0040-custom-provider-drop-unconditional-think-field.py
+RUN rm -f /tmp/0040-custom-provider-drop-unconditional-think-field.py
