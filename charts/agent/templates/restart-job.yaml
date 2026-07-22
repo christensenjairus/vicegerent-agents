@@ -5,7 +5,8 @@ metadata:
   name: {{ include "vicegerent-agent.name" . }}-restart
   namespace: agent-sandbox
   annotations:
-    kustomize.toolkit.fluxcd.io/force: Enabled
+    helm.sh/hook: pre-install,pre-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   backoffLimit: 3
   template:
