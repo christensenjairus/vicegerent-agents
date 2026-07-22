@@ -100,6 +100,10 @@ _EXTRA_PRICES = {
     "openai/gpt-5.6-luna":                  (1.00,  6.00),
     "openai/gpt-5.5":                       (5.00, 30.00),
     "openai/gpt-5.5-pro":                   (30.00, 180.00),
+    # Z.ai (GLM) — https://docs.z.ai/guides/overview/pricing (2026-07)
+    "zai/glm-5.2":                          (1.40,  4.40),
+    "zai/glm-5.1":                          (1.40,  4.40),
+    "zai/glm-5":                            (1.00,  3.20),
 }
 # fmt: on
 
