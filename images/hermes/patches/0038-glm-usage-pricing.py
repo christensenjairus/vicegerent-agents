@@ -50,7 +50,6 @@ _ROUTE_REPLACEMENT = (
 # Must be unique — the closing } plus the GPT-5.6 comment that follows.
 
 _PRICES_ANCHOR = (
-    "    ),\n"
     "}\n"
     "\n"
     "# GPT-5.6 \"-pro\" high-effort variants bill at the same per-token rates as\n"
