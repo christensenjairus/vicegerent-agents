@@ -69,7 +69,7 @@ scope the ``think`` field to only those, or (b) upstream Ollama makes its
 own ``/v1/chat/completions`` honour ``think`` so the field stops being
 useless dead weight even for its intended target.
 """
-import importlib.util
+import pathlib
 import sys
 
 APPLIED_MARKER = "Vicegerent patch 0040"
@@ -101,21 +101,24 @@ REPLACEMENT = (
 
 
 def main() -> int:
-    spec = importlib.util.find_spec("plugins.model_providers.custom")
-    if spec is None or not spec.origin:
-        import pathlib
-
-        candidates = list(
-            pathlib.Path("/opt/hermes/plugins/model-providers/custom").glob("__init__.py")
+    # This module is loaded by Hermes's plugin loader at runtime under a
+    # dynamic name (plugins.model_providers.custom), not a standard
+    # importable package -- importlib.util.find_spec() on that name
+    # raises ModuleNotFoundError (not a None return) when invoked from a
+    # bare `python patch.py` build step with no parent package registered,
+    # which is exactly the environment a Dockerfile RUN step provides.
+    # Confirmed via a real build failure (2026-07-22): find_spec crashed
+    # the image build outright instead of falling through to the path
+    # search below. Go straight to the known on-disk path; every other
+    # patch in this repo that touches a plugin file does the same.
+    candidates = list(
+        pathlib.Path("/opt/hermes/plugins/model-providers/custom").glob("__init__.py")
+    )
+    if not candidates:
+        raise SystemExit(
+            "patch: cannot locate plugins/model-providers/custom/__init__.py"
         )
-        if not candidates:
-            raise SystemExit(
-                "patch: cannot locate plugins/model-providers/custom/__init__.py "
-                "via importlib or direct path search"
-            )
-        path = str(candidates[0])
-    else:
-        path = spec.origin
+    path = str(candidates[0])
 
     with open(path, "r", encoding="utf-8") as f:
         src = f.read()
