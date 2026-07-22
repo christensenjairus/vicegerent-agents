@@ -4,12 +4,14 @@ Why this exists, what it's compared against, and the tradeoffs — split out of 
 
 ## What it provides
 
-Every agent runs as its own `agent-sandbox` pod, non-root and pod-hardened, with its own generated credentials (SSH key, dashboard auth) that are never shared with another agent. From there:
+Every agent runs as its own `agent-sandbox` pod, non-root and pod-hardened, with its own generated credentials (SSH key, dashboard auth) that are never shared with another agent. The platform is harness-agnostic — the same hardened sandbox runs whichever coding agent you point it at (Hermes, Claude Code, Codex), because every boundary below is enforced *around* the pod by Kubernetes, Cilium, and agentgateway rather than by the agent inside it. From there:
 
+- The pod is locked down at the kernel/kubelet level: unprivileged user (uid 10000, `runAsNonRoot`), `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, all Linux capabilities dropped, a `RuntimeDefault` seccomp profile, and `automountServiceAccountToken: false` so no Kubernetes API token is mounted. The agent can only write to a few explicit volumes; everything else is immutable. This holds for any process the pod runs, regardless of harness.
 - The sandbox has no direct internet or cluster access. Cilium egress-locks it to a scrubbing egress proxy, git-over-SSH, Slack, and DNS.
 - Every model call and every MCP tool call goes through agentgateway.
-- Every shell command passes through a layered approval pipeline (hardline block → operator silence list → tirith static scan → LLM-assessed smart approval) before it executes.
 - MCP tool calls also pass a Cerbos guardrail that blocks reading Kubernetes Secrets regardless of which tool asks, so a confidentiality boundary survives even if a tool is otherwise permitted.
+
+When the agent is Hermes, shell commands also pass through an in-agent layered approval pipeline (hardline block → operator silence list → tirith static scan → LLM-assessed smart approval) before executing. That's a harness-specific control on top of the platform boundary — a bonus where the harness offers it, not the load-bearing containment; the filesystem/process and egress boundaries above contain a command the same way regardless of which agent (or approval mechanism) issued it.
 
 Because the containment is structural, agents can run genuinely autonomously — unattended, on schedules, reacting to events — without a human in the loop for every action. The boundary is what makes that autonomy safe to grant. The whole platform (agents, models, gateway routes, secrets policy, approval rules) is Flux-reconciled from this git repo, so standing it up, changing it, or reproducing it on another machine is `git clone` + `flux bootstrap`, not a pile of manual laptop setup steps.
 

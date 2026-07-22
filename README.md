@@ -1,21 +1,21 @@
 # Vicegerent Agents
 
-GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked Hermes agent sandboxes on a local Kind cluster (Cilium CNI), managed by Flux. It lets an agent run genuinely unattended (schedules, event triggers, no human approving every action) because containment is enforced by the platform, not by the agent's behavior — see [`docs/design.md`](docs/design.md) for the full rationale and how this compares to a laptop CLI agent or a plain container.
+GitOps repository for the **vicegerent** infra agent platform — credential-isolated, egress-locked agent sandboxes on a local Kind cluster (Cilium CNI), managed by Flux. The platform is **harness-agnostic**: the same sandbox runs whichever coding agent you point it at — Hermes, Claude Code, or Codex — identically, because every containment layer wraps the *process and the pod*, not any one agent's internals. It lets an agent run genuinely unattended (schedules, event triggers, no human approving every action) because containment is enforced by the platform, not by the agent's behavior — see [`docs/design.md`](docs/design.md) for the full rationale and how this compares to a laptop CLI agent or a plain container.
 
 ![Architecture of Vicegerent Agents (Excalidraw)](./architecture.png)
 
 ## Enforcement layers
 
-Four independent layers sit between the agent and anything it can affect. Each is enforced by a different component, so no single compromise (a bad shell command, a malicious tool result, a prompt injection) clears the whole stack — the agent has to get past all of them.
+Four independent layers sit between the agent and anything it can affect. Each is enforced by a different component, so no single compromise (a bad shell command, a malicious tool result, a prompt injection) clears the whole stack — the agent has to get past all of them. Every one of these layers is enforced *around* the sandbox — by Kubernetes, Cilium, and agentgateway — not by the agent inside it.
 
 | # | Layer | Enforces | Component | Docs |
 |---|---|---|---|---|
-| 1 | **Command approval** | Every shell command the agent runs, before it executes | `tools/approval.py` in the Hermes image, config from `approval-policy.yaml` | [AGENTS.md § Command Approval System](AGENTS.md#command-approval-system) |
+| 1 | **Filesystem & process boundary** | What the agent process can touch inside its own pod: no root, no privilege escalation, a read-only root filesystem, no Linux capabilities, no service-account token | Kubernetes pod `securityContext` on the `Sandbox` pod (`charts/agent/templates/_sandbox.tpl`) | [AGENTS.md § Default to secure](AGENTS.md) |
 | 2 | **Network egress** | Every outbound connection from the sandbox pod | Cilium (`CiliumNetworkPolicy`, kernel-level FQDN/IP allowlist) + the mitmproxy egress proxy (scrubbing, method/URL/SSRF checks) it fronts | [`charts/egress-proxy/README.md`](charts/egress-proxy/README.md) |
 | 3 | **MCP tool selection** | Which tools exist for the agent to call at all | ToolHive vMCP `aggregation.tools` (`host/mcp/toolhive-servers.json`); agentgateway can also do this centrally | [`host/mcp/README.md`](host/mcp/README.md) |
 | 4 | **MCP argument authorization** | What a selected tool is allowed to do with the arguments it was called with — deny, or mutate specific arguments before forwarding (e.g. keep a GitHub PR a draft, pin a Notion page's parent folder) | `mcp-cerbos-shim` + Cerbos, attached to agentgateway's `vmcp` backend (`FailClosed`) | [`images/mcp-cerbos-shim/README.md`](images/mcp-cerbos-shim/README.md) |
 
-Layer 1 (command approval) runs a fixed pipeline in order — nothing later can override an earlier stage's block: **hardline block** (unconditional, catastrophic commands, hardcoded) → **silence list** (operator-configured patterns dropped before any LLM sees them — tirith findings and uncancellable patterns are never silenced) → **tirith** (static security scan) → **smart approval** (an auxiliary LLM judges what's left: auto-approve low-risk, auto-deny genuinely dangerous, escalate the rest to the user).
+Layer 1 (filesystem & process boundary) is the pod itself. The `Sandbox` pod runs as an unprivileged user (uid 10000, `runAsNonRoot`), with `allowPrivilegeEscalation: false`, `readOnlyRootFilesystem: true`, all Linux capabilities dropped (`capabilities.drop: [ALL]`), a `RuntimeDefault` seccomp profile, and `automountServiceAccountToken: false` so no Kubernetes API token is even mounted. The agent can only write to a handful of explicit volumes (its data PVC at `/opt/data`, `/workspace`, `/tmp`) — everything else is immutable to it. Because this is enforced by the kubelet and the kernel against the whole container, it holds for any process the pod runs.
 
 Layer 2 (network egress) is two things stacked, not one: Cilium enforces *which destinations exist at all* at the packet level (kernel-level — this is the layer a proxy bypass can't get around), and the mitmproxy egress proxy in front of the allowed HTTP(S) destinations enforces *what a request is allowed to look like* — GET/HEAD only, secrets scrubbed, no WebSocket upgrades, no SSRF into private ranges.
 
