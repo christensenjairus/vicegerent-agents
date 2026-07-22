@@ -1,23 +1,42 @@
 #!/usr/bin/env python3
 """Behavioral regression test for patch 0037 (jiter parse error retryable).
 
+Covers BOTH classifiers patch 0037 touches — they are the same root cause
+(jiter's bare ValueError on malformed streamed tool-call JSON) at two
+independent call sites, and both must agree on what counts as retryable:
+
+1. ``agent/conversation_loop.py::is_local_validation_error`` — gates the
+   post-retry-exhaustion fallback decision.
+2. ``run_agent.py::AIAgent._is_provider_stream_parse_error`` — gates the
+   mid-stream silent-retry decision (tool call in-flight when the stream
+   dies). Incident 2026-07-22: this second classifier only recognized
+   "expected ident at line" and missed "expected value at line" (the shape
+   that actually fired), falling through to the eager-fallback path this
+   whole patch exists to prevent.
+
 Usage: run this INSIDE a Hermes image/container after the patch has been
-applied (i.e. against the live installed agent/conversation_loop.py), or
-against a scratch copy during patch development.
+applied (i.e. against the live installed files), or against scratch copies
+during patch development.
 
-    HERMES_CONVERSATION_LOOP=/path/to/conversation_loop.py python3 test_0037.py
+    HERMES_CONVERSATION_LOOP=/path/to/conversation_loop.py \\
+    HERMES_RUN_AGENT=/path/to/run_agent.py \\
+    python3 test_0037_jiter_parse_retryable.py
 
-Exercises the exact `is_local_validation_error` classifier expression by
-extracting it out of the live module source (never hand-copied — always
-re-reads the shipped file so this test fails loudly if the patch's anchor
-ever drifts) and evaluating it against a matrix of real exception instances,
-including actual jiter errors when the jiter package is importable.
+Test 1 exercises the exact `is_local_validation_error` classifier
+expression by extracting it out of the live module source (never
+hand-copied — always re-reads the shipped file so this test fails loudly
+if the patch's anchor ever drifts). Test 2 imports the real
+`_is_provider_stream_parse_error` method directly via importlib and calls
+it, since that classifier is a normal bound method (no snippet extraction
+needed — it doesn't reference enclosing-scope locals the way the inline
+conversation_loop.py block does).
 
 Exit code 0 = all assertions passed. Any failure raises AssertionError with
 a descriptive message and exits non-zero.
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import ssl
@@ -68,7 +87,8 @@ def _evaluate_classifier(snippet: str, api_error: Exception) -> bool:
     return ns["is_local_validation_error"]
 
 
-def main() -> int:
+def _test_conversation_loop_classifier() -> tuple[int, list[str]]:
+    """Test 1: agent/conversation_loop.py::is_local_validation_error."""
     path = os.environ.get(
         "HERMES_CONVERSATION_LOOP",
         "/opt/hermes/agent/conversation_loop.py",
@@ -162,6 +182,7 @@ def main() -> int:
     ))
 
     failures = []
+    print(f"\n--- Test 1: {path}::is_local_validation_error ---")
     for label, exc, expected in cases:
         actual = _evaluate_classifier(snippet, exc)
         status = "PASS" if actual == expected else "FAIL"
@@ -169,10 +190,112 @@ def main() -> int:
         if actual != expected:
             failures.append(label)
 
-    if failures:
-        raise AssertionError(f"{len(failures)} case(s) failed: {failures}")
+    return len(cases), failures
 
-    print(f"\nAll {len(cases)} cases passed.")
+
+def _test_stream_parse_error_classifier() -> tuple[int, list[str]]:
+    """Test 2: run_agent.py::AIAgent._is_provider_stream_parse_error.
+
+    This is a normal bound method (no enclosing-scope locals), so it's
+    imported and called directly via importlib rather than snippet-extracted.
+    """
+    path = os.environ.get("HERMES_RUN_AGENT", "/opt/hermes/run_agent.py")
+
+    spec = importlib.util.spec_from_file_location("run_agent_under_test", path)
+    if spec is None or spec.loader is None:
+        raise AssertionError(f"could not build an import spec for {path}")
+    module = importlib.util.module_from_spec(spec)
+    try:
+        spec.loader.exec_module(module)
+    except ImportError as exc:
+        raise AssertionError(
+            f"failed to import {path} — is /opt/hermes on sys.path? {exc}"
+        )
+
+    method = module.AIAgent._is_provider_stream_parse_error
+
+    class _FakeAgent:
+        api_mode = "anthropic_messages"
+
+    fake = _FakeAgent()
+
+    cases: list[tuple[str, Exception, bool]] = [
+        (
+            "jiter 'expected value at line N column N' "
+            "(2026-07-22 incident shape — previously MISSED by this classifier)",
+            ValueError("expected value at line 1 column 98"),
+            True,
+        ),
+        (
+            "jiter 'expected ident at line N column N' (original 0037 shape)",
+            ValueError("expected ident at line 1 column 149"),
+            True,
+        ),
+        (
+            "jiter 'EOF while parsing a value at line N column N'",
+            ValueError("EOF while parsing a value at line 1 column 0"),
+            True,
+        ),
+        (
+            "jiter 'trailing characters at line N column N'",
+            ValueError("trailing characters at line 1 column 95"),
+            True,
+        ),
+        (
+            "json.JSONDecodeError (pre-existing exclusion, must still work)",
+            None,  # filled in below
+            False,
+        ),
+        (
+            "genuine unrelated ValueError (must remain False -- not a jiter error)",
+            ValueError("invalid literal for int() with base 10: 'abc'"),
+            False,
+        ),
+        (
+            "non-anthropic api_mode (function must short-circuit False regardless of message)",
+            ValueError("expected value at line 1 column 98"),
+            False,
+        ),
+    ]
+
+    try:
+        json.loads("not json")
+    except json.JSONDecodeError as jde:
+        cases[4] = (cases[4][0], jde, False)
+
+    failures = []
+    print(f"\n--- Test 2: {path}::AIAgent._is_provider_stream_parse_error ---")
+    for label, exc, expected in cases:
+        if "non-anthropic api_mode" in label:
+            other_fake = _FakeAgent()
+            other_fake.api_mode = "chat_completions"
+            actual = method(other_fake, exc)
+        else:
+            actual = method(fake, exc)
+        status = "PASS" if actual == expected else "FAIL"
+        print(f"[{status}] {label}: result={actual} (expected {expected})")
+        if actual != expected:
+            failures.append(label)
+
+    return len(cases), failures
+
+
+def main() -> int:
+    total_cases = 0
+    all_failures: list[str] = []
+
+    count1, failures1 = _test_conversation_loop_classifier()
+    total_cases += count1
+    all_failures.extend(failures1)
+
+    count2, failures2 = _test_stream_parse_error_classifier()
+    total_cases += count2
+    all_failures.extend(failures2)
+
+    if all_failures:
+        raise AssertionError(f"{len(all_failures)} case(s) failed: {all_failures}")
+
+    print(f"\nAll {total_cases} cases passed across both classifiers.")
     return 0
 
 
