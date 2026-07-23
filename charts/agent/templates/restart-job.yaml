@@ -63,6 +63,9 @@ spec:
             - name: claude-config
               mountPath: /reload/claude-config
               readOnly: true
+            - name: opencode-config
+              mountPath: /reload/opencode-config
+              readOnly: true
             - name: approval-policy
               mountPath: /reload/approval-policy
               readOnly: true
@@ -84,6 +87,9 @@ spec:
         - name: claude-config
           configMap:
             name: {{ include "vicegerent-agent.name" . }}-claude-config
+        - name: opencode-config
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-opencode-config
         - name: approval-policy
           configMap:
             name: {{ include "vicegerent-agent.name" . }}-approval-policy

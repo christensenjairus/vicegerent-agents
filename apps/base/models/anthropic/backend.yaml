@@ -13,7 +13,7 @@ spec:
             policies:
               auth:
                 secretRef:
-                  name: vicegerent-secrets
+                  name: vicegerent-anthropic-secrets
               ai:
                 routes:
                   /v1/messages: Messages

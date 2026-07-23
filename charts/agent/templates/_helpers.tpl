@@ -119,49 +119,115 @@ Pick the model that fits the task: heavier reasoning for complex/design work, li
 - When MCP servers misbehave, stop execution and tell the user.
 {{- end -}}
 
-{{- /* Locked provider connectivity every agent must have; wins on merge conflicts. */ -}}
+{{- /* Locked provider connectivity every agent must have; wins on merge conflicts.
+      Gated on values.providers.<name>.enabled so an agent can opt a provider out
+      entirely -- disabling one drops it from renderedConfig's providers map, so
+      model.provider can't dangle. model_catalog.excluded_providers is a static list
+      that hides Hermes's built-in providers whose canonical slug would otherwise
+      collide with our Agentgateway-* providers in the /model picker: the built-in
+      activates on the placeholder <PROVIDER>_API_KEY=none the sandbox sets for
+      agentgateway and claims the slug first. Excluded slugs are the built-in
+      canonical names (openai-api, zai) or the shared config key (anthropic,
+      deepseek) -- see MR !612. */ -}}
 {{- define "vicegerent-agent.mandatoryConfig" -}}
 providers:
+{{- if .Values.providers.anthropic.enabled }}
   anthropic:
     name: Agentgateway-Anthropic
     api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic
     key_env: ANTHROPIC_API_KEY
     transport: anthropic_messages
+{{- end }}
+{{- if .Values.providers.openai.enabled }}
   openai:
     name: Agentgateway-OpenAI
     api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1
     key_env: OPENAI_API_KEY
     transport: responses
+{{- end }}
+{{- if .Values.providers.deepseek.enabled }}
+  deepseek:
+    name: Agentgateway-DeepSeek
+    api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/deepseek/v1
+    key_env: DEEPSEEK_API_KEY
+    transport: chat_completions
+    models:
+      - {{ .Values.providers.deepseek.model }}
+{{- end }}
+{{- if .Values.providers.zai.enabled }}
+  zai:
+    name: Agentgateway-Zai
+    api: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/zai/api/paas/v4
+    key_env: ZAI_API_KEY
+    transport: chat_completions
+    models:
+      - {{ .Values.providers.zai.model }}
+{{- end }}
 model_catalog:
   excluded_providers:
     - anthropic
-    - openai
+    - openai-api
+    - deepseek
+    - zai
 {{- end -}}
 
-{{- /* Platform-wide operational defaults; overridable per-agent via values.config. */ -}}
+{{- /* Platform-wide operational defaults; overridable per-agent via values.config.
+      $primaryProvider is what every assistant-facing default (model.provider, delegation,
+      auxiliary.*) points at when an agent doesn't override it -- first enabled among
+      anthropic/openai/deepseek/zai, in that order. Fails loudly if every provider is
+      disabled -- an agent needs at least one. */ -}}
 {{- define "vicegerent-agent.defaultConfig" -}}
+{{- $primaryProvider := "" -}}
+{{- $primaryModel := "" -}}
+{{- $primaryAuxiliaryModel := "" -}}
+{{- if .Values.providers.anthropic.enabled }}{{- $primaryProvider = "anthropic" -}}{{- $primaryModel = .Values.providers.anthropic.model -}}{{- $primaryAuxiliaryModel = .Values.providers.anthropic.auxiliaryModel -}}
+{{- else if .Values.providers.openai.enabled }}{{- $primaryProvider = "openai" -}}{{- $primaryModel = .Values.providers.openai.model -}}{{- $primaryAuxiliaryModel = .Values.providers.openai.auxiliaryModel -}}
+{{- else if .Values.providers.deepseek.enabled }}{{- $primaryProvider = "deepseek" -}}{{- $primaryModel = .Values.providers.deepseek.model -}}{{- $primaryAuxiliaryModel = .Values.providers.deepseek.auxiliaryModel -}}
+{{- else if .Values.providers.zai.enabled }}{{- $primaryProvider = "zai" -}}{{- $primaryModel = .Values.providers.zai.model -}}{{- $primaryAuxiliaryModel = .Values.providers.zai.auxiliaryModel -}}
+{{- else }}{{- fail "vicegerent-agent: every provider (anthropic/openai/deepseek/zai) is disabled in values.providers -- at least one must be enabled" -}}
+{{- end }}
 model:
-  default: claude-sonnet-5
+  default: {{ $primaryModel }}
+  provider: {{ $primaryProvider }}
+  # Hardcoded, not derived per-provider: we standardize on 1M-context models across
+  # providers today, but if a future default model has a smaller real context window
+  # this will overstate it to Hermes's compaction logic. Revisit if that changes.
   context_length: 1000000
   persist_switch_by_default: false
 model_aliases:
+{{- if .Values.providers.anthropic.enabled }}
   haiku:
     model: claude-haiku-4-5
     provider: anthropic
   sonnet:
-    model: claude-sonnet-5
+    model: {{ .Values.providers.anthropic.model }}
     provider: anthropic
   opus:
     model: claude-opus-4-8
     provider: anthropic
+{{- end }}
+{{- if .Values.providers.openai.enabled }}
   gpt-5:
-    model: gpt-5.6-sol
+    model: {{ .Values.providers.openai.model }}
     provider: openai
+{{- end }}
+{{- if .Values.providers.deepseek.enabled }}
+  deepseek:
+    model: {{ .Values.providers.deepseek.model }}
+    provider: deepseek
+{{- end }}
+{{- if .Values.providers.zai.enabled }}
+  zai:
+    model: {{ .Values.providers.zai.model }}
+    provider: zai
+{{- end }}
+{{- if .Values.providers.openai.enabled }}
 fallback_providers:
   - provider: custom
     model: gpt-5.4
     base_url: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1
     key_env: OPENAI_API_KEY
+{{- end }}
 compression:
   threshold: 0.50
 prompt_caching:
@@ -182,6 +248,12 @@ agent:
   reasoning_effort: medium
   reasoning_overrides:
     gpt-5.4: none
+{{- if .Values.providers.deepseek.enabled }}
+    {{ .Values.providers.deepseek.model }}: high
+{{- end }}
+{{- if .Values.providers.zai.enabled }}
+    {{ .Values.providers.zai.model }}: high
+{{- end }}
   disabled_toolsets:
     - computer_use
     - tts
@@ -197,39 +269,40 @@ toolsets:
 kanban:
   dispatch_in_gateway: false
 delegation:
-  provider: anthropic
-  model: claude-sonnet-5
+  provider: {{ $primaryProvider }}
+  model: {{ $primaryModel }}
   orchestrator_enabled: true
   max_spawn_depth: 2
 auxiliary:
   vision:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   title_generation:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   approval:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   compression:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
+    # Hardcoded like model.context_length above -- see that comment.
     context_length: 1000000
   web_extract:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   triage_specifier:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   kanban_decomposer:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   curator:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
   monitor:
-    provider: anthropic
-    model: claude-haiku-4-5
+    provider: {{ $primaryProvider }}
+    model: {{ $primaryAuxiliaryModel }}
 tool_loop_guardrails:
   hard_stop_enabled: true
   warn_after:
@@ -331,7 +404,7 @@ plugins:
 {{- end -}}
 {{- end -}}
 {{- if not (hasKey $merged.providers $activeProviderName) -}}
-{{- fail (printf "vicegerent-agent: model.provider %q has no matching entry in providers — must be one of the mandatory providers (anthropic, openai) or an agent-defined entry under providers.*" $activeProviderName) -}}
+{{- fail (printf "vicegerent-agent: model.provider %q has no matching entry in providers — must be one of anthropic, openai, deepseek, zai, or an agent-defined entry under providers.*" $activeProviderName) -}}
 {{- end -}}
 {{- $activeProvider := index $merged.providers $activeProviderName -}}
 {{- $lockedModel := dict "provider" $activeProviderName "base_url" $activeProvider.api "key_env" $activeProvider.key_env "api_mode" $activeProvider.transport -}}

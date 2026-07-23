@@ -10,8 +10,10 @@
 # your own copy of them elsewhere.
 #
 # Applies these Kubernetes Secrets (and one ConfigMap):
-#   agentgateway-system  vicegerent-secrets           Authorization        (Anthropic API key)
+#   agentgateway-system  vicegerent-anthropic-secrets Authorization        (Anthropic API key)
 #   agentgateway-system  vicegerent-openai-secrets    Authorization        (OpenAI API key, optional)
+#   agentgateway-system  vicegerent-deepseek-secrets  Authorization        (DeepSeek API key, optional)
+#   agentgateway-system  vicegerent-zai-secrets       Authorization        (Z.ai/GLM API key, optional)
 #   agentgateway-system  vicegerent-mcp-client        tls.crt, tls.key     (ghostunnel client cert)
 #   agentgateway-system  ghostunnel-ca (ConfigMap)    ca.crt               (ghostunnel CA cert)
 #   agentgateway-system  ghostunnel-server            server.crt/key,ca.crt (host recovery copy)
@@ -38,8 +40,9 @@
 #   -h, --help    show this help
 #
 # Env overrides: KUBE_CONTEXT, GHOSTUNNEL_HOST_DIR, RCLONE_S3_HOST_DIR, SERVER_IP,
-#   SERVER_CN, CLIENT_CN, ANTHROPIC_API_KEY, OPENAI_API_KEY, TAVILY_API_KEY,
-#   FIRECRAWL_API_KEY, GITLAB_PERSONAL_ACCESS_TOKEN
+#   SERVER_CN, CLIENT_CN, ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY,
+#   ZAI_API_KEY, TAVILY_API_KEY, FIRECRAWL_API_KEY,
+#   GITLAB_PERSONAL_ACCESS_TOKEN
 
 set -euo pipefail
 
@@ -258,12 +261,20 @@ info "Applied ghostunnel-server Secret (server cert/key + CA for host recovery).
 
 # --- model API keys --------------------------------------------------------
 step "Anthropic API key"
-ensure_literal_secret vicegerent-secrets agentgateway-system Authorization \
+ensure_literal_secret vicegerent-anthropic-secrets agentgateway-system Authorization \
   ANTHROPIC_API_KEY "Anthropic API key (sk-ant-...)." 1
 
 step "OpenAI API key (optional)"
 ensure_literal_secret vicegerent-openai-secrets agentgateway-system Authorization \
   OPENAI_API_KEY "OpenAI API key (sk-...) — GPT models stay unavailable until set." 0
+
+step "DeepSeek API key (optional)"
+ensure_literal_secret vicegerent-deepseek-secrets agentgateway-system Authorization \
+  DEEPSEEK_API_KEY "DeepSeek API key — DeepSeek models stay unavailable until set and providers.deepseek.enabled is true." 0
+
+step "Z.ai / GLM API key (optional)"
+ensure_literal_secret vicegerent-zai-secrets agentgateway-system Authorization \
+  ZAI_API_KEY "Z.ai/GLM standard (metered) API key — Z.ai models stay unavailable until set and providers.zai.enabled is true." 0
 
 # --- SearXNG secret key ----------------------------------------------------
 # Signs SearXNG session/limiter tokens. Generated once and reused so the value
@@ -323,13 +334,15 @@ check vicegerent-mcp-client agentgateway-system tls.crt
 check vicegerent-mcp-client agentgateway-system tls.key
 check ghostunnel-server agentgateway-system server.crt
 check ghostunnel-server agentgateway-system server.key
-check vicegerent-secrets agentgateway-system Authorization
+check_optional vicegerent-anthropic-secrets agentgateway-system Authorization
 check searxng-secret searxng secret_key
 check egress-proxy-ca egress-proxy ca.crt
 check egress-proxy-ca egress-proxy ca.key
 check egress-proxy-ca-cert agent-sandbox ca.crt
 check velero-credentials velero cloud
 check_optional vicegerent-openai-secrets agentgateway-system Authorization
+check_optional vicegerent-deepseek-secrets agentgateway-system Authorization
+check_optional vicegerent-zai-secrets agentgateway-system Authorization
 if [[ -s "$HD/server.crt" && -s "$HD/server.key" && -s "$HD/ca.cert" ]]; then
   echo "  ${G}ok${N}   $HD (host ghostunnel server + CA material)"
 else

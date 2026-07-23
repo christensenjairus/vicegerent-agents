@@ -4,6 +4,8 @@ kind: Kustomization
 resources:
   - gateway
   - models/anthropic
+  - models/deepseek
+  - models/zai
   - models/haiku-oai
   - models/openai
   - mcps/vmcp

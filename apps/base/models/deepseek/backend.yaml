@@ -2,19 +2,22 @@
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
 metadata:
-  name: haiku-oai
+  name: deepseek
   namespace: agentgateway-system
 spec:
   ai:
     groups:
       - providers:
-          - name: anthropic-haiku-oai
-            anthropic:
-              model: claude-haiku-4-5
+          - name: deepseek
+            openai: {}
+            host: api.deepseek.com
+            port: 443
             policies:
               auth:
                 secretRef:
-                  name: vicegerent-anthropic-secrets
+                  name: vicegerent-deepseek-secrets
+              tls:
+                sni: api.deepseek.com
               ai:
                 routes:
                   /v1/chat/completions: Completions

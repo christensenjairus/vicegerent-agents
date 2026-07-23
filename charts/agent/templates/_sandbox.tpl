@@ -42,8 +42,8 @@ spec:
               set -eu
               chown 10000:10000 /run
               # chown -R: stale uid-0 dirs from old subPath design cause EPERM on reseed; idempotent on fresh PVCs.
-              mkdir -p /opt/data/.codex /opt/data/.claude
-              chown -R 10000:10000 /opt/data/.codex /opt/data/.claude
+              mkdir -p /opt/data/.codex /opt/data/.claude /opt/data/home/.config/opencode
+              chown -R 10000:10000 /opt/data/.codex /opt/data/.claude /opt/data/home/.config/opencode
               # models PVC mount forces kubelet to scaffold /opt/data/home as root:hermes with no group-write; fix it here (non-recursive, skips the mounted models content) before seed-data (uid 10000) needs to write under $HOME.
               mkdir -p /opt/data/home/.hermes/mnemosyne
               chown 10000:10000 /opt/data/home /opt/data/home/.hermes /opt/data/home/.hermes/mnemosyne
@@ -137,28 +137,35 @@ spec:
               fi
               pkg="$(/opt/hermes/.venv/bin/python -c 'import mnemosyne_hermes, os; print(os.path.dirname(mnemosyne_hermes.__file__))')"
               ln -sfn "${pkg}" /opt/data/plugins/mnemosyne
-              # Seed ConfigMap-owned config files; agent runtime state uses different files in the same dirs.
-              mkdir -p /opt/data/.codex /opt/data/.claude
-              cp -f /reload/codex-config/config.toml /opt/data/.codex/config.toml
-              cp -f /reload/claude-config/settings.json /opt/data/.claude/settings.json
-              cp -f /reload/claude-config/claude.json /opt/data/.claude/.claude.json
+              # Merge each harness's GitOps-owned config onto whatever's already on the PVC
+              # -- ConfigMap keys win on conflict. Structured files (yq handles yaml/toml/
+              # json); prose files (CLAUDE.md, AGENTS.md) are plain copies instead.
+              merge_config() {
+                local fmt="$1" pvc_file="$2" cm_file="$3"
+                if [ -f "${pvc_file}" ]; then
+                  yq eval-all -p "${fmt}" -o "${fmt}" 'select(fi == 0) * select(fi == 1)' \
+                    "${pvc_file}" "${cm_file}" > "${pvc_file}.tmp" \
+                    && mv "${pvc_file}.tmp" "${pvc_file}"
+                else
+                  cp "${cm_file}" "${pvc_file}"
+                fi
+              }
+              mkdir -p /opt/data/.codex /opt/data/.claude /opt/data/home/.config/opencode
+              merge_config toml /opt/data/.codex/config.toml /reload/codex-config/config.toml
+              merge_config json /opt/data/.claude/settings.json /reload/claude-config/settings.json
+              merge_config json /opt/data/.claude/.claude.json /reload/claude-config/claude.json
               cp -f /reload/claude-config/CLAUDE.md /opt/data/.claude/CLAUDE.md
+              merge_config json /opt/data/home/.config/opencode/opencode.json /reload/opencode-config/opencode.json
+              # OpenCode's documented global-rules location (opencode.ai/docs/rules); see
+              # opencode-config.yaml's AGENTS.md key for the anomalyco/opencode#22020 caveat.
+              cp -f /reload/opencode-config/AGENTS.md /opt/data/home/.config/opencode/AGENTS.md
               # kanban init: pre-create SQLite schema on PVC; || true because self-inits on first call anyway.
               mkdir -p /opt/data/tmp
               HERMES_HOME=/opt/data TMPDIR=/opt/data/tmp \
                 /opt/hermes/.venv/bin/hermes kanban init || true
               # Remove any stale subPath artifact (dangling symlink or empty file from old design).
               [ ! -s /opt/data/config.yaml ] && rm -f /opt/data/config.yaml
-              # Merge GitOps config.yaml onto PVC — ConfigMap keys always win on conflict.
-              if [ -f /opt/data/config.yaml ]; then
-                yq eval-all 'select(fi == 0) * select(fi == 1)' \
-                  /opt/data/config.yaml \
-                  /reload/hermes-config/config.yaml \
-                  > /opt/data/config.yaml.tmp \
-                  && mv /opt/data/config.yaml.tmp /opt/data/config.yaml
-              else
-                cp /reload/hermes-config/config.yaml /opt/data/config.yaml
-              fi
+              merge_config yaml /opt/data/config.yaml /reload/hermes-config/config.yaml
               touch /opt/data/.restart_pending.json
               find /opt/data/skills -type d -perm 555 -exec chmod u+w {} + 2>/dev/null || true
           env:
@@ -182,6 +189,9 @@ spec:
               readOnly: true
             - name: claude-config
               mountPath: /reload/claude-config
+              readOnly: true
+            - name: opencode-config
+              mountPath: /reload/opencode-config
               readOnly: true
             - name: egress-proxy-ca-cert
               mountPath: /reload/egress-proxy-ca
@@ -356,6 +366,10 @@ spec:
               value: /opt/data/.codex
             - name: CLAUDE_CONFIG_DIR
               value: /opt/data/.claude
+            - name: OPENCODE_CONFIG
+              value: /opt/data/home/.config/opencode/opencode.json
+            - name: XDG_CONFIG_HOME
+              value: /opt/data/home/.config
             - name: TMPDIR
               value: /tmp
             - name: PYTHONDONTWRITEBYTECODE
@@ -363,14 +377,30 @@ spec:
             - name: GIT_SSH_COMMAND
               value: ssh -i /opt/hermes-ssh/hermes_agent_ed25519 -o StrictHostKeyChecking=accept-new
                 -o UserKnownHostsFile=/opt/data/.ssh/known_hosts
-            # agentgateway injects the real upstream key; egress proxy scrubs it in
-            # transit. Must be "none" — Hermes's has_usable_secret() placeholder
-            # allowlist, not "unused" — else canonical anthropic/openai-api falsely
-            # register as user-configured and leak into the desktop model picker.
+            # Must be "none" — Hermes's has_usable_secret() placeholder allowlist, not
+            # "unused" — else canonical anthropic/openai-api falsely register as
+            # user-configured and leak into the desktop model picker. Gated per-provider
+            # so a disabled provider gets no env var at all.
+{{- if .Values.providers.anthropic.enabled }}
             - name: ANTHROPIC_API_KEY
               value: none
+{{- end }}
+{{- if .Values.providers.openai.enabled }}
             - name: OPENAI_API_KEY
               value: none
+{{- end }}
+{{- if .Values.providers.deepseek.enabled }}
+            - name: DEEPSEEK_API_KEY
+              value: none
+            - name: DEEPSEEK_BASE_URL
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/deepseek/v1
+{{- end }}
+{{- if .Values.providers.zai.enabled }}
+            - name: ZAI_API_KEY
+              value: none
+            - name: ZAI_BASE_URL
+              value: http://agentgateway-proxy.agentgateway-system.svc.cluster.local/zai/api/paas/v4
+{{- end }}
             # TODO: haiku is overkill for mnemosyne consolidation; replace with a cheap OpenAI model once org tokens are available.
             - name: MNEMOSYNE_LLM_ENABLED
               value: 'true'
@@ -446,6 +476,9 @@ spec:
         - name: claude-config
           configMap:
             name: {{ include "vicegerent-agent.name" . }}-claude-config
+        - name: opencode-config
+          configMap:
+            name: {{ include "vicegerent-agent.name" . }}-opencode-config
         - name: ssh-key
           secret:
             secretName: {{ include "vicegerent-agent.name" . }}-ssh-key  # pragma: allowlist secret

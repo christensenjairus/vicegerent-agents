@@ -293,7 +293,9 @@ COPY package.json /tmp/npm/package.json
 RUN cd /tmp/npm \
     && npm install --global --no-fund --no-audit \
         $(node -p "Object.entries(require('./package.json').dependencies).map(([k,v])=>k+'@'+v).join(' ')") \
-    && rm -rf /tmp/npm /root/.npm
+    && cd / \
+    && rm -rf /tmp/npm /root/.npm \
+    && opencode --version
 
 # terraform-ls, terragrunt, tirith, jq, yq, buf, kustomize, kubeconform,
 # cerbos, helm, bazelisk/buildifier/buildozer, and rtk are all baked in the

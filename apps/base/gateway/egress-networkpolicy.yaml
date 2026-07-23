@@ -42,7 +42,7 @@ spec:
         - ports:
             - port: '8453'
               protocol: TCP
-    # External model provider APIs (Anthropic, OpenAI).
+    # External model provider APIs (Anthropic, OpenAI, DeepSeek, GLM, ...).
     - toEntities: [world]
       toPorts:
         - ports:
