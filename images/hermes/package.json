@@ -10,6 +10,7 @@
     "bash-language-server": "5.6.0",
     "dockerfile-language-server-nodejs": "0.15.0",
     "intelephense": "1.18.5",
+    "opencode-ai": "1.17.20",
     "pyright": "1.1.411",
     "svelte-language-server": "0.18.3",
     "typescript": "7.0.2",

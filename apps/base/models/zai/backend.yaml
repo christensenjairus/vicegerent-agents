@@ -2,20 +2,24 @@
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayBackend
 metadata:
-  name: haiku-oai
+  name: zai
   namespace: agentgateway-system
 spec:
   ai:
     groups:
       - providers:
-          - name: anthropic-haiku-oai
-            anthropic:
-              model: claude-haiku-4-5
+          - name: zai
+            openai: {}
+            host: api.z.ai
+            port: 443
+            pathPrefix: /api/paas/v4
             policies:
               auth:
                 secretRef:
-                  name: vicegerent-anthropic-secrets
+                  name: vicegerent-zai-secrets
+              tls:
+                sni: api.z.ai
               ai:
                 routes:
-                  /v1/chat/completions: Completions
+                  /api/paas/v4/chat/completions: Completions
                   '*': Passthrough

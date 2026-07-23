@@ -1,0 +1,110 @@
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "vicegerent-agent.name" . }}-opencode-config
+  namespace: agent-sandbox
+data:
+  AGENTS.md: |-
+    {{ include "vicegerent-agent.webSearchInstructions" . | trim }}
+
+    {{ include "vicegerent-agent.vmcpToolDiscovery" . | trim }}
+
+    {{ include "vicegerent-agent.worktreeDiscipline" . | trim }}
+  opencode.json: |-
+    {
+      "$schema": "https://opencode.ai/config.json",
+      "model": "{{ if .Values.providers.deepseek.enabled }}deepseek/{{ .Values.providers.deepseek.model }}{{ else if .Values.providers.zai.enabled }}zhipuai/{{ .Values.providers.zai.model }}{{ else if .Values.providers.anthropic.enabled }}anthropic/{{ .Values.providers.anthropic.model }}{{ else }}openai/gpt-5.6-sol{{ end }}",
+      "permission": {
+        "edit": "allow",
+        "bash": "allow",
+        "webfetch": "deny",
+        "external_directory": {
+          "/tmp/*": "allow",
+          "/workspace/*": "allow"
+        }
+      },
+      "mcp": {
+        "mnemosyne": {
+          "type": "local",
+          "command": ["/opt/hermes/.venv/bin/mnemosyne", "mcp"],
+          "enabled": true
+        },
+        "vmcp": {
+          "type": "remote",
+          "url": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/mcp/vmcp",
+          "enabled": true
+        }
+      },
+      "provider": {
+{{- $anyProvider := false }}
+{{- if .Values.providers.anthropic.enabled }}
+{{- if $anyProvider }},{{ end }}
+        "anthropic": {
+          "options": {
+            "baseURL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/anthropic/v1",
+            "apiKey": "none"
+          },
+          "models": {
+            "{{ .Values.providers.anthropic.model }}": {
+              "options": {
+                "reasoningEffort": "high"
+              }
+            }
+          }
+        }
+{{- $anyProvider = true }}
+{{- end }}
+{{- if .Values.providers.openai.enabled }}
+{{- if $anyProvider }},{{ end }}
+        "openai": {
+          "options": {
+            "baseURL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/openai/v1",
+            "apiKey": "none"
+          },
+          "models": {
+            "gpt-5.6-sol": {
+              "options": {
+                "reasoningEffort": "high"
+              }
+            }
+          }
+        }
+{{- $anyProvider = true }}
+{{- end }}
+{{- if .Values.providers.deepseek.enabled }}
+{{- if $anyProvider }},{{ end }}
+        "deepseek": {
+          "options": {
+            "baseURL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/deepseek/v1",
+            "apiKey": "none"
+          },
+          "models": {
+            "{{ .Values.providers.deepseek.model }}": {
+              "options": {
+                "reasoningEffort": "max"
+              }
+            }
+          }
+        }
+{{- $anyProvider = true }}
+{{- end }}
+{{- if .Values.providers.zai.enabled }}
+{{- if $anyProvider }},{{ end }}
+        "zhipuai": {
+          "options": {
+            "baseURL": "http://agentgateway-proxy.agentgateway-system.svc.cluster.local/zai/api/paas/v4",
+            "apiKey": "none"
+          },
+          "models": {
+            "{{ .Values.providers.zai.model }}": {
+              "options": {
+                "reasoningEffort": "max"
+              }
+            }
+          }
+        }
+{{- $anyProvider = true }}
+{{- end }}
+      }
+    }

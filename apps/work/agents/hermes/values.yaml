@@ -10,6 +10,15 @@ obsidian:
 git:
   userName: jchristensen_movester
   userEmail: jchristensen@moveworks.ai
+providers:
+  anthropic:
+    enabled: true
+  openai:
+    enabled: true
+  deepseek:
+    enabled: false
+  zai:
+    enabled: false
 networkAllowlist:
   cnameChainedFQDN: ${cnameChainedFQDN}
   cnameChain: ${cnameChain}

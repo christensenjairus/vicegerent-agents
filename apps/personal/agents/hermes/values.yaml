@@ -10,6 +10,15 @@ obsidian:
 git:
   userName: felix
   userEmail: felix@hahomelabs.com
+providers:
+  anthropic:
+    enabled: true
+  openai:
+    enabled: true
+  deepseek:
+    enabled: true
+  zai:
+    enabled: true
 networkAllowlist:
   cnameChainedFQDN: ${cnameChainedFQDN}
   cnameChain: ${cnameChain}

@@ -3,7 +3,7 @@
 
 Hermes's _OFFICIAL_DOCS_PRICING dict snapshots provider pricing at the
 time the code is cut. GLM models from Z.ai (provider ``zai``, base URL via
-agentgateway ``/glm`` route) aren't in that snapshot, and
+agentgateway ``/zai`` route) aren't in that snapshot, and
 resolve_billing_route() has no ``zai`` branch, so every GLM session
 records cost_status='unknown' and the Slack runtime footer never shows a
 cost line.

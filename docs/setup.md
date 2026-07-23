@@ -89,7 +89,7 @@ export ANTHROPIC_API_KEY=sk-ant-...   # set any key to apply it non-interactivel
 This applies these Kubernetes Secrets (and one ConfigMap):
 
 ```text
-agentgateway-system  vicegerent-secrets         Authorization         (Anthropic API key)
+agentgateway-system  vicegerent-anthropic-secrets Authorization         (Anthropic API key)
 agentgateway-system  vicegerent-openai-secrets  Authorization         (optional OpenAI key)
 agentgateway-system  vicegerent-mcp-client      tls.crt, tls.key      (ghostunnel mTLS client cert)
 agentgateway-system  ghostunnel-ca (ConfigMap)  ca.crt                (ghostunnel CA cert)

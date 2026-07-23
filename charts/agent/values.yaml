@@ -25,6 +25,25 @@ git:
   # seeding ~/.gitconfig, leaving git to fail with "Author identity unknown" until set manually.
   userName: ''
   userEmail: ''
+# Per-agent model-provider opt-in. anthropic/openai default enabled; deepseek/zai are opt-in.
+# model/auxiliaryModel drive Hermes only -- codex/opencode hardcode their own model ids.
+providers:
+  anthropic:
+    enabled: true
+    model: claude-sonnet-5
+    auxiliaryModel: claude-haiku-4-5
+  openai:
+    enabled: true
+    model: gpt-5.4
+    auxiliaryModel: gpt-4o-mini
+  deepseek:
+    enabled: false
+    model: deepseek-v4-pro
+    auxiliaryModel: deepseek-v4-flash
+  zai:
+    enabled: false
+    model: glm-5.2
+    auxiliaryModel: glm-4.7-flash
 # Machine-scoped egress allowlist for a direct (port-22) FQDN reached behind dynamic DNS/a CDN
 # (templates/networkpolicy.yaml), set per cluster from cluster-vars.yaml. Cilium's toFQDNs DNS
 # proxy strips a CNAME answer unless every name in the resolution chain is itself allowlisted,
