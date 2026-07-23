@@ -36,7 +36,7 @@
     },
     {
       "name": "gitlab",
-      "description": "GitLab MCP scoped to issues (read+write) and the merge-request lifecycle short of merging or approving (create/update/review/comment/labels), plus read-only pipeline status/logs. No generic git file/branch-write tools and no repo/project allowlist: the bot has direct SSH to gitlab.hahomelabs.com, so routine git goes through git itself and MCP is only for MR-object actions git can't do. approve/unapprove and merge are excluded (HAH-64) so the bot can't rubber-stamp or merge any MR. execute_graphql is excluded (arbitrary API access would bypass every other exclusion).",
+      "description": "GitLab MCP scoped to issues (read+write) and the merge-request lifecycle short of merging or approving (create/update/review/comment/labels), plus read-only pipeline status/logs and retrying a failed/canceled pipeline job (retry_pipeline_job) — re-running CI, not touching repo content, so it's in the same 'operator isn't picky about GitLab' bucket as the issue/MR tools rather than something needing a Cerbos scope. No generic git file/branch-write tools and no repo/project allowlist: the bot has direct SSH to gitlab.hahomelabs.com, so routine git goes through git itself and MCP is only for MR-object actions git can't do. approve/unapprove and merge are excluded (HAH-64) so the bot can't rubber-stamp or merge any MR. execute_graphql is excluded (arbitrary API access would bypass every other exclusion).",
       "enabled": false,
       "type": "npx",
       "package": "@zereight/mcp-gitlab@2.1.42",
@@ -74,17 +74,18 @@
         "list_merge_requests",
         "get_merge_request_approval_state",
         "list_pipelines", "get_pipeline", "list_pipeline_jobs", "get_pipeline_job",
-        "get_pipeline_job_output"
+        "get_pipeline_job_output", "retry_pipeline_job"
       ]
     },
     {
       "name": "github",
-      "description": "GitHub MCP scoped to PRs only — no issue tools (this operator doesn't use GitHub issues at work) and no generic git file/branch-write tools, since the bot has direct SSH to github.com and does routine git with git itself. Surface: get_me and the PR lifecycle short of merging or leaving any review/comment text. All comment-reply and review-write tools (add_reply_to_pull_request_comment, add_comment_to_pending_review, pull_request_review_write) are excluded on operator instruction — the bot leaves NO comment/review text on PRs, and there's no argument-level signal to distinguish acceptable from not, so the capability is removed rather than partially enforced. Cerbos (defs/resource_github.yaml) hard-enforces the target owner/repo and branch regardless of token scope, and forces every create/update_pull_request to draft:true.",
+      "description": "GitHub MCP scoped to PRs only — no issue tools (this operator doesn't use GitHub issues at work) and no generic git file/branch-write tools, since the bot has direct SSH to github.com and does routine git with git itself. Surface: get_me and the PR lifecycle short of merging or leaving any review/comment text. All comment-reply and review-write tools (add_reply_to_pull_request_comment, add_comment_to_pending_review, pull_request_review_write) are excluded on operator instruction — the bot leaves NO comment/review text on PRs, and there's no argument-level signal to distinguish acceptable from not, so the capability is removed rather than partially enforced. Cerbos (defs/resource_github.yaml) hard-enforces the target owner/repo and branch regardless of token scope, and forces every create/update_pull_request to draft:true. GITHUB_TOOLSETS=all is deliberately maximal (the container's own tool listing is never the restriction point, so e.g. probe-mcp-tools.py shows every tool the server can offer) — the tools list below is what actually scopes what the agent can call. PINNED BELOW THE LATEST RELEASE (v1.6.0) ON PURPOSE: v1.6.0 rejects a second `initialize` on the same stdio connection as a protocol error ({\"error\":{\"message\":\"duplicate \\\"initialize\\\" received\"}}), which ToolHive's vMCP triggers routinely (a fresh initialize per incoming client session/health-check over the one shared stdio pipe) — confirmed live with a controlled A/B (fresh v1.5.0 container: 15/15 consecutive initializes succeed; fresh v1.6.0 container: 2nd initialize ever already fails), so v1.6.0 never successfully aggregates through the vMCP at all. v1.5.0 is otherwise config-identical (same env vars, same stdio transport per stacklok/toolhive-catalog's own server.json) and has the same 8 allowlisted tools with identical argument schemas. Do not bump this past v1.6.0 (Renovate or otherwise) without first re-running this exact A/B test against the target version.",
       "enabled": false,
       "type": "registry",
-      "registry": "io.github.stacklok/github",
+      "registry": "ghcr.io/github/github-mcp-server:v1.5.0",
+      "transport": "stdio",
       "env": {
-        "GITHUB_TOOLS": "get_me,pull_request_read,create_pull_request,update_pull_request,list_pull_requests,search_pull_requests,request_copilot_review,update_pull_request_branch"
+        "GITHUB_TOOLSETS": "all"
       },
       "secrets": [{"name": "github_token", "target": "GITHUB_PERSONAL_ACCESS_TOKEN"}],
       "network": {
@@ -167,17 +168,18 @@
     },
     {
       "name": "jira",
-      "description": "Jira (sooperset/mcp-atlassian container), confined to the CHANGE project. Jira-only (no Confluence creds). JIRA_PROJECTS_FILTER=CHANGE scopes search server-side; cross-project enumeration tools are dropped. Read+write (issues, JQL, transitions, comments), no deletes. Cerbos (defs/resource_jira.yaml) hard-enforces the CHANGE boundary by project_key or issue/epic-key prefix. NB the official remote (io.github.stacklok/atlassian-remote) does NOT work through our vMCP — it advertises the resources capability but returns method-not-found for resources/list, so the health probe drops it from aggregation.",
+      "description": "Jira (sooperset/mcp-atlassian container), confined to the CHANGE project. Jira-only (no Confluence creds, so Confluence tools are unreachable regardless of any toolset setting — mcp-atlassian gates those by service-credential availability, a separate mechanism from tool selection). JIRA_PROJECTS_FILTER=CHANGE scopes search results server-side. TOOLSETS=all is deliberately maximal (e.g. for probe-mcp-tools.py visibility) — the tools list below, not any server-side tool filter, is what actually limits this agent to these 12 out of mcp-atlassian's full native catalog. Read+write (issues, JQL, transitions, comments), no deletes. Cerbos (defs/resource_jira.yaml) hard-enforces the CHANGE boundary by project_key or issue/epic-key prefix. NB the official remote (io.github.stacklok/atlassian-remote) does NOT work through our vMCP — it advertises the resources capability but returns method-not-found for resources/list, so the health probe drops it from aggregation.",
       "enabled": false,
       "type": "registry",
-      "registry": "io.github.stacklok/atlassian",
+      "registry": "ghcr.io/sooperset/mcp-atlassian:0.22.1",
+      "transport": "stdio",
       "network": {
         "host_from_secret": "jira_url"
       },
       "env": {
         "READ_ONLY_MODE": "false",
         "JIRA_PROJECTS_FILTER": "CHANGE",
-        "ENABLED_TOOLS": "jira_get_issue,jira_search,jira_search_fields,jira_get_project_issues,jira_get_transitions,jira_get_link_types,jira_create_issue,jira_update_issue,jira_add_comment,jira_transition_issue,jira_create_issue_link,jira_link_to_epic"
+        "TOOLSETS": "all"
       },
       "secrets": [
         {"name": "jira_url", "target": "JIRA_URL"},
@@ -196,8 +198,9 @@
       "description": "Grafana observability, read-only (search/datasource/dashboard/prometheus/loki+victorialogs/asserts/annotations/rendering reads). --disable-write is the fail-closed write kill-switch. --disable-proxied turns off Tempo-datasource MCP discovery (unused): without it, being off-VPN makes every session across ALL vMCP backends hang on a live call to Grafana, not just this one. Cerbos additionally blocks reads of OpenSearch datasources (defs/resource_grafana.yaml), which also covers the Loki/VictoriaLogs tools below via the same grafana_datasource mapping.",
       "enabled": false,
       "type": "registry",
-      "registry": "grafana",
-      "server_args": ["--disable-write", "--disable-proxied"],
+      "registry": "docker.io/grafana/mcp-grafana:0.17.2",
+      "transport": "stdio",
+      "server_args": ["--transport", "stdio", "--disable-write", "--disable-proxied"],
       "network": {
         "host_from_secret": "grafana_url"
       },
@@ -220,8 +223,9 @@
       "description": "Grafana observability (gov-cloud instance) -- otherwise identical to 'grafana' (see that entry for the tool/write-lockdown, --disable-proxied, and Loki/VictoriaLogs Cerbos-guardrail rationale). Separate secrets (grafana_gov_url/grafana_gov_service_account_token) so it points at its own instance.",
       "enabled": false,
       "type": "registry",
-      "registry": "grafana",
-      "server_args": ["--disable-write", "--disable-proxied"],
+      "registry": "docker.io/grafana/mcp-grafana:0.17.2",
+      "transport": "stdio",
+      "server_args": ["--transport", "stdio", "--disable-write", "--disable-proxied"],
       "network": {
         "host_from_secret": "grafana_gov_url"
       },
@@ -293,10 +297,11 @@
     },
     {
       "name": "pagerduty",
-      "description": "PagerDuty, read-only incident/schedule/on-call/service/team/user lookups plus ack/resolve/note on existing incidents (manage_incidents, add_note_to_incident). create_incident, add_responders, and start_incident_workflow are NOT exposed — triage only, no incident creation or responder escalation from the agent. Cerbos (defs/resource_pagerduty.yaml) scopes manage_incidents to ack/resolve-only field changes.",
+      "description": "PagerDuty, read-only incident/schedule (v2+v3)/on-call/service/team/user lookups and analytics (incident/responder metrics) plus ack/resolve/note on existing incidents (manage_incidents, add_note_to_incident). create_incident, add_responders, and start_incident_workflow are NOT exposed — triage only, no incident creation or responder escalation from the agent. Cerbos (defs/resource_pagerduty.yaml) scopes manage_incidents to ack/resolve-only field changes.",
       "enabled": false,
       "type": "registry",
-      "registry": "io.github.stacklok/pagerduty",
+      "registry": "ghcr.io/stacklok/dockyard/uvx/pagerduty-mcp:1.1.0",
+      "transport": "stdio",
       "server_args": ["--enable-write-tools"],
       "network": {
         "allow_hosts": ["api.pagerduty.com"]
@@ -306,8 +311,12 @@
         "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
         "manage_incidents", "add_note_to_incident",
         "get_schedule", "list_schedules", "list_schedule_users", "list_oncalls",
+        "get_schedule_v3_rotation", "get_schedule_v3_override", "get_schedule_v3_custom_shift", "get_schedule_v3_rotation_event",
+        "list_schedule_v3_rotations", "list_schedule_v3_overrides", "list_schedule_v3_custom_shifts", "list_schedule_v3_rotation_events",
         "get_service", "list_services", "get_team", "list_teams", "list_team_members",
-        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
+        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies",
+        "get_incident_metrics_all", "get_incident_metrics_by_service", "get_incident_metrics_by_team",
+        "get_responder_metrics", "get_responder_load_metrics"
       ],
       "secrets": [{"name": "pagerduty_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
     },
@@ -316,7 +325,8 @@
       "description": "PagerDuty (gov-cloud instance) -- otherwise identical to 'pagerduty' (see that entry for the tool/scoping rationale). Separate secret (pagerduty_gov_user_api_key) so it authenticates against its own account.",
       "enabled": false,
       "type": "registry",
-      "registry": "io.github.stacklok/pagerduty",
+      "registry": "ghcr.io/stacklok/dockyard/uvx/pagerduty-mcp:1.1.0",
+      "transport": "stdio",
       "server_args": ["--enable-write-tools"],
       "network": {
         "allow_hosts": ["api.pagerduty.com"]
@@ -326,8 +336,12 @@
         "get_outlier_incident", "get_alert_from_incident", "list_alerts_from_incident", "list_incident_notes",
         "manage_incidents", "add_note_to_incident",
         "get_schedule", "list_schedules", "list_schedule_users", "list_oncalls",
+        "get_schedule_v3_rotation", "get_schedule_v3_override", "get_schedule_v3_custom_shift", "get_schedule_v3_rotation_event",
+        "list_schedule_v3_rotations", "list_schedule_v3_overrides", "list_schedule_v3_custom_shifts", "list_schedule_v3_rotation_events",
         "get_service", "list_services", "get_team", "list_teams", "list_team_members",
-        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies"
+        "get_user_data", "list_users", "get_escalation_policy", "list_escalation_policies",
+        "get_incident_metrics_all", "get_incident_metrics_by_service", "get_incident_metrics_by_team",
+        "get_responder_metrics", "get_responder_load_metrics"
       ],
       "secrets": [{"name": "pagerduty_gov_user_api_key", "target": "PAGERDUTY_USER_API_KEY"}]
     },

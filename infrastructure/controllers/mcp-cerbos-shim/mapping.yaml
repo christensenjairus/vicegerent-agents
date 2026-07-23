@@ -424,14 +424,17 @@ backends:
       # verbatim.
       alertmanager_gov_getAlerts: *alertmanager_get_alerts
       # PagerDuty manage_incidents -> pagerduty_incident; Cerbos denies any
-      # status other than acknowledged/resolved, and denies any call that sets
-      # urgency/escalation_level/assignement (this MCP tool's actual
-      # IncidentManageRequest schema is flat: incident_ids/status/urgency/
-      # escalation_level/assignement -- it is NOT PagerDuty's raw REST batch
-      # body, which has no bearing on what this specific tool call can carry).
-      # The operator only wants ack/resolve via this tool -- no bulk-count cap
-      # on incident_ids, since the field allowlist makes batch size irrelevant
-      # to the risk. server.go's checkPagerdutyIncidentServices runs
+      # status other than acknowledged/resolved, and denies any call whose
+      # manage_request carries a key other than incident_ids/status at all
+      # (an allowlist of that shape, not a denylist of urgency/
+      # escalation_level/assignement specifically -- see helpers_pagerduty.go
+      # for why). This MCP tool's actual IncidentManageRequest schema is
+      # flat: incident_ids/status/urgency/escalation_level/assignement -- it
+      # is NOT PagerDuty's raw REST batch body, which has no bearing on what
+      # this specific tool call can carry. The operator only wants
+      # ack/resolve via this tool -- no bulk-count cap on incident_ids, since
+      # the field allowlist makes batch size irrelevant to the risk.
+      # server.go's checkPagerdutyIncidentServices runs
       # BEFORE Cerbos (a live get_incident lookup Cerbos itself can't do) and
       # injects a serviceIds attr resolved from every targeted incident id,
       # which resource_pagerduty.yaml's deny-write-outside-allowed-services

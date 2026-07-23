@@ -8,9 +8,9 @@ import (
 	"github.com/jchristensen/vicegerent-agents/images/mcp-cerbos-shim/internal/eval"
 )
 
-// pagerdutyIncidentResultServiceA mirrors get_incident's inferred REST-API-
-// convention result shape (see upstream/pagerduty.go's own caveat: NOT
-// verified against a live call). Every existing ack/resolve-scoping test
+// pagerdutyIncidentResultServiceA mirrors get_incident's result shape,
+// confirmed against pagerduty-mcp 1.1.0's own source and test fixtures (see
+// upstream/pagerduty.go's comment). Every existing ack/resolve-scoping test
 // below now also wires WithPagerdutyIncidentService(up) with this fixture --
 // they only care that the call still reaches Cerbos with the right
 // hasOutOfScopeChange, not about the new serviceIds attr this gate adds

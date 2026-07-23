@@ -64,6 +64,12 @@
       "allowedVersions": "<2.0.0"
     },
     {
+      "description": "github-mcp-server v1.6.0 rejects a second `initialize` on the same stdio connection as a protocol error, which ToolHive's vMCP triggers routinely (one per incoming client session/health-check over the single shared stdio pipe) -- confirmed live, v1.6.0 never successfully aggregates through the vMCP at all (see host/mcp/README.md \"Version pinning\"). Don't bump past v1.5.0 without re-running that same live A/B check against the target version first.",
+      "matchDatasources": ["docker"],
+      "matchPackageNames": ["ghcr.io/github/github-mcp-server"],
+      "allowedVersions": "<1.6.0"
+    },
+    {
       "description": "Flux controllers are upgraded as a matched set via `flux bootstrap` regeneration, never per-image. The flux manager still surfaces a single grouped flux-version signal from the gotk-components header.",
       "matchFileNames": ["clusters/**/flux-system/gotk-components.yaml"],
       "matchManagers": ["kubernetes", "kustomize"],

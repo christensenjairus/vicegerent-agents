@@ -14,17 +14,22 @@ import (
 // same shape PagerDuty's public REST API uses for every such reference
 // throughout its schema (services, escalation policies, teams, etc.).
 //
-// NOTE: this field shape is inferred from PagerDuty's documented REST API
-// conventions, NOT verified against a live call to this specific MCP tool
-// (unlike linear.go's IssueTeam/ProjectTeams, which were confirmed
+// NOTE: this field shape was originally inferred from PagerDuty's documented
+// REST API conventions, NOT verified against a live call to this specific
+// MCP tool (unlike linear.go's IssueTeam/ProjectTeams, which were confirmed
 // against real live responses) -- this sandbox has no PagerDuty credentials
-// to test against. If get_incident's actual result nests the service
-// reference differently, IncidentServiceID below fails closed (empty/
-// malformed service resolves to an error, never a silent pass), so a shape
-// mismatch denies every gated call rather than letting one through
-// unchecked. Live verification against a real PagerDuty account is a
-// mandatory follow-up before relying on this in production -- see the MR's
-// own follow-up section.
+// to test against. It's since been confirmed against pagerduty-mcp 1.1.0's
+// own source: Incident.service is typed as ServiceReference (id required) in
+// models/incidents.py, and that package's own test fixture
+// (tests/test_incidents.py) uses exactly {"service": {"id": "PSERVICE123",
+// "type": "service_reference"}} as a get_incident result. A live smoke-test
+// against a real account is still worth doing (source-confirmed isn't the
+// same as watching a real response go by), but this is no longer a blocking
+// gap -- if get_incident's actual result nests the service reference
+// differently than upstream's own model/fixtures show, IncidentServiceID
+// below fails closed (empty/malformed service resolves to an error, never a
+// silent pass), so a shape mismatch denies every gated call rather than
+// letting one through unchecked.
 type pagerdutyIncidentResult struct {
 	Service struct {
 		ID string `json:"id"`

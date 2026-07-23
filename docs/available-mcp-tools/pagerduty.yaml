@@ -1,20 +1,32 @@
-# available-tools.yaml — catalog of every tool exposed by the running
-# vicegerent MCP backends, with each tool's arguments (type, required,
-# description, enum). Reference for spotting missing tools and for writing
-# cerbos argument-level policies. GENERATED — do not edit by hand.
-# Regenerate: scripts/probe-mcp-tools.py --format yaml -o host/mcp/available-tools.yaml
+# Catalog of every tool exposed by the running vicegerent MCP backend(s),
+# with each tool's arguments (type, required, description, enum). Reference
+# for spotting missing tools and for writing cerbos argument-level policies.
+# GENERATED — do not edit by hand.
+# Regenerate: scripts/probe-mcp-tools.py pagerduty --format yaml -o <this-file>
 group: vicegerent
-tool_count: 64
+tool_count: 101
 servers:
   pagerduty:
-    tool_count: 64
+    tool_count: 101
     tools:
       list_alert_grouping_settings:
-        description: "List all alert grouping settings with optional filtering. Args: query_model: Optional filtering parameters Returns: List of alert grouping settings matching the query parameters"
+        description: "List all alert grouping settings with optional filtering. Args: service_ids: An array of service IDs. Only results related to these services will be returned. limit: The number of results per page. Default 1000. after: Cursor to retrieve next page. before: Cursor to retrieve previous page. total: Set to True to include total count in response. Returns: List of alert grouping settings matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          after:
+            type: "string|null"
+            required: false
+          before:
+            type: "string|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          service_ids:
+            type: "array|null"
+            required: false
+          total:
+            type: "boolean"
+            required: false
       get_alert_grouping_setting:
         description: "Get details for a specific alert grouping setting. Args: setting_id: The ID of the alert grouping setting to retrieve Returns: Alert grouping setting details"
         arguments:
@@ -22,14 +34,17 @@ servers:
             type: "string"
             required: true
       list_alerts_from_incident:
-        description: "List alerts for a specific incident. Args: incident_id: The ID of the incident query_model: Query parameters for pagination Returns: List of Alert objects for the incident"
+        description: "List alerts for a specific incident. Args: incident_id: The ID of the incident limit: Maximum number of results to return (1-1000). Default is 100. offset: Offset for pagination. Default is 0. Returns: List of Alert objects for the given incident"
         arguments:
           incident_id:
             type: "string"
             required: true
-          query_model:
-            type: ""
-            required: true
+          limit:
+            type: "integer|null"
+            required: false
+          offset:
+            type: "integer|null"
+            required: false
       get_alert_from_incident:
         description: "Get a specific alert from an incident. Args: incident_id: The ID of the incident alert_id: The ID of the alert Returns: Alert details"
         arguments:
@@ -40,11 +55,29 @@ servers:
             type: "string"
             required: true
       list_change_events:
-        description: "List all change events with optional filtering. Change Events represent changes to systems, services, and applications that can be correlated with incidents to provide context for troubleshooting. Args: query_model: Query parameters for filtering change events Returns: List of ChangeEvent objects matching the query parameters"
+        description: "List all change events with optional filtering. Change Events represent changes to systems, services, and applications that can be correlated with incidents to provide context for troubleshooting. Args: since: The start of the date range over which you want to search. until: The end of the date range over which you want to search. limit: The number of results per page. Default 100. offset: The offset of the first record returned. total: Set to True to include total count in response. team_ids: An array of team IDs. Only results related to these teams will be returned. integration_ids: An array of integration IDs. Only results related to these integrations will be returned. Returns: List of ChangeEvent objects matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          integration_ids:
+            type: "array|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          offset:
+            type: "integer|null"
+            required: false
+          since:
+            type: "string|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          total:
+            type: "boolean|null"
+            required: false
+          until:
+            type: "string|null"
+            required: false
       get_change_event:
         description: "Get details about a specific change event. Args: change_event_id: The ID of the change event to retrieve Returns: ChangeEvent details"
         arguments:
@@ -52,14 +85,32 @@ servers:
             type: "string"
             required: true
       list_service_change_events:
-        description: "List all change events for a specific service. Args: service_id: The ID of the service query_model: Query parameters for filtering change events Returns: List of ChangeEvent objects associated with the service"
+        description: "List all change events for a specific service. Args: service_id: The ID of the service. since: The start of the date range over which you want to search. until: The end of the date range over which you want to search. limit: The number of results per page. Default 100. offset: The offset of the first record returned. total: Set to True to include total count in response. team_ids: An array of team IDs. Only results related to these teams will be returned. integration_ids: An array of integration IDs. Only results related to these integrations will be returned. Returns: List of ChangeEvent objects associated with the service"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          integration_ids:
+            type: "array|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          offset:
+            type: "integer|null"
+            required: false
           service_id:
             type: "string"
             required: true
+          since:
+            type: "string|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          total:
+            type: "boolean|null"
+            required: false
+          until:
+            type: "string|null"
+            required: false
       list_incident_change_events:
         description: "List change events related to a specific incident. Args: incident_id: The ID of the incident limit: Maximum number of results to return (optional) Returns: List of ChangeEvent objects related to the incident"
         arguments:
@@ -70,17 +121,38 @@ servers:
             type: "integer|null"
             required: false
       list_incidents:
-        description: "List incidents with optional filtering. Args: query_model: Optional filtering parameters Returns: List of Incident objects matching the query parameters"
+        description: "List incidents with optional filtering. Args: request_scope: Scope of incidents to return: 'all', 'assigned', or 'teams' statuses: Filter by status (e.g. triggered, acknowledged, resolved) since: Filter incidents created after this datetime until: Filter incidents created before this datetime urgencies: Filter by urgency (high, low) priorities: Filter by priority IDs (use list_priorities to resolve names to IDs) limit: Max results to return (default 1000) Returns: List of Incident objects matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          limit:
+            type: "integer|null"
+            required: false
+          priorities:
+            type: "array|null"
+            required: false
+          request_scope:
+            type: "string|null"
+            required: false
+          since:
+            type: "string|null"
+            required: false
+          statuses:
+            type: "array|null"
+            required: false
+          until:
+            type: "string|null"
+            required: false
+          urgencies:
+            type: "array|null"
+            required: false
       get_incident:
-        description: "Get a specific incident. Args: incident_id: The ID or number of the incident to retrieve. Returns: Incident details"
+        description: "Get a specific incident. Args: incident_id: The ID or number of the incident to retrieve. query_model: Optional query parameters for additional information to include Returns: Incident details"
         arguments:
           incident_id:
             type: "string"
             required: true
+          query_model:
+            type: "?|null"
+            required: false
       get_outlier_incident:
         description: "Get Outlier Incident information for a given Incident on its Service. Outlier Incident returns incident that deviates from the expected patterns for the same Service. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get outlier incident information for query_model: Query parameters including date range and additional details Returns: Outlier incident information calculated over the same Service as the given Incident"
         arguments:
@@ -91,7 +163,7 @@ servers:
             type: ""
             required: true
       get_past_incidents:
-        description: "Get Past Incidents related to a specific incident ID. Past Incidents returns Incidents within the past 6 months that have similar metadata and were generated on the same Service as the parent Incident. By default, 5 Past Incidents are returned. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get past incidents for query_model: Query parameters including limit and total flag Returns: List of past incidents with similarity scores"
+        description: "Get Past Incidents related to a specific incident ID. Past Incidents returns Incidents within the past 6 months that have similar metadata and were generated on the same Service as the parent Incident. By default, 50 Past Incidents are returned. This feature is currently available as part of the Event Intelligence package or Digital Operations plan only. Args: incident_id: The ID of the incident to get past incidents for query_model: Query parameters including limit and total flag Returns: List of past incidents with similarity scores"
         arguments:
           incident_id:
             type: "string"
@@ -115,10 +187,16 @@ servers:
             type: "string"
             required: true
       list_incident_workflows:
-        description: "List incident workflows with optional filtering. Args: query_model: Optional filtering parameters. If None, returns the first page with default limit of 100. Returns: List of IncidentWorkflow objects matching the query parameters"
+        description: "List incident workflows with optional filtering. Args: limit: Maximum number of results to return. Maximum is 100. Default 100. query: Filters the result, showing only the records whose name matches the query. include: Array of additional details to include. Options: 'steps', 'team'. Returns: List of IncidentWorkflow objects matching the query parameters"
         arguments:
-          query_model:
-            type: "?|null"
+          include:
+            type: "array|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          query:
+            type: "string|null"
             required: false
       get_incident_workflow:
         description: "Get a specific incident workflow. Args: workflow_id: The ID of the incident workflow to retrieve Returns: IncidentWorkflow details"
@@ -127,23 +205,41 @@ servers:
             type: "string"
             required: true
       list_services:
-        description: "List all services. Args: query_model: Optional filtering parameters Returns: List of services matching the query parameters"
+        description: "List all services. Args: query: Filter by name teams_ids: Filter by team IDs limit: Max results to return Returns: List of services matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          limit:
+            type: "integer|null"
+            required: false
+          query:
+            type: "string|null"
+            required: false
+          teams_ids:
+            type: "array|null"
+            required: false
       get_service:
         description: "Get details for a specific service. Args: service_id: The ID of the service to retrieve Returns: The service details"
         arguments:
           service_id:
             type: "string"
             required: true
-      list_teams:
-        description: "List teams based on the provided query model. Args: query_model: The model containing the query parameters Returns: List of teams."
+      get_technical_service_dependencies:
+        description: "Get dependencies for a technical service. Args: service_id: The ID of the technical service Returns: JSON string with relationships list"
         arguments:
-          query_model:
-            type: ""
+          service_id:
+            type: "string"
             required: true
+      list_teams:
+        description: "List teams with optional filtering. Args: scope: 'all' for all teams, 'my' for teams the current user belongs to query: Filter by team name limit: Max results to return Returns: List of teams."
+        arguments:
+          limit:
+            type: "integer|null"
+            required: false
+          query:
+            type: "string|null"
+            required: false
+          scope:
+            type: "string|null"
+            required: false
       get_team:
         description: "Get a specific team. Args: team_id: The ID or name of the team to retrieve Returns: Team details"
         arguments:
@@ -160,20 +256,32 @@ servers:
         description: "Get the current user's data. Returns: User: User name, role, id, and summary and teams"
         arguments: {}
       list_users:
-        description: "List users, optionally filtering by name (query) and team IDs. Args: query_model: Optional filtering parameters Returns: List of users matching the criteria."
+        description: "List users, optionally filtering by name (query) and team IDs. Args: query: Filters the result, showing only the records whose name matches the query. teams_ids: Filter users by team IDs. limit: Pagination limit. Default 100. Returns: List of users matching the criteria."
         arguments:
-          query_model:
-            type: ""
-            required: true
+          limit:
+            type: "integer|null"
+            required: false
+          query:
+            type: "string|null"
+            required: false
+          teams_ids:
+            type: "array|null"
+            required: false
       list_schedules:
-        description: "List schedules with optional filtering. Returns: List of schedules matching the query parameters"
+        description: "List ALL PagerDuty schedules across BOTH scheduling systems in a single call. This returns classic layer-based (v2) schedules AND next-gen shift-based (v3) schedules together. It is the complete, authoritative schedule list \u2014 there is no other list tool. Each item's `kind` field (\"layer_based\" or \"shift_based\") says which system it belongs to. If either source fails, `response_summary`/`sources` explicitly mark the list INCOMPLETE; otherwise treat it as exhaustive. Never tell the user a schedule type is unsupported or missing. Args: query_model: Filters (name query, team_ids, user_ids, limit). Shift-based (v3) schedules are filtered by name `query` and `limit` only. enrich: When True (default), fill in names for shift-based (v3) schedules (bounded to the returned page, max 50). Set False to skip the extra lookups; v3 names may then be null. Returns: The merged schedule summaries with per-source status and a `degraded` flag."
         arguments:
+          enrich:
+            type: "boolean"
+            required: false
           query_model:
             type: ""
             required: true
       get_schedule:
-        description: "Get a specific schedule by ID. Args: schedule_id: The ID of the schedule to retrieve Returns: Schedule details"
+        description: "Get a single schedule by ID \u2014 works for layer-based (v2) and shift-based (v3) schedules alike. You normally do not need to know the kind in advance; this resolves it automatically. Args: schedule_id: The ID of the schedule to retrieve. kind: Optional hint (\"layer_based\" or \"shift_based\", taken from a prior list result) to skip an extra lookup. A wrong or omitted hint still resolves correctly. Returns: The schedule details (a layer-based Schedule or a shift-based ScheduleV3)."
         arguments:
+          kind:
+            type: "string|null"
+            required: false
           schedule_id:
             type: "string"
             required: true
@@ -183,18 +291,120 @@ servers:
           schedule_id:
             type: "string"
             required: true
-      list_oncalls:
-        description: "List on-call schedules with optional filtering. Returns: List of on-call schedules matching the query parameters"
+      list_schedule_v3_rotations:
+        description: "List all rotations for a v3 schedule. Args: schedule_id: The ID of the v3 schedule Returns: List of rotations for the schedule"
         arguments:
-          query_model:
-            type: ""
+          schedule_id:
+            type: "string"
             required: true
+      get_schedule_v3_rotation:
+        description: "Get a specific rotation within a v3 schedule. Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation Returns: The rotation including its events"
+        arguments:
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      list_schedule_v3_rotation_events:
+        description: "List all events for a rotation in a v3 schedule. Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation Returns: List of events defining the on-call coverage windows and member assignments"
+        arguments:
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      get_schedule_v3_rotation_event:
+        description: "Get a specific event within a v3 schedule rotation. Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation event_id: The ID of the event Returns: The rotation event"
+        arguments:
+          event_id:
+            type: "string"
+            required: true
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      list_schedule_v3_custom_shifts:
+        description: "List custom shifts for a v3 schedule within a time range. Custom shifts are ad-hoc one-off shifts outside of rotation events. Args: schedule_id: The ID of the v3 schedule since: Start of the time range (ISO 8601, required) until: End of the time range (ISO 8601, required) Returns: List of custom shifts in the specified time range"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+          since:
+            type: "string"
+            required: true
+          until:
+            type: "string"
+            required: true
+      get_schedule_v3_custom_shift:
+        description: "Get a specific custom shift within a v3 schedule. Args: schedule_id: The ID of the v3 schedule custom_shift_id: The ID of the custom shift Returns: The custom shift"
+        arguments:
+          custom_shift_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      list_schedule_v3_overrides:
+        description: "List overrides for a v3 schedule within a time range. Args: schedule_id: The ID of the v3 schedule since: Start of the time range (ISO 8601, required) until: End of the time range (ISO 8601, required) Returns: List of overrides in the specified time range"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+          since:
+            type: "string"
+            required: true
+          until:
+            type: "string"
+            required: true
+      get_schedule_v3_override:
+        description: "Get a specific override within a v3 schedule. Args: schedule_id: The ID of the v3 schedule override_id: The ID of the override Returns: The override"
+        arguments:
+          override_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      list_oncalls:
+        description: "List on-call schedules with optional filtering. Args: time_zone: Time zone for date rendering (e.g. America/New_York) user_ids: Filter by user IDs escalation_policy_ids: Filter by escalation policy IDs schedule_ids: Filter by schedule IDs service_ids: Filter by service IDs. Resolves each service to its escalation policy to find on-call responders. since: Start of time range until: End of time range earliest: Return only earliest oncall per user/policy combination. Defaults to True. limit: Max results to return Returns: List of on-call schedules matching the query parameters"
+        arguments:
+          earliest:
+            type: "boolean|null"
+            required: false
+          escalation_policy_ids:
+            type: "array|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          schedule_ids:
+            type: "array|null"
+            required: false
+          service_ids:
+            type: "array|null"
+            required: false
+          since:
+            type: "string|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          until:
+            type: "string|null"
+            required: false
+          user_ids:
+            type: "array|null"
+            required: false
       list_log_entries:
         description: "List all log entries across the account. Log entries are records of all events on your account. This function allows you to filter log entries by time range and paginate through results. If no time range is specified, defaults to the last 7 days. Args: query_model: Query parameters including since, until, limit, and offset Returns: List of LogEntry objects matching the query parameters"
         arguments:
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
       get_log_entry:
         description: "Get a specific log entry by ID. Args: log_entry_id: The ID of the log entry Returns: LogEntry details"
         arguments:
@@ -202,11 +412,23 @@ servers:
             type: "string"
             required: true
       list_escalation_policies:
-        description: "List escalation policies with optional filtering. Returns: List of escalation policies matching the query parameters"
+        description: "List escalation policies with optional filtering. Args: query: Filter by name user_ids: Filter by user IDs team_ids: Filter by team IDs include: Additional details to include (e.g. services, teams) limit: Max results to return Returns: List of escalation policies matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          include:
+            type: "array|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+          query:
+            type: "string|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          user_ids:
+            type: "array|null"
+            required: false
       get_escalation_policy:
         description: "Get a specific escalation policy. Args: policy_id: The ID of the escalation policy to retrieve Returns: Escalation policy details"
         arguments:
@@ -214,11 +436,17 @@ servers:
             type: "string"
             required: true
       list_event_orchestrations:
-        description: "List event orchestrations with optional filtering. Args: query_model: Optional filtering parameters Returns: List of event orchestrations matching the query parameters"
+        description: "List event orchestrations with optional filtering. Args: limit: The number of results per page. Default 100. offset: Offset to start pagination search results. sort_by: Field and direction to sort by. Default 'name:asc'. Options: 'name:asc', 'name:desc', 'routes:asc', 'routes:desc', 'created_at:asc', 'created_at:desc'. Returns: List of event orchestrations matching the query parameters"
         arguments:
-          query_model:
-            type: ""
-            required: true
+          limit:
+            type: "integer|null"
+            required: false
+          offset:
+            type: "integer|null"
+            required: false
+          sort_by:
+            type: "string|null"
+            required: false
       get_event_orchestration:
         description: "Get details for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to retrieve Returns: The event orchestration details"
         arguments:
@@ -247,14 +475,14 @@ servers:
         description: "List Status Pages with optional filtering. Args: query_model: Optional filtering parameters Returns: List of StatusPage objects matching the query parameters"
         arguments:
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
       list_status_page_severities:
         description: "List Severities for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageSeverity objects for the given Status Page"
         arguments:
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
           status_page_id:
             type: "string"
             required: true
@@ -262,8 +490,8 @@ servers:
         description: "List Impacts for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageImpact objects for the given Status Page"
         arguments:
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
           status_page_id:
             type: "string"
             required: true
@@ -271,8 +499,8 @@ servers:
         description: "List Statuses for a Status Page by Status Page ID. Args: status_page_id: The ID of the Status Page query_model: Optional filtering parameters Returns: List of StatusPageStatus objects for the given Status Page"
         arguments:
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
           status_page_id:
             type: "string"
             required: true
@@ -295,9 +523,183 @@ servers:
             type: "string"
             required: true
           query_model:
-            type: ""
-            required: true
+            type: "?|null"
+            required: false
           status_page_id:
+            type: "string"
+            required: true
+      get_responder_metrics:
+        description: "Get responder metrics aggregated by team from PagerDuty Analytics. Returns per-user oncall seconds, interruption counts (business hours, off hours, sleep hours), engaged time, and incident counts for a given date range. Powered by PagerDuty's analytics engine \u2014 oncall hours are computed authoritatively, accounting for schedule overlaps. Args: date_range_start: ISO8601 DateTime. Incidents with created_at before this value are omitted. date_range_end: ISO8601 DateTime. Incidents with created_at >= this value are omitted. team_ids: Only incidents related to these teams will be included. responder_ids: Only incidents related to these responders will be included. urgency: Filter by urgency: 'high' or 'low'. time_zone: The time zone to use for results and grouping (e.g. 'America/New_York'). order: Sort order: 'asc' or 'desc'. order_by: Field to sort results by. Returns: JSON string of ListResponseModel containing AnalyticsResponderMetrics objects."
+        arguments:
+          date_range_end:
+            type: "string"
+            required: true
+          date_range_start:
+            type: "string"
+            required: true
+          order:
+            type: "string|null"
+            required: false
+          order_by:
+            type: "string|null"
+            required: false
+          responder_ids:
+            type: "array|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          urgency:
+            type: "string|null"
+            required: false
+      get_incident_metrics_by_service:
+        description: "Get aggregated incident metrics per service from PagerDuty Analytics. Returns service-level MTTA, mean MTTR, escalation counts, incident volume, and uptime percentage. Use this instead of list_incidents when you need service health metrics \u2014 data is pre-aggregated by PagerDuty's analytics engine. Args: created_at_start: ISO8601 DateTime. Incidents created before this are omitted. created_at_end: ISO8601 DateTime. Incidents created on/after this are omitted. team_ids: Only incidents related to these teams will be included. service_ids: Only incidents related to these services will be included. urgency: Filter by urgency: 'high' or 'low'. time_zone: The time zone for results (e.g. 'America/New_York'). order: Sort order: 'asc' or 'desc'. order_by: Field to sort results by. Returns: JSON string of ListResponseModel containing AnalyticsServiceMetrics objects."
+        arguments:
+          created_at_end:
+            type: "string"
+            required: true
+          created_at_start:
+            type: "string"
+            required: true
+          order:
+            type: "string|null"
+            required: false
+          order_by:
+            type: "string|null"
+            required: false
+          service_ids:
+            type: "array|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          urgency:
+            type: "string|null"
+            required: false
+      get_incident_metrics_by_team:
+        description: "Get aggregated incident metrics per team from PagerDuty Analytics. Returns team-level MTTA, mean MTTR, escalation counts, incident volume, and uptime percentage. Use for team performance comparisons and dashboards. Args: created_at_start: ISO8601 DateTime. Incidents created before this are omitted. created_at_end: ISO8601 DateTime. Incidents created on/after this are omitted. team_ids: Only incidents related to these teams will be included. service_ids: Only incidents related to these services will be included. urgency: Filter by urgency: 'high' or 'low'. time_zone: The time zone for results (e.g. 'America/New_York'). order: Sort order: 'asc' or 'desc'. order_by: Field to sort results by. aggregate_unit: Time unit to aggregate metrics by: 'day', 'week', or 'month'. If omitted, returns a single all-period row. Returns: JSON string of ListResponseModel containing AnalyticsTeamMetrics objects."
+        arguments:
+          aggregate_unit:
+            type: "string|null"
+            required: false
+          created_at_end:
+            type: "string"
+            required: true
+          created_at_start:
+            type: "string"
+            required: true
+          order:
+            type: "string|null"
+            required: false
+          order_by:
+            type: "string|null"
+            required: false
+          service_ids:
+            type: "array|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          urgency:
+            type: "string|null"
+            required: false
+      get_responder_load_metrics:
+        description: "Get aggregated load metrics per responder from PagerDuty Analytics. Returns per-responder on-call hours, incident count, acknowledgment count, sleep-hour interruptions, and engaged time. Use for responder workload analysis. Args: date_range_start: ISO8601 DateTime. Incidents with created_at before this value are omitted. date_range_end: ISO8601 DateTime. Incidents with created_at >= this value are omitted. team_ids: Only incidents related to these teams will be included. urgency: Filter by urgency: 'high' or 'low'. time_zone: The time zone for results (e.g. 'America/New_York'). order: Sort order: 'asc' or 'desc'. order_by: Field to sort results by. Returns: JSON string of ListResponseModel containing AnalyticsResponderLoad objects."
+        arguments:
+          date_range_end:
+            type: "string"
+            required: true
+          date_range_start:
+            type: "string"
+            required: true
+          order:
+            type: "string|null"
+            required: false
+          order_by:
+            type: "string|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          urgency:
+            type: "string|null"
+            required: false
+      get_incident_metrics_all:
+        description: "Get full-period aggregated incident metrics from PagerDuty Analytics. Returns rollup metrics for the entire requested period including percentile distributions (P50, P75, P90, P95) for ack and resolve times. These percentile fields are ONLY available from this endpoint \u2014 not from the per-team or per-service grouped endpoints. Args: created_at_start: ISO8601 DateTime. Incidents created before this are omitted. created_at_end: ISO8601 DateTime. Incidents created on/after this are omitted. team_ids: Only incidents related to these teams will be included. service_ids: Only incidents related to these services will be included. urgency: Filter by urgency: 'high' or 'low'. time_zone: The time zone for results (e.g. 'America/New_York'). order: Sort order: 'asc' or 'desc'. order_by: Field to sort results by. Returns: JSON string of AnalyticsAggregatedMetrics object."
+        arguments:
+          created_at_end:
+            type: "string"
+            required: true
+          created_at_start:
+            type: "string"
+            required: true
+          order:
+            type: "string|null"
+            required: false
+          order_by:
+            type: "string|null"
+            required: false
+          service_ids:
+            type: "array|null"
+            required: false
+          team_ids:
+            type: "array|null"
+            required: false
+          time_zone:
+            type: "string|null"
+            required: false
+          urgency:
+            type: "string|null"
+            required: false
+      list_business_services:
+        description: "List all business services. Returns: JSON string of business services"
+        arguments: {}
+      get_business_service_dependencies:
+        description: "Get dependencies for a business service. Args: business_service_id: The ID of the business service Returns: JSON string with relationships list"
+        arguments:
+          business_service_id:
+            type: "string"
+            required: true
+      list_priorities:
+        description: "List all priorities configured in the account. Returns: JSON string of ListResponseModel containing PriorityReference objects"
+        arguments: {}
+      list_webhook_subscriptions:
+        description: "List webhook subscriptions. Args: filter_type: Filter by scope type: 'account_reference', 'service_reference', or 'team_reference' limit: Max results to return Returns: List of webhook subscriptions"
+        arguments:
+          filter_type:
+            type: "string|null"
+            required: false
+          limit:
+            type: "integer|null"
+            required: false
+      get_webhook_subscription:
+        description: "Get a specific webhook subscription by ID. Args: subscription_id: The ID of the webhook subscription to retrieve Returns: Webhook subscription details"
+        arguments:
+          subscription_id:
+            type: "string"
+            required: true
+      list_extension_schemas:
+        description: "List available extension schemas (extension vendors). Extension schemas describe the available extension integrations that can be attached to PagerDuty services. Args: limit: Max results to return Returns: List of extension schemas"
+        arguments:
+          limit:
+            type: "integer|null"
+            required: false
+      get_extension_schema:
+        description: "Get a specific extension schema by ID. Args: schema_id: The ID of the extension schema to retrieve Returns: Extension schema details"
+        arguments:
+          schema_id:
             type: "string"
             required: true
       create_alert_grouping_setting:
@@ -316,7 +718,7 @@ servers:
             type: ""
             required: true
       delete_alert_grouping_setting:
-        description: "Delete an alert grouping setting. Args: setting_id: The ID of the alert grouping setting to delete Returns: None (successful deletion returns no content)"
+        description: "Delete an alert grouping setting. Args: setting_id: The ID of the alert grouping setting to delete Returns: Confirmation message"
         arguments:
           setting_id:
             type: "string"
@@ -324,17 +726,17 @@ servers:
       create_incident:
         description: "Create an incident. Returns: The created incident"
         arguments:
-          create_model:
+          incident:
             type: ""
             required: true
       manage_incidents:
-        description: "Manage one or more incidents by changing its status, urgency, assignment, or escalation level. Use this tool when you want to bulk update incidents. Args: manage_request: The request model containing the incident IDs and the fields to update (status, urgency, assignment, escalation level) Returns: The updated incident"
+        description: "Manage one or more incidents by changing its status, urgency, assignment, or escalation level. Use this tool when you want to bulk update incidents. This tool accepts flat fields on the manage_request model: 'incident_ids' (list of IDs), plus optional 'status', 'urgency', 'assignment' (UserReference with 'id'), and 'escalation_level' (int). It does NOT use the nested PagerDuty API format directly. Args: manage_request: The request model containing the incident IDs and the fields to update (status, urgency, assignment, escalation level) Returns: The updated incidents"
         arguments:
           manage_request:
             type: ""
             required: true
       add_responders:
-        description: "Add responders to an incident. Args: incident_id: The ID of the incident to add responders to request: The responder request data containing user IDs and optional message ctx: The context containing the request information Returns: Details of the responder request"
+        description: "Add responders to an incident. Args: incident_id: The ID of the incident to add responders to request: The responder request data containing user IDs and optional message Returns: Details of the responder request"
         arguments:
           incident_id:
             type: "string"
@@ -361,7 +763,7 @@ servers:
             type: "string"
             required: true
       create_service:
-        description: "Create a new service. Args: service_data: The data for the new service. Do not include the ID in the data since it is auto-generated. Always include the summary field for all references if available. Returns: The created service"
+        description: "Create a new service. The escalation_policy reference only requires the 'id' field. The 'summary' field is server-generated and ignored for object references. Example escalation_policy: {\"id\": \"PXXXXXX\"} Args: service_data: The data for the new service. Do not include the ID in the data since it is auto-generated. Returns: The created service"
         arguments:
           service_data:
             type: ""
@@ -391,7 +793,7 @@ servers:
             type: ""
             required: true
       delete_team:
-        description: "Delete a team. Args: team_id: The ID of the team to delete"
+        description: "Delete a team. Args: team_id: The ID of the team to delete Returns: Confirmation message"
         arguments:
           team_id:
             type: "string"
@@ -406,7 +808,7 @@ servers:
             type: "string"
             required: true
       remove_team_member:
-        description: "Remove a user from a team. Args: team_id: The ID of the team to remove the user from user_id: The ID of the user to remove"
+        description: "Remove a user from a team. Args: team_id: The ID of the team to remove the user from user_id: The ID of the user to remove Returns: Confirmation message"
         arguments:
           team_id:
             type: "string"
@@ -415,13 +817,22 @@ servers:
             type: "string"
             required: true
       create_schedule:
-        description: "Create a new on-call schedule. Args: create_model: The schedule creation data Returns: The created schedule"
+        description: "Create a new schedule. All new schedules use PagerDuty's next-gen shift-based (v3) system. Args: schedule_data: Name, time_zone, and rotations for the new shift-based schedule. Returns: The created schedule."
         arguments:
-          create_model:
+          schedule_data:
             type: ""
             required: true
+      update_schedule:
+        description: "Update an existing shift-based (v3) schedule. Classic layer-based (v2) schedules cannot be edited through this tool; attempting to update one surfaces the PagerDuty API's guidance message rather than failing silently. Args: schedule_id: The ID of the shift-based (v3) schedule to update. schedule_data: Fields to change (only provided fields are updated). Returns: The updated schedule."
+        arguments:
+          schedule_data:
+            type: ""
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
       create_schedule_override:
-        description: "Create an override for a schedule. Args: schedule_id: The ID of the schedule to override override_request: Data for the schedule override Returns: The created schedule override"
+        description: "Create an override for a schedule. The override_request contains an 'overrides' array. Each override requires 'start' (ISO datetime), 'end' (ISO datetime), and 'user_id' (the user's PagerDuty ID). Args: schedule_id: The ID of the schedule to override override_request: Data for the schedule override Returns: The created schedule override"
         arguments:
           override_request:
             type: ""
@@ -429,14 +840,140 @@ servers:
           schedule_id:
             type: "string"
             required: true
-      update_schedule:
-        description: "Update an existing schedule. Args: schedule_id: The ID of the schedule to update update_model: The updated schedule data Returns: The updated schedule"
+      delete_schedule_v3:
+        description: "Delete a v3 schedule. Args: schedule_id: The ID of the v3 schedule to delete Returns: Confirmation message"
         arguments:
           schedule_id:
             type: "string"
             required: true
-          update_model:
+      create_schedule_v3_rotation:
+        description: "Create a new rotation within a v3 schedule. Rotations are containers for events. After creating a rotation, add events to it using create_schedule_v3_rotation_event to define on-call coverage windows and members. Args: schedule_id: The ID of the v3 schedule to add the rotation to Returns: The created rotation"
+        arguments:
+          schedule_id:
+            type: "string"
+            required: true
+      delete_schedule_v3_rotation:
+        description: "Delete a rotation from a v3 schedule. Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation to delete Returns: Confirmation message"
+        arguments:
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      create_schedule_v3_rotation_event:
+        description: "Create a new event within a v3 schedule rotation. An event defines when and how users are on-call: the recurring time window (start_time/end_time), a recurrence rule (RRULE), and an assignment strategy (rotating or every-member). Example for a weekly rotating on-call: name: \"Weekly On-Call\" start_time: {date_time: \"2025-03-03T09:00:00Z\", time_zone: \"America/New_York\"} end_time: {date_time: \"2025-03-10T09:00:00Z\", time_zone: \"America/New_York\"} effective_since: \"2025-03-03T09:00:00Z\" recurrence: [\"RRULE:FREQ=WEEKLY\"] assignment_strategy: type: \"rotating_member_assignment_strategy\" shifts_per_member: 1 members: - {type: \"user_member\", user_id: \"PUSER123\"} - {type: \"user_member\", user_id: \"PUSER456\"} Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation to add this event to event_data: Event configuration including name, time window, recurrence, and assignment strategy Returns: The created rotation event"
+        arguments:
+          event_data:
             type: ""
+            required: true
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      update_schedule_v3_rotation_event:
+        description: "Update an existing rotation event in a v3 schedule. Update rules: - Active events (already started): only effective_until can be changed - Future events: all fields can be changed - Past events: cannot be changed (returns 400) Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation event_id: The ID of the event to update event_data: Fields to update (only provided fields are changed) Returns: The updated rotation event"
+        arguments:
+          event_data:
+            type: ""
+            required: true
+          event_id:
+            type: "string"
+            required: true
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      delete_schedule_v3_rotation_event:
+        description: "Delete an event from a v3 schedule rotation. Args: schedule_id: The ID of the v3 schedule rotation_id: The ID of the rotation event_id: The ID of the event to delete Returns: Confirmation message"
+        arguments:
+          event_id:
+            type: "string"
+            required: true
+          rotation_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      create_schedule_v3_custom_shifts:
+        description: "Create one or more custom shifts for a v3 schedule. Custom shifts are ad-hoc one-off shifts that sit outside of rotation events, useful for covering specific dates without modifying the rotation. Example: custom_shifts: - type: \"custom_shift\" start_time: \"2025-03-15T09:00:00Z\" end_time: \"2025-03-15T17:00:00Z\" assignments: - type: \"shift_assignment\" member: {type: \"user_member\", user_id: \"PUSER123\"} Args: schedule_id: The ID of the v3 schedule custom_shifts: List of custom shifts to create Returns: The created custom shifts"
+        arguments:
+          custom_shifts:
+            type: "array"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      update_schedule_v3_custom_shift:
+        description: "Update an existing custom shift in a v3 schedule. Args: schedule_id: The ID of the v3 schedule custom_shift_id: The ID of the custom shift to update shift_data: Fields to update Returns: The updated custom shift"
+        arguments:
+          custom_shift_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+          shift_data:
+            type: ""
+            required: true
+      delete_schedule_v3_custom_shift:
+        description: "Delete a custom shift from a v3 schedule. Args: schedule_id: The ID of the v3 schedule custom_shift_id: The ID of the custom shift to delete Returns: Confirmation message"
+        arguments:
+          custom_shift_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      create_schedule_v3_overrides:
+        description: "Create one or more overrides for a v3 schedule. An override temporarily replaces a scheduled on-call member with a different member for a specific time period. Each override must reference either a rotation_id or a custom_shift_id (not both). Example: overrides: - type: \"override_shift\" rotation_id: \"ROTATION_ID\" start_time: \"2025-03-15T09:00:00Z\" end_time: \"2025-03-15T17:00:00Z\" overridden_member: {type: \"user_member\", user_id: \"PUSER123\"} overriding_member: {type: \"user_member\", user_id: \"PUSER456\"} Args: schedule_id: The ID of the v3 schedule overrides: List of overrides to create Returns: The created overrides"
+        arguments:
+          overrides:
+            type: "array"
+            required: true
+          schedule_id:
+            type: "string"
+            required: true
+      update_schedule_v3_override:
+        description: "Update an existing override in a v3 schedule. Args: schedule_id: The ID of the v3 schedule override_id: The ID of the override to update start_time: ISO 8601 start datetime of the override end_time: ISO 8601 end datetime of the override overridden_member_type: Type of the member being replaced \u2014 'user_member' or 'empty_member' overriding_member_type: Type of the member taking over \u2014 'user_member' or 'empty_member' overridden_member_user_id: PagerDuty user ID of the member being replaced (required when type is 'user_member') overriding_member_user_id: PagerDuty user ID of the member taking over (required when type is 'user_member') Returns: The updated override"
+        arguments:
+          end_time:
+            type: "string"
+            required: true
+          overridden_member_type:
+            type: "string"
+            required: true
+          overridden_member_user_id:
+            type: "string|null"
+            required: false
+          override_id:
+            type: "string"
+            required: true
+          overriding_member_type:
+            type: "string"
+            required: true
+          overriding_member_user_id:
+            type: "string|null"
+            required: false
+          schedule_id:
+            type: "string"
+            required: true
+          start_time:
+            type: "string"
+            required: true
+      delete_schedule_v3_override:
+        description: "Delete an override from a v3 schedule. Args: schedule_id: The ID of the v3 schedule override_id: The ID of the override to delete Returns: Confirmation message"
+        arguments:
+          override_id:
+            type: "string"
+            required: true
+          schedule_id:
+            type: "string"
             required: true
       update_event_orchestration_router:
         description: "Update the router configuration for a specific event orchestration. Args: orchestration_id: The ID of the event orchestration to update router for router_update: The updated router configuration Returns: The updated event orchestration router configuration"
@@ -475,5 +1012,32 @@ servers:
             type: "string"
             required: true
           status_page_id:
+            type: "string"
+            required: true
+      create_user:
+        description: "Create a new PagerDuty user account. No invitation email is sent. Args: request: User creation parameters (name, email, role, time_zone) Returns: The created User object."
+        arguments:
+          request:
+            type: ""
+            required: true
+      create_webhook_subscription:
+        description: "Create a new webhook subscription. The signing secret is included in the delivery_method of the returned subscription. It is only returned on this initial create response \u2014 store it securely. Args: webhook_data: Configuration for the new webhook subscription, including delivery URL, event types, and scope filter Returns: The created webhook subscription (includes the one-time signing secret in delivery_method.secret)"
+        arguments:
+          webhook_data:
+            type: ""
+            required: true
+      update_webhook_subscription:
+        description: "Update an existing webhook subscription. Args: subscription_id: The ID of the webhook subscription to update webhook_data: Fields to update (only provided fields are changed) Returns: The updated webhook subscription"
+        arguments:
+          subscription_id:
+            type: "string"
+            required: true
+          webhook_data:
+            type: ""
+            required: true
+      delete_webhook_subscription:
+        description: "Delete a webhook subscription. Args: subscription_id: The ID of the webhook subscription to delete"
+        arguments:
+          subscription_id:
             type: "string"
             required: true
