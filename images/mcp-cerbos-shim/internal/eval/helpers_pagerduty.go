@@ -17,26 +17,35 @@ func init() {
 
 // pagerdutyManageAttrOption: manage_incidents' single arg (manage_request) is
 // this MCP tool's own flat IncidentManageRequest body -- {"incident_ids":
-// [...], "status": "acknowledged"|"resolved"|null, "urgency": "high"|"low"|
-// null, "escalation_level": int|null, "assignement": {...}|null} (note:
-// "assignement" is the upstream tool schema's own spelling, not a typo
-// introduced here). This is NOT PagerDuty's raw REST API body -- there is no
-// "incidents" array, no "priority", no "resolution", no "title", no
-// "incident_type", no "conference_bridge" field on this call at all. An
-// earlier version of this helper assumed the general PagerDuty REST API
-// shape (a batch "incidents" array of per-incident objects) instead of this
-// MCP tool's actual flat schema; because the assumed "incidents" array never
-// exists in a real call, that version's loop never executed and
-// hasOutOfScopeChange was always "false" -- letting urgency and
-// escalation_level through unchecked. This version reads the flat fields
-// directly.
+// [...], "status": "acknowledged"|"resolved"|null, "urgency": ..., "escalation_level":
+// ..., "assignement": ...} (note: "assignement" is the upstream tool
+// schema's own spelling -- see pagerduty-mcp 1.1.0's models/incidents.py).
+// This is NOT PagerDuty's raw REST API body -- there is no "incidents"
+// array, no "priority", no "resolution", no "incident_type", no
+// "conference_bridge" field on this call at all.
 //
-// The operator only wants ack/resolve via this tool. hasOutOfScopeChange is
-// true if status is set to anything other than "acknowledged"/"resolved"
-// (i.e. "triggered" -- which reopens a resolved incident), or if urgency,
-// escalation_level, or assignement is present at all (any non-null/non-zero
-// value counts as "set", since none of these have a legitimate ack/resolve
-// use).
+// The operator only wants ack/resolve via this tool -- incident_ids and
+// status are the only two keys manage_request should ever legitimately
+// carry. This is deliberately an ALLOWLIST of that shape (deny the presence
+// of any OTHER key at all) rather than a denylist of specific field names
+// to avoid. Two separate incidents already proved a denylist is the wrong
+// shape for this check: an earlier version of this helper assumed the
+// general PagerDuty REST API shape (a batch "incidents" array of
+// per-incident objects) instead of this MCP tool's actual flat schema, so
+// its per-field checks against that assumed shape never ran at all --
+// hasOutOfScopeChange was always "false", letting urgency/escalation_level
+// through unchecked in production. Separately, pagerduty-mcp 1.1.0's tool
+// description was reworded to call the reassignment field "assignment"
+// while the actual wire field stayed "assignement" -- a caller trusting the
+// description over the real schema needed its own denylist entry added by
+// hand to stay caught. An allowlist of the two fields actually wanted needs
+// no such per-field maintenance: any key that isn't incident_ids/status is
+// out of scope regardless of its name, known or not -- including a future
+// field this helper has never heard of.
+//
+// status's own VALUE still needs a dedicated check: the KEY is allowed, but
+// only "acknowledged"/"resolved"/absent are legitimate values for it
+// ("triggered" reopens a resolved incident).
 func pagerdutyManageAttrOption() []cel.EnvOption {
 	return []cel.EnvOption{
 		cel.Function("pagerdutyManageAttr",
@@ -54,10 +63,11 @@ func pagerdutyManageAttrOption() []cel.EnvOption {
 						outOfScope = true
 					}
 
-					for _, forbidden := range []string{
-						"urgency", "escalation_level", "assignement", "assignment",
-					} {
-						if v, present := caseInsensitiveGet(req, forbidden); present && !isEmptyValue(v) {
+					for k, v := range req {
+						if strings.EqualFold(k, "incident_ids") || strings.EqualFold(k, "status") {
+							continue
+						}
+						if !isEmptyValue(v) {
 							outOfScope = true
 						}
 					}

@@ -4,10 +4,10 @@
 # GENERATED — do not edit by hand.
 # Regenerate: scripts/probe-mcp-tools.py linear --format yaml -o <this-file>
 group: vicegerent
-tool_count: 47
+tool_count: 52
 servers:
   linear:
-    tool_count: 47
+    tool_count: 52
     tools:
       get_attachment:
         description: "Retrieve an attachment's content by ID."
@@ -341,7 +341,7 @@ servers:
             required: true
             description: "Markdown content containing image references (e.g., issue description, comment body)"
       get_issue:
-        description: "Retrieve detailed information about an issue by ID, including attachments and git branch name"
+        description: "Retrieve detailed information about an issue by ID, including attachments, git branch name, and active Triage Intelligence suggestions when the issue is in triage"
         arguments:
           id:
             type: "string"
@@ -360,7 +360,7 @@ servers:
             required: false
             description: "Include associated releases"
       list_issues:
-        description: "List issues in the user's Linear workspace. For my issues, use \"me\" as the assignee. Use \"null\" for no assignee."
+        description: "List issues in the user's Linear workspace, including active Triage Intelligence suggestions for issues in triage. For my issues, use \"me\" as the assignee. Use \"null\" for no assignee."
         arguments:
           limit:
             type: "number"
@@ -483,9 +483,18 @@ servers:
             required: false
             description: "Label names or IDs as a JSON array of strings (e.g. [\"Bug\", \"Urgent\"]). Replaces the full label set; existing labels not included are removed. Omit to leave labels unchanged"
           dueDate:
+            type: "string|null"
+            required: false
+            description: "Due date (ISO format). On update, pass null to remove the due date"
+          slaBreachesAt:
+            type: "string|null"
+            required: false
+            description: "ISO-8601 timestamp when the SLA will breach. On update, pass null to remove the SLA"
+          slaType:
             type: "string"
             required: false
-            description: "Due date (ISO format)"
+            description: "SLA day counting type: \"all\" or \"onlyBusinessDays\". Only use with slaBreachesAt"
+            enum: ["all", "onlyBusinessDays"]
           parentId:
             type: "string|null"
             required: false
@@ -1116,6 +1125,75 @@ servers:
             required: false
             description: "Sort: createdAt | updatedAt"
             enum: ["createdAt", "updatedAt"]
+      save_diff_comment:
+        description: "Create, reply to, or edit a comment on a Linear diff. Provide urlOrId when creating a comment or reply; provide commentId to edit an existing comment."
+        arguments:
+          urlOrId:
+            type: "string"
+            required: false
+            description: "Linear review URL, diff slug, pull request ID, Linear full identifier, or GitHub PR URL"
+          commentId:
+            type: "string"
+            required: false
+            description: "Existing comment ID to edit"
+          parentId:
+            type: "string"
+            required: false
+            description: "Top-level comment ID to reply to"
+          body:
+            type: "string"
+            required: true
+            description: "Comment body as plain text"
+          anchor:
+            type: "object"
+            required: false
+            description: "Optional comment anchor copied from a diff thread or built for a file or diff hunk"
+      resolve_diff_thread:
+        description: "Resolve or reopen a top-level comment thread on a Linear diff"
+        arguments:
+          threadId:
+            type: "string"
+            required: true
+            description: "Top-level diff thread/comment ID"
+          resolved:
+            type: "boolean"
+            required: false
+            description: "True to resolve the thread; false to reopen it"
+      delete_diff_comment:
+        description: "Delete a comment from a Linear diff"
+        arguments:
+          commentId:
+            type: "string"
+            required: true
+            description: "Diff comment ID to delete"
+      submit_diff_review:
+        description: "Approve a Linear diff, request changes, or submit a review comment"
+        arguments:
+          urlOrId:
+            type: "string"
+            required: true
+            description: "Linear review URL, diff slug, pull request ID, Linear full identifier, or GitHub PR URL"
+          decision:
+            type: "string"
+            required: true
+            description: "Review decision: approved, changesRequested, or commented"
+            enum: ["approved", "changesRequested", "commented"]
+          body:
+            type: "string"
+            required: false
+            description: "Optional review body; required when requesting changes or commenting"
+      merge_diff:
+        description: "Merge a Linear diff or add it to the repository's merge queue"
+        arguments:
+          urlOrId:
+            type: "string"
+            required: true
+            description: "Linear review URL, diff slug, pull request ID, Linear full identifier, or GitHub PR URL"
+          mergeMethod:
+            type: "string"
+            required: false
+            description: "Merge method; omit to use the repository default"
+            enum: ["MERGE", "REBASE", "SQUASH"]
       list_milestones:
         description: "List all milestones in a Linear project"
         arguments:

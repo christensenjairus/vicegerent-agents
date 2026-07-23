@@ -1,10 +1,13 @@
 ---
 # pagerduty_incident policy: deny manage_incidents calls that change anything
 # other than status=acknowledged/resolved -- blocks reopening to "triggered",
-# and blocks urgency/escalation_level/assignement changes; allow everything
-# else, including add_note_to_incident. The shim's pagerdutyManageAttr helper
-# (helpers_pagerduty.go) parses manage_incidents' single manage_request arg --
-# this MCP tool's own FLAT body: {incident_ids, status, urgency,
+# and blocks the presence of ANY manage_request key other than incident_ids/
+# status at all (an allowlist of that shape, not a denylist of specific
+# field names like urgency/escalation_level/assignement/assignment -- see
+# helpers_pagerduty.go for why); allow everything else, including
+# add_note_to_incident. The shim's pagerdutyManageAttr helper
+# (helpers_pagerduty.go) parses manage_incidents' single manage_request arg
+# -- this MCP tool's own FLAT body: {incident_ids, status, urgency,
 # escalation_level, assignement} -- to compute hasOutOfScopeChange.
 #
 # NOTE: an earlier version of this policy/helper assumed manage_request had a
@@ -18,18 +21,24 @@
 # escalation_level=2 call reached PagerDuty's real API instead of being
 # denied by Cerbos, and was only stopped by PagerDuty itself rejecting an
 # already-resolved incident -- against a triggered/acknowledged incident it
-# would have gone through). This version checks the real flat fields.
+# would have gone through). The next version fixed that by denylisting the
+# real flat field names (urgency/escalation_level/assignement) directly --
+# which then needed a second by-hand fix when pagerduty-mcp 1.1.0's tool
+# description started calling that same wire field "assignment" instead of
+# "assignement". This version allowlists incident_ids/status instead of
+# denylisting everything else, so a field neither of those two incidents
+# anticipated is caught automatically, without another by-hand fix.
 #
-# No bulk-size cap: incident_ids can list multiple ids in one status/urgency/
-# escalation_level/assignement change; there's no per-incident field
-# variation to gate (unlike a REST-API batch), so a single status/field
-# allowlist check against the whole manage_request covers any batch size.
+# No bulk-size cap: incident_ids can list multiple ids in one status change;
+# there's no per-incident field variation to gate (unlike a REST-API batch),
+# so a single allowlist check against the whole manage_request covers any
+# batch size.
 # create_incident, add_responders, and start_incident_workflow are removed
 # from the tool allowlist entirely (toolhive-servers.json) rather than
 # policy-limited, since there's no useful partial-scope to enforce on them
 # short of an outright block. Read-only tools (get_incident, list_incidents,
-# schedules, on-calls, services, teams, users, escalation policies) are
-# unmapped and pass.
+# schedules (v2 and v3), on-calls, services, teams, users, escalation
+# policies, incident/responder analytics metrics) are unmapped and pass.
 #
 # deny-write-outside-allowed-services: status-only scoping isn't
 # enough if the agent can act on ANY incident it can reach -- neither

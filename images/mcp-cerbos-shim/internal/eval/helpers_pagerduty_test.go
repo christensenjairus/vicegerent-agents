@@ -163,24 +163,63 @@ func TestPagerdutyManageAttr_EscalationLevelFlaggedEvenWithoutStatus(t *testing.
 	}
 }
 
-func TestPagerdutyManageAttr_AssignementFlagged(t *testing.T) {
-	e := compilePagerdutyTestEngine(t)
-	res, err := e.Eval(CallInput{
-		Backend: "vmcp",
-		Tool:    "pagerduty_manage_incidents",
-		Args: map[string]any{
-			"manage_request": map[string]any{
-				"incident_ids": []any{"PT1"},
-				"status":       "acknowledged",
-				"assignement":  map[string]any{"id": "PXPGF42", "type": "user_reference"},
-			},
-		},
-	})
-	if err != nil {
-		t.Fatalf("Eval: %v", err)
+func TestPagerdutyManageAttr_AssignmentSpellingsFlagged(t *testing.T) {
+	// pagerduty-mcp 1.1.0's tool description now says "assignment" (correct
+	// spelling) even though the wire field is still "assignement" (confirmed
+	// against that version's own source, see helpers_pagerduty.go) -- a
+	// caller trusting either spelling must still be caught.
+	for _, key := range []string{"assignement", "assignment"} {
+		t.Run(key, func(t *testing.T) {
+			e := compilePagerdutyTestEngine(t)
+			res, err := e.Eval(CallInput{
+				Backend: "vmcp",
+				Tool:    "pagerduty_manage_incidents",
+				Args: map[string]any{
+					"manage_request": map[string]any{
+						"incident_ids": []any{"PT1"},
+						"status":       "acknowledged",
+						key:            map[string]any{"id": "PXPGF42", "type": "user_reference"},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if res.Attr["hasOutOfScopeChange"] != "true" {
+				t.Errorf("hasOutOfScopeChange = %q, want true when %q is set", res.Attr["hasOutOfScopeChange"], key)
+			}
+		})
 	}
-	if res.Attr["hasOutOfScopeChange"] != "true" {
-		t.Errorf("hasOutOfScopeChange = %q, want true when assignement is set", res.Attr["hasOutOfScopeChange"])
+}
+
+func TestPagerdutyManageAttr_UnknownFieldFlagged(t *testing.T) {
+	// The check is an allowlist of {incident_ids, status}, not a denylist of
+	// urgency/escalation_level/assignement/assignment -- a field this helper
+	// has never heard of (a future pagerduty-mcp addition, or PagerDuty's own
+	// REST-API-shaped "priority"/"resolution", which this MCP tool doesn't
+	// actually carry but a denylist approach would have had to name by hand
+	// to catch) must still be flagged just by not being incident_ids/status.
+	for _, key := range []string{"priority", "resolution", "some_future_field"} {
+		t.Run(key, func(t *testing.T) {
+			e := compilePagerdutyTestEngine(t)
+			res, err := e.Eval(CallInput{
+				Backend: "vmcp",
+				Tool:    "pagerduty_manage_incidents",
+				Args: map[string]any{
+					"manage_request": map[string]any{
+						"incident_ids": []any{"PT1"},
+						"status":       "acknowledged",
+						key:            "something",
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("Eval: %v", err)
+			}
+			if res.Attr["hasOutOfScopeChange"] != "true" {
+				t.Errorf("hasOutOfScopeChange = %q, want true when unrecognized field %q is set", res.Attr["hasOutOfScopeChange"], key)
+			}
+		})
 	}
 }
 

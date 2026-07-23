@@ -20,9 +20,9 @@ func TestDeployedGithubMapping_MappedToolsReachCerbos(t *testing.T) {
 		t.Fatalf("compile: %v", err)
 	}
 
-	// One tool per category the GITHUB_TOOLS allowlist enables now that it's
-	// PR-only (no issue tools, no generic git file/branch-write tools --
-	// those were removed entirely, see
+	// One tool per category toolhive-servers.json's `tools` allowlist enables
+	// now that it's PR-only (no issue tools, no generic git file/branch-write
+	// tools -- those were removed entirely, see
 	// TestDeployedGithubMapping_RemovedToolsAreUnmapped below).
 	cases := []struct {
 		tool string
